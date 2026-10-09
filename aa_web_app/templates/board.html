@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+{% block container_class %} wide{% endblock %}
+{% block title %}{% if author %}{{ cur.label }} · 揭示板 · AA 汉化矫正工作台{% else %}揭示板 · AA 汉化矫正工作台{% endif %}{% endblock %}
+{% block head %}
+<style>
+.board-wrap { display: flex; gap: 16px; align-items: flex-start; }
+/* 左侧贴列表目录栏（复用 reader-nav 深色 240px 样式） */
+.board-nav { width: 240px; flex-shrink: 0; position: sticky; top: 52px; max-height: calc(100vh - 74px);
+             overflow-y: auto; background: #2c2c3a; border-radius: 6px; padding: 12px 10px; }
+.board-nav .toc-label { display: block; color: #888; font-size: 12px; margin: 0 0 8px 4px; }
+.board-nav a { display: block; width: 100%; text-align: left; background: #3f3f55; color: #cdd6ff;
+               border: 1px solid #55557a; border-radius: 4px; padding: 5px 9px; font-size: 12.5px;
+               text-decoration: none; margin: 3px 0; box-sizing: border-box; }
+.board-nav a:hover { background: #4f4f6a; }
+.board-nav a.active { background: #8a5a3a; color: #fff; border-color: #a87a52; font-weight: bold; }
+.board-nav .meta { color: #777; font-size: 10.5px; margin-top: 1px; display: block; }
+.board-main { flex: 1; min-width: 0; }
+.board-head { margin: 0 0 10px; }
+.board-head h2 { margin: 0 0 4px; }
+.board-meta { font-size: 12.5px; color: #888; }
+.board-pager { display: flex; justify-content: space-between; align-items: center; margin: 10px 0; gap: 10px; }
+.board-pager .btn { text-decoration: none; display: inline-block; }
+.board-pager .pg-info { text-align: center; color: #999; font-size: 12.5px; }
+.board-body { background: #fffdf7; border: 1px solid #d8c8a8; border-radius: 6px; padding: 4px 0; }
+/* 每条 res */
+.bres { padding: 8px 14px; border-bottom: 1px solid #eee; }
+.bres:hover { background: #faf7ef; }
+.bres-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.bres-no { color: #999; font-family: Consolas, monospace; font-size: 11px; }
+.bres-name { font-weight: bold; }
+.bres-name.author { color: #2a8a3a; }          /* ◆作者：绿粗 */
+.bres-name.anon { color: #555; font-weight: normal; }
+.bres-date { color: #888; font-size: 11.5px; }
+.bres-date .bid { color: #c22; font-weight: bold; }   /* ID：红粗 */
+.bres-body { margin-top: 4px; white-space: pre; font-family: "ＭＳ Ｐゴシック", "MS PGothic", "Mona", "MS Gothic", "SimSun", monospace;
+             font-size: var(--aa-fs, 14px); line-height: var(--aa-lh, 16px);
+             overflow-x: auto; text-shadow: var(--aa-shadow, none); }
+.bres-body .aal { display: block; }
+/* 首页（作者列表） */
+.board-cols { width: 100%; border-collapse: collapse; background: #fff; }
+.board-cols th { background: #eae6dc; text-align: left; font-size: 12.5px; padding: 6px 10px; }
+.board-cols td { border-bottom: 1px solid #e8e4da; padding: 6px 10px; font-size: 13.5px; }
+.board-cols tr:hover td { background: #faf7ef; }
+.pg-jump input { width: 52px; padding: 3px 5px; border: 1px solid #bbb; border-radius: 3px; }
+/* 揭示板全局搜索面板（可拖动，非全屏遮罩，边搜边看正文） */
+#board-search-btn { margin-left: 10px; }
+.board-search-panel { position: fixed; z-index: 150; width: 460px; max-width: calc(100vw - 24px);
+  background: #fff; border: 1px solid #d8c8a8; border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.28);
+  display: none; flex-direction: column; font-size: 13px; overflow: hidden; }
+.board-search-panel.open { display: flex; }
+.bs-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #3f3f55;
+  color: #fff; cursor: move; user-select: none; flex-shrink: 0; }
+.bs-head .bs-title { flex: 1; font-weight: 600; }
+.bs-head .bs-close { cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px; color: #ddd; }
+.bs-head .bs-close:hover { color: #fff; }
+.bs-input-wrap { padding: 8px 12px; border-bottom: 1px solid #e8e4da; flex-shrink: 0; }
+.bs-input-wrap input { width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 13.5px;
+  border: 1px solid #bbb; border-radius: 5px; }
+.bs-input-wrap input:focus { outline: none; border-color: #8a5a3a; }
+.bs-status { padding: 6px 12px 0; font-size: 12px; color: #888; flex-shrink: 0; }
+.bs-list { max-height: 340px; overflow-y: auto; padding: 4px 0; }
+.bs-item { display: block; padding: 7px 12px; text-decoration: none; color: #333;
+  border-bottom: 1px solid #f0ede6; cursor: pointer; }
+.bs-item:hover { background: #faf7ef; }
+.bs-item .bs-item-head { display: flex; align-items: baseline; gap: 6px; font-size: 12px; color: #666; }
+.bs-item .bs-item-head .lbl { color: #8a5a3a; font-weight: 600; }
+.bs-item .bs-item-head .no { font-family: Consolas, monospace; color: #999; }
+.bs-item .bs-item-prev { margin-top: 2px; font-size: 12.5px; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; color: #444; font-family: "ＭＳ Ｐゴシック", "MS Gothic", monospace; }
+.bs-empty { padding: 18px; text-align: center; color: #999; font-size: 12.5px; }
+</style>
+{% endblock %}
+{% block content %}
+{% if author %}
+<p><a href="/board">← 揭示板</a> · <button class="btn tiny ghost" id="back-top" onclick="window.scrollTo({top:0,behavior:'smooth'})">回顶部</button></p>
+<div class="board-wrap">
+  <nav class="board-nav">
+    <div class="toc-head" style="display:flex;align-items:center;gap:6px;margin:0 0 8px 4px;">
+      <span class="toc-label" style="margin:0;flex:1;">貼：{{ cur.label }}（{{ total_res }} 楼）</span>
+    </div>
+    {% for s in slaves %}
+    <a href="/board/{{ author | urlencode }}?file={{ s.file | urlencode }}{% if page > 1 %}&page=1{% endif %}"
+       class="{{ 'active' if s.file == cur.file }}"
+       title="{{ s.label }} · {{ s.ts }}">{{ loop.index }}. {{ s.label }}
+       <span class="meta">{{ s.res }} 楼 · {{ s.ts }}</span></a>
+    {% endfor %}
+  </nav>
+  <div class="board-main">
+    <div class="board-head">
+      <h2>{{ parsed.title }}</h2>
+      <div class="board-meta">作者：{{ author }} · 帖 eid {{ cur.eid }} · 共 {{ total_res }} 楼（本页 {{ res | length }} 楼）<button class="btn tiny ghost" id="board-search-btn" type="button">🔍 全局搜索</button></div>
+    </div>
+    {% if total_pages > 1 %}
+    <div class="board-pager">
+      {% if page > 1 %}<a class="btn" href="/board/{{ author | urlencode }}?file={{ cur.file | urlencode }}&page={{ page - 1 }}">&larr; 上一页</a>
+      {% else %}<span></span>{% endif %}
+      <span class="pg-info">第 {{ page }} / {{ total_pages }} 页 · <span class="pg-jump">跳到 <input id="pg-input" type="number" min="1" max="{{ total_pages }}" value="{{ page }}"> 页 <button class="btn tiny" id="pg-go">Go</button></span></span>
+      {% if page < total_pages %}<a class="btn" href="/board/{{ author | urlencode }}?file={{ cur.file | urlencode }}&page={{ page + 1 }}">下一页 &rarr;</a>
+      {% else %}<span></span>{% endif %}
+    </div>
+    {% endif %}
+    <div class="board-body">
+      {% for r in res %}
+      <div class="bres" id="r{{ r.no }}">
+        <div class="bres-head">
+          <span class="bres-no">{{ r.no }}</span>
+          <span class="bres-name {{ 'author' if '◆' in r.name else 'anon' }}">{{ r.name or '名無し' }}</span>
+          {% if r.date %}<span class="bres-date">{{ r.date }}{% if r.id %}<span class="bid"> ID:{{ r.id }}</span>{% endif %}</span>{% endif %}
+        </div>
+        <div class="bres-body">
+          {% for row in r.body %}{% if row.strip() %}<span class="aal">{{ row | safe }}</span>{% else %}<span class="aal">&nbsp;</span>{% endif %}{% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% if total_pages > 1 %}
+    <div class="board-pager">
+      {% if page > 1 %}<a class="btn" href="/board/{{ author | urlencode }}?file={{ cur.file | urlencode }}&page={{ page - 1 }}">&larr; 上一页</a>
+      {% else %}<span></span>{% endif %}
+      <span class="pg-info">第 {{ page }} / {{ total_pages }} 页</span>
+      {% if page < total_pages %}<a class="btn" href="/board/{{ author | urlencode }}?file={{ cur.file | urlencode }}&page={{ page + 1 }}">下一页 &rarr;</a>
+      {% else %}<span></span>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% if author %}
+<div class="board-search-panel" id="board-search-panel">
+  <div class="bs-head" id="bs-head">
+    <span class="bs-title">🔍 揭示板全局搜索 · {{ author }}</span>
+    <span class="bs-close" id="bs-close" title="关闭">✕</span>
+  </div>
+  <div class="bs-input-wrap"><input id="bs-input" type="text" placeholder="输入关键词，搜索该作者全部贴…（回车即时搜）" autocomplete="off"></div>
+  <div class="bs-status" id="bs-status"></div>
+  <div class="bs-list" id="bs-list"></div>
+</div>
+<script>
+// 揭示板全局搜索：可拖动面板 + 防抖搜索 + 结果跳转
+(function(){
+  const panel = document.getElementById('board-search-panel');
+  const btn = document.getElementById('board-search-btn');
+  const input = document.getElementById('bs-input');
+  const list = document.getElementById('bs-list');
+  const status = document.getElementById('bs-status');
+  const close = document.getElementById('bs-close');
+  const head = document.getElementById('bs-head');
+  const author = {{ author | tojson }};
+  let currentResults = [];   // 当前搜索结果缓存（供点击存状态/恢复共用）
+  if (!btn || !panel) return;
+
+  // 打开面板（默认放视口右上，可拖动）
+  function openPanel(){
+    panel.classList.add('open');
+    const w = panel.offsetWidth, h = panel.offsetHeight;
+    panel.style.left = Math.max(10, (window.innerWidth - w - 18)) + 'px';
+    panel.style.top = '60px';
+    panel.style.right = 'auto';
+    setTimeout(() => input.focus(), 30);
+  }
+  function closePanel(){ panel.classList.remove('open'); clearState(); }
+  function clearState(){ try { sessionStorage.removeItem('bsq:' + author); } catch(e){} }
+  function saveState(q, results){
+    try { sessionStorage.setItem('bsq:' + author, JSON.stringify({q: q, results: results})); } catch(e){}
+  }
+  btn.addEventListener('click', openPanel);
+  close.addEventListener('click', closePanel);
+
+  // 渲染结果列表（搜索与恢复共用）
+  function renderResults(results, statusText){
+    if (!results || results.length === 0) {
+      status.textContent = statusText || '无匹配（0 条）';
+      list.innerHTML = '<div class="bs-empty">无匹配结果</div>';
+      return;
+    }
+    status.textContent = statusText || ('共 ' + results.length + ' 条');
+    list.innerHTML = results.map(r => {
+      const prev = (r.preview || '').replace(/\s+/g, ' ') || '(该楼无文本)';
+      return '<a class="bs-item" href="/board/' + encodeURIComponent(author) +
+        '?file=' + encodeURIComponent(r.file) +
+        '&page=' + r.page + '#r' + r.no + '" ' +
+        'data-no="' + r.no + '" data-file="' + encodeURIComponent(r.file) + '">' +
+        '<div class="bs-item-head"><span class="lbl">' + escapeHtml(r.label) + '</span>' +
+        '<span class="no">第' + r.no + '楼</span></div>' +
+        '<div class="bs-item-prev">' + escapeHtml(prev) + '</div></a>';
+    }).join('');
+  }
+
+  // 点击结果：先存状态再跳转（跳转后面板自动恢复）
+  list.addEventListener('click', e => {
+    const a = e.target.closest('.bs-item');
+    if (a) saveState(input.value.trim(), currentResults);
+  });
+
+  // 页面加载恢复上次搜索（跳转后保留面板，手动关闭才清）
+  try {
+    const saved = JSON.parse(sessionStorage.getItem('bsq:' + author) || 'null');
+    if (saved && saved.q) {
+      input.value = saved.q;
+      currentResults = saved.results || [];
+      if (currentResults.length) {
+        openPanel();
+        // 用 rAF 延迟到 DOM 稳定后渲染结果列表，避免页面锚点滚动/布局未定的时序问题
+        requestAnimationFrame(() =>
+          renderResults(currentResults, '共 ' + currentResults.length + ' 条')
+        );
+      }
+    }
+  } catch(e){}
+
+  // 搜索（防抖 + 回车即时）
+  let tm = null, lastReq = 0;
+  function doSearch(){
+    const q = input.value.trim();
+    if (!q) { list.innerHTML = '<div class="bs-empty">输入关键词开始搜索</div>'; status.textContent = ''; clearState(); return; }
+    status.textContent = '搜索中…';
+    const req = ++lastReq;
+    fetch('/api/board/search?author=' + encodeURIComponent(author) + '&q=' + encodeURIComponent(q))
+      .then(r => r.json())
+      .then(d => {
+        if (req !== lastReq) return;   // 响应过时丢弃
+        currentResults = d.results || [];
+        renderResults(currentResults, '共 ' + (d.count || 0) + ' 条（显示前 ' + currentResults.length + ' 条）');
+        saveState(q, currentResults);
+      })
+      .catch(err => { status.textContent = '搜索失败: ' + err; });
+  }
+  input.addEventListener('input', () => { clearTimeout(tm); tm = setTimeout(doSearch, 350); });
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { clearTimeout(tm); doSearch(); } });
+})();
+</script>
+{% endif %}
+<script>
+(function(){
+  const go = document.getElementById('pg-go');
+  const inp = document.getElementById('pg-input');
+  if (go && inp) go.addEventListener('click', () => {
+    const p = Math.max(1, Math.min({{ total_pages }}, parseInt(inp.value || '1', 10)));
+    location.href = '/board/{{ author | urlencode }}?file={{ cur.file | urlencode }}&page=' + p;
+  });
+  if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') go.click(); });
+})();
+</script>
+{% if author %}
+<script>window.AA_SEL = { work: '', base: '', enabled: {{ sel_enabled() | tojson }} };</script>
+<script src="/static/selection_translate.js?v=20261008a"></script>
+{% endif %}
+{% else %}
+<h1>揭示板（本地）</h1>
+<p class="muted">数据源：<code>揭示板/</code>（每子目录 = 一个作者/题材连载，贴按スレ目编号排序）。当前支持浏览，人工矫正后续接入。</p>
+{% if cols %}<table class="board-cols">
+  <thead><tr><th>作者 / 题材</th><th>貼数</th><th>范围</th></tr></thead>
+  <tbody>
+  {% for c in cols %}
+    <tr>
+      <td class="strong"><a href="/board/{{ c.name | urlencode }}">{{ c.name }}</a></td>
+      <td class="num">{{ c.slaves | length }}</td>
+      <td class="small">
+        {% if c.slaves %}{{ c.slaves[0].label }}（{{ c.slaves[0].ts }}）~ {{ c.slaves[-1].label }}（{{ c.slaves[-1].ts }}）{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}<p class="warn">尚无揭示板数据。请在 <code>揭示板/</code> 下建子目录，放 <code>*.dat</code>（含 index.json 更佳）。</p>{% endif %}
+{% endif %}
+{% endblock %}

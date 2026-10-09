@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% block title %}翻译任务 · AA 汉化矫正工作台{% endblock %}
+{% block head %}
+<style>
+  .task-card .w-title{ color:#e8e8e8; }
+  .task-card .jp-title{ color:#9fb6d8; font-size:11px; }
+  .task-card .free-badge{ background:#1f3a2d; color:#7ee2a8; border:1px solid #2e6b4a;
+    border-radius:3px; padding:0 5px; font-size:11px; font-weight:600; }
+  .task-card .paid-badge{ background:#3a2a1f; color:#e8b87e; border:1px solid #6b4a2e;
+    border-radius:3px; padding:0 5px; font-size:11px; font-weight:600; }
+  .task-card details{ border:1px solid #333; border-radius:4px; }
+  .task-card details[open]{ border-color:#556; }
+  .task-card summary{ cursor:pointer; padding:2px 6px; user-select:none; }
+  .task-card .bar{ height:6px; background:#333; border-radius:3px; overflow:hidden; margin:4px 0 2px; }
+  .task-card .bar i{ display:block; height:100%; background:#5a8; border-radius:3px; }
+  .task-card .phase{ font-weight:600; }
+  .task-card .log-box{ max-height:none; overflow:visible; background:#1e1e2e; color:#cdd6ff;
+    padding:8px; border-radius:4px; }
+</style>
+{% endblock %}
+{% block content %}
+<h1>翻译任务 <span class="muted small mono">统一任务管理器 · 并行≤{{ max_parallel_dl }}（翻译≤{{ max_parallel }}） · 队列 FIFO</span></h1>
+<p class="muted small">
+  翻译 / 下载任务集中管理。优雅停止：<b>译完本章后停</b>（章节边界，保进度）/ <b>尽快停</b>（块边界，ckpt 可续跑）；<b>强制终止</b>仅作兜底（可能写坏 ckpt，ckpt 有 __lines 指纹防错位）。
+  启动走各作品翻译控制台页。
+</p>
+<div class="actions" style="margin:8px 0 10px">
+  <button class="btn small danger" id="clean-finished"
+    title="删除所有已结束任务的记录（done/failed/stopped/crashed/cancelled/stalled）；运行中/停止中/排队中的任务保留。只删任务记录，已产出的汉化文件不动。">一键清理结束任务</button>
+  <span class="muted small" id="clean-msg"></span>
+</div>
+<div id="task-table" class="mono small">
+  <p class="muted">加载中…</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const $ = (id) => document.getElementById(id);
+const STATUS_C = {queued:'muted', scheduled:'warn', starting:'warn', running:'warn', stopping:'warn', stalled:'bad',
+                  done:'good', stopped:'muted', failed:'bad', crashed:'bad', cancelled:'muted'};
+const TYPE_CN = {translate:'翻译', download:'下载', proofread:'校对', pokemon:'宝可梦专属链', wiki:'wiki 同步'};
+let poll = null;
+const openLogs = new Set();   // 记住已展开日志的 task_id
+
+function esc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmtDur(sec){
+  if (sec == null || isNaN(sec)) return '—';
+  sec = Math.floor(sec);
+  if (sec < 60) return sec + 's';
+  const m = Math.floor(sec/60), s = sec%60;
+  if (m < 60) return m + 'm' + s + 's';
+  const h = Math.floor(m/60); return h + 'h' + (m%60) + 'm';
+}
+function fmtEta(sec){ return sec==null ? '' : (' · 预计剩余 ' + fmtDur(sec)); }
+// token 数量按千/百万缩写（2026-09-13 用户要求）：<1k 原样、<1M 用 k、>=1M 用 M；悬停 title 显示原值
+function fmtTok(n){
+  if (n == null || isNaN(n)) return '—';
+  if (n >= 1e6) return (n/1e6).toFixed(2).replace(/\.?0+$/,'') + 'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1).replace(/\.0$/,'') + 'k';
+  return String(n);
+}
+
+// 卡片状态区 HTML（不含日志区）——分区刷新时只重建这里
+function statusHTML(t){
+  const color = STATUS_C[t.status] || 'muted';
+  const phase = t.phase || '—';
+  const idx = t.chapter_idx || 0, tot = t.chapter_total || 0;
+  const hasCnt = tot > 0;
+  const pct = hasCnt ? Math.round(idx/tot*100) : 0;
+  const u = t.usage || {};
+  let usagestr = '';
+  if (u.total != null) usagestr = ` · <b title="${u.total} tok">${fmtTok(u.total)}</b> tok` + (u.approx ? '≈' : '');
+  const free = t.free_mode;
+  const badge = free ? '<span class="free-badge">免费链</span>' : '<span class="paid-badge">付费链</span>';
+  let btns = '';
+  if (t.status === 'running' || t.status === 'starting' || t.status === 'stopping') {
+    btns += `<button class="btn small" onclick="act('${t.task_id}','stop','chapter')">译完本章后停</button> `;
+    btns += `<button class="btn small" onclick="act('${t.task_id}','stop','asap')">尽快停</button> `;
+    btns += `<button class="btn small danger" onclick="if(confirm('强制终止 ${t.task_id}? 可能写坏 ckpt!'))act('${t.task_id}','kill','')">强制终止</button>`;
+  } else if (t.status === 'queued' || t.status === 'scheduled') {
+    btns += `<button class="btn small" onclick="act('${t.task_id}','cancel','')">取消排队</button>`;
+  } else {
+    // 终态(done/stopped/failed/crashed/cancelled): 删除按钮
+    btns += `<button class="btn small danger" onclick="if(confirm('删除任务 ${t.task_id}? 记录将移除(不影响已产出的汉化文件)'))act('${t.task_id}','remove','')">删除</button>`;
+  }
+  btns += `<button class="btn small" onclick="toggleLog('${t.task_id}')">${openLogs.has(t.task_id)?'关闭日志':'打开日志'}</button>`;
+  let start = t.started ? ('开始 ' + esc(t.started)) : '未开始';
+  const sched = (t.status === 'scheduled' && t.scheduled_at) ? (' · <span class="warn">定时 ' + esc(t.scheduled_at) + ' 启动</span>') : '';
+  let fin = t.finished ? (' · 结束 ' + esc(t.finished)) : '';
+  let rc = (typeof t.rc === 'number') ? (' · rc=' + t.rc) : '';
+  const dur = t.elapsed != null ? (' · 已运行 ' + fmtDur(t.elapsed)) : '';
+  const eta = t.eta != null ? fmtEta(t.eta) : '';
+  const backend = (u.backends && u.backends.length) ? (' · 后端 ' + esc(u.backends.join('/'))) : '';
+  return `<div><b class="w-title">${esc(t.work)}</b>${t.title ? ` <span class="jp-title">${esc(t.title)}</span>` : ''}
+      <span class="muted small"> ${TYPE_CN[t.type]||t.type} · ${t.task_id}</span>
+      ${badge}
+      <span class="${color}" style="float:right;font-weight:600">${esc(t.status)}</span></div>
+    <div class="muted small">
+      <span class="phase warn">${esc(phase)}</span>
+      ${hasCnt ? ` · ${t.type === 'proofread' ? '已校对' : '已翻译'} <b class="w-title">${idx}</b> / ${t.type === 'proofread' ? '待校对' : '待译'} <b class="w-title">${tot-idx}</b> · ${pct}%` : ''}
+      ${usagestr}${backend}
+      · <code>pid=${esc(t.pid)}</code> · ${start}${sched}${fin}${rc}${dur}${eta}
+      ${t.stop_mode ? ' · 停止模式:' + esc(t.stop_mode) : ''}
+    </div>
+    ${hasCnt ? `<div class="bar" style="width:220px"><i style="width:${pct}%"></i></div>` : ''}
+    ${btns ? `<div style="margin-top:6px">${btns}</div>` : ''}
+  `;
+}
+
+// 打开/关闭日志（按钮触发）—— 2026-09-13 用户要求：**翻译任务菜单页保持展示日志**，
+// 去掉日志的是作品下的「翻译任务/校对任务」控制台页（那两页只留状态+进度）。
+async function toggleLog(tid){
+  const card = document.querySelector(`.task-card[data-tid="${tid}"]`);
+  if (!card) return;
+  const box = card.querySelector('.log-box');
+  const isOpen = box.style.display !== 'none';
+  if (isOpen) {
+    box.style.display = 'none';
+    openLogs.delete(tid);
+  } else {
+    openLogs.add(tid);
+    box.style.display = 'block';
+    box.dataset.loaded = '1';   // 标记已加载(20行全显示, 无需滚动)
+    try {
+      // 2026-08-30: 单任务拉日志（原 /api/tasks?log=1 全量拉所有任务日志，轮询 3s 下浪费）
+      const r = await fetch('/api/tasks/' + encodeURIComponent(tid) + '?log=1');
+      const j = await r.json();
+      if (j && j.log) box.textContent = j.log;
+    } catch(e){}
+  }
+  // 按钮文字同步
+  const btn = card.querySelector('button[onclick*="toggleLog"]');
+  if (btn) btn.textContent = openLogs.has(tid) ? '关闭日志' : '打开日志';
+}
+
+// 分区刷新：只更新状态区，日志区 DOM 保留；展开中的日志刷新内容+贴底
+function render(data){
+  const tasks = data.tasks || [];
+  const table = $('task-table');
+  if (!tasks.length){ table.innerHTML = '<p class="muted">暂无任务（去作品页启动翻译/下载）。</p>'; return; }
+  const existing = {};
+  table.querySelectorAll('.task-card').forEach(c => existing[c.dataset.tid] = c);
+  const frag = document.createDocumentFragment();
+  tasks.forEach(t => {
+    let card = existing[t.task_id];
+    if (!card) {
+      card = document.createElement('div');
+      card.className = 'task-card';
+      card.dataset.tid = t.task_id;
+      card.style.cssText = 'border:1px solid #444; border-radius:6px; padding:8px 10px; margin-bottom:8px; background:#111320;';
+      card.innerHTML = `<div class="st"></div><div class="log-box" style="display:none; white-space:pre-wrap;"></div>`;
+      frag.appendChild(card);
+    } else {
+      frag.appendChild(card);
+    }
+    // 分区：只更新状态区
+    card.querySelector('.st').innerHTML = statusHTML(t);
+    // 展开中的日志：直接刷新内容(20行全显示, 无需滚动)
+    const box = card.querySelector('.log-box');
+    if (openLogs.has(t.task_id)) {
+      box.style.display = 'block';
+      if (t.log) box.textContent = t.log;
+    }
+  });
+  table.innerHTML = '';
+  table.appendChild(frag);
+}
+
+async function act(tid, kind, mode){
+  let r;
+  try {
+    if (kind === 'stop') r = await fetch(`/api/tasks/${tid}/stop`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mode})});
+    else if (kind === 'kill') r = await fetch(`/api/tasks/${tid}/kill`, {method:'POST'});
+    else if (kind === 'remove') r = await fetch(`/api/tasks/${tid}/remove`, {method:'POST'});
+    else r = await fetch(`/api/tasks/${tid}/cancel`, {method:'POST'});
+    const j = await r.json();
+    toast((j.msg || 'ok') + (j.ok!==false? ' ✓' : ''));
+  } catch(e){ toast('操作失败: '+e, false); }
+  refresh();
+}
+
+// 活跃状态：这些 status 需要持续刷新；终态(done/stopped/failed/crashed/cancelled)停止轮询
+const ACTIVE = {'running':1,'starting':1,'stopping':1,'queued':1,'scheduled':1};
+// 一键清理结束任务（2026-09-19 用户要求）：只清终态，活跃/排队保留
+const KEEP_ON_CLEAN = {'running':1,'starting':1,'stopping':1,'queued':1,'scheduled':1};
+let lastTasks = [];
+
+async function cleanFinished(){
+  const btn = $('clean-finished'), msg = $('clean-msg');
+  const n = lastTasks.filter(t => !KEEP_ON_CLEAN[t.status]).length;
+  if (!n){ toast('没有可清理的结束任务'); return; }
+  if (!confirm(`清理 ${n} 个已结束任务？\n\n运行中 / 停止中 / 排队中的任务保留。\n只删除任务记录（心跳/日志/usage 记录），已产出的汉化文件不受影响。`)) return;
+  btn.disabled = true;
+  if (msg) msg.textContent = '清理中…';
+  try {
+    const r = await fetch('/api/tasks/prune-finished', {method:'POST'});
+    const j = await r.json();
+    if (j.ok === false) { toast('清理失败: ' + (j.error || ''), false); }
+    else {
+      toast(j.msg || ('已清理 ' + (j.count||0) + ' 个任务') + ' ✓');
+      (j.removed || []).forEach(id => openLogs.delete(id));
+      if (msg) msg.textContent = j.msg || '';
+    }
+  } catch(e){ toast('清理失败: ' + e, false); }
+  btn.disabled = false;
+  refresh();
+}
+$('clean-finished').addEventListener('click', cleanFinished);
+
+async function refresh(){
+  try {
+    // 有展开的日志时带 log=1（让展开中的任务拿到最新日志贴底刷新）
+    const q = openLogs.size ? '?log=1' : '';
+    const r = await fetch('/api/tasks' + q);
+    const data = await r.json();
+    lastTasks = data.tasks || [];
+    render(data);
+    // 无活跃任务 → 停止轮询（避免终态任务仍每 3s 刷新）
+    if (poll && !(data.tasks||[]).some(t => ACTIVE[t.status])) {
+      clearInterval(poll); poll = null;
+    }
+  }
+  catch(e){ $('task-table').innerHTML = '<p class="muted">服务器暂不可达。</p>'; }
+}
+refresh();
+poll = setInterval(refresh, 3000);
+</script>
+{% endblock %}

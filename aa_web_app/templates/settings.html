@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}设置 · AA 汉化矫正工作台{% endblock %}
+{% block content %}
+<h1>设置</h1>
+<p class="muted small">
+  配置来源：<code id="s-envpath">加载中…</code>
+  <span id="s-envmeta"></span>
+  · 优先级 <code>真实环境变量 &gt; .env &gt; model_config.toml &gt; 代码默认</code>
+  · <b>保存即生效</b>（本进程与之后启动的任务；<b>已在跑的任务不受影响</b>）
+</p>
+
+<!-- ============ 密钥 ============ -->
+<section class="s-block" id="blk-keys">
+  <h2>密钥 <span class="muted small">只写不回显（显示尾 4 位）；留空 = 不改，要清空点「清除」</span></h2>
+  <div class="model-box"><div id="keys-list" class="mchk-list">加载中…</div></div>
+  <div class="actions">
+    <button class="btn" id="keys-save">保存密钥</button>
+    <span class="muted small" id="keys-msg"></span>
+  </div>
+</section>
+
+<!-- ============ 模型（翻译 / 校对）============ -->
+<section class="s-block" id="blk-models">
+  <h2>模型 <span class="muted small">按<b>链条目</b>勾选（同端点不同模型可分别选）；不勾 = 用整条链</span></h2>
+  <h3>翻译链 <span class="muted small">正常/R18 章节各自按作品判定；标「不接R18」的端点只服务非 R18 章</span></h3>
+  <div class="model-box"><div id="m-translate" class="mchk-list">加载中…</div></div>
+  <h3>校对链 <span class="muted small">默认跟随翻译链；这里勾选即固定（刷新后按新选）</span></h3>
+  <div class="model-box"><div id="m-proofread" class="mchk-list">加载中…</div></div>
+  <div class="actions">
+    <button class="btn" id="models-save">保存模型选择</button>
+    <button class="btn ghost" id="models-reset">回默认</button>
+    <span class="muted small" id="models-msg"></span>
+  </div>
+</section>
+
+<!-- ============ 划词翻译 ============ -->
+<section class="s-block" id="blk-sel">
+  <h2>划词翻译 <span class="muted small">阅读器/揭示板划词弹窗 + 朗读</span></h2>
+  <div class="actions">
+    <label class="s-check"><input type="checkbox" id="sel-enabled"> 启用划词翻译与朗读</label>
+    <span class="muted small">关掉 = 前端不挂监听（不弹窗）+ 后端接口直接拒绝</span>
+  </div>
+  <h3>划词链 <span class="muted small">顺序 = 降级顺序；这里只影响划词的速度/成本，质量口径不变</span></h3>
+  <div class="model-box"><div id="m-selection" class="mchk-list">加载中…</div></div>
+  <div class="actions">
+    <button class="btn" id="sel-save">保存划词设置</button>
+    <button class="btn ghost" id="sel-reset">回默认</button>
+    <span class="muted small" id="sel-msg"></span>
+  </div>
+</section>
+
+<!-- ============ 本地代理 ============ -->
+<section class="s-block" id="blk-proxy">
+  <h2>本地代理 <span class="muted small">抓原站（日本站）必须走代理；API 侧可选</span></h2>
+  <div class="actions">
+    <label class="s-field">地址
+      <input type="text" id="proxy-url" size="34" placeholder="http://127.0.0.1:10808">
+    </label>
+    <label class="s-field">策略
+      <select id="proxy-mode">
+        <option value="auto">auto（先直连，失败再走代理）</option>
+        <option value="1">1（一律走代理）</option>
+        <option value="0">0（一律直连）</option>
+      </select>
+    </label>
+    <button class="btn" id="proxy-save">保存代理</button>
+    <button class="btn ghost" id="proxy-clear">清除覆盖</button>
+    <button class="btn ghost" id="proxy-test">测试代理</button>
+    <span class="muted small" id="proxy-msg"></span>
+  </div>
+  <div class="muted small" id="proxy-detail"></div>
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/settings.js?v=20261008a"></script>
+{% endblock %}

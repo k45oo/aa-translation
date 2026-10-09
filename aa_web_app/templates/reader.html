@@ -1,0 +1,467 @@
+{% extends "base.html" %}
+{% block container_class %} wide{% endblock %}
+{% block title %}{{ cfg.title }} 阅读 · AA 汉化矫正工作台{% endblock %}
+{% block head %}
+<style>
+.reader-wrap { display: flex; gap: 16px; align-items: flex-start; }
+.reader-nav { width: 240px; flex-shrink: 0; position: sticky; top: 52px; max-height: calc(100vh - 74px);
+              overflow-y: auto; background: #2c2c3a; border-radius: 6px; padding: 12px 10px; }
+.reader-nav .toc-label { display: block; color: #888; font-size: 12px; margin: 0 0 8px 4px; }
+.reader-nav a { display: block; width: 100%; text-align: left; background: #3f3f55; color: #cdd6ff;
+               border: 1px solid #55557a; border-radius: 4px; padding: 5px 9px; font-size: 12.5px;
+               text-decoration: none; margin: 3px 0; box-sizing: border-box; }
+.reader-nav a:hover { background: #4f4f6a; }
+.reader-nav a.active { background: #8a5a3a; color: #fff; border-color: #a87a52; font-weight: bold; }
+.reader-nav .seg { display: inline-flex; border: 1px solid #55557a; border-radius: 6px; overflow: hidden; background: #3f3f55; }
+.reader-nav .seg-btn { flex: 1; min-width: 48px; padding: 3px 8px; font-size: 11.5px; border: none; cursor: pointer; color: #cdd6ff; background: transparent; }
+.reader-nav .seg-btn.active { background: #8a5a3a; color: #fff; font-weight: bold; }
+.reader-nav .seg-btn.active.refine { background: #3a5a9a; color: #fff; font-weight: bold; }
+.reader-nav .seg-btn + .seg-btn { border-left: 1px solid #55557a; }
+.reader-nav .seg-btn:disabled { opacity: .45; cursor: not-allowed; }
+.reader-nav .notr { opacity: .55; border-style: dashed; }
+.reader-nav .notr .badge { color: #b86a00; font-size: 10.5px; margin-left: 4px; }
+.reader-main { flex: 1; min-width: 0; }   /* 2026-09-03: min-width:0 禁横向滚动（原 max-content 让正文最宽行撑开页面横向滚动） */
+.reader-head { margin: 0 0 10px; }
+.reader-head h2 { margin: 0 0 4px; }
+.reader-pager { display: flex; justify-content: space-between; margin: 10px 0; }
+.reader-pager .btn { text-decoration: none; display: inline-block; }
+.reader-ch-ind { text-align: center; color: #999; font-size: 12.5px; padding-top: 8px; }
+.reader-body { display: flex; align-items: flex-start; }
+/* 行号列：与 pre.aa 逐行对齐（同一行高/字号度量） */
+.line-col { flex-shrink: 0; padding-top: 8px; user-select: none; }
+.lc-no { display: block; width: 46px; height: var(--aa-lh, 16px); text-align: right; background: none; border: none;
+         font-family: Consolas, "Microsoft YaHei", monospace; font-size: 11px; line-height: var(--aa-lh, 16px);
+         color: #aaa; padding: 0 8px 0 0; margin: 0; cursor: pointer; position: relative; }
+.lc-no:hover { color: #7a5a3a; font-weight: bold; }
+.lc-no.flash { color: #fff; background: #8a5a3a; border-radius: 3px; font-weight: bold; }
+.reader-body pre.aa { flex: 1; min-width: 0; overflow-x: hidden; }  /* 2026-09-03: min-width:0 + overflow-x:hidden 禁横向滚动 */
+/* 修改弹窗 */
+.modal-box.wide { max-width: 96vw; width: 96%; }
+.em-type { margin: 4px 0 10px; font-size: 13.5px; }
+.em-type label { margin-right: 16px; cursor: pointer; }
+.em-row { margin: 8px 0; }
+.em-label { font-size: 12px; color: #666; margin-bottom: 3px; }
+.em-src { font-size: 14px; line-height: 16px; white-space: pre; overflow-x: auto;
+          background: #f4f2ea; border: 1px solid #d8c8a8; border-radius: 4px; padding: 6px 10px;
+          max-height: 220px; overflow-y: auto; color: #666; }
+#em-tr { width: 100%; font-size: 14px; line-height: 16px; white-space: pre; overflow-x: auto;
+         overflow-y: hidden; resize: vertical; min-height: 34px; border: 1px solid #bbb;
+         border-radius: 4px; padding: 6px 10px; background: #fff8e1; box-sizing: border-box; }
+#em-width { font-family: Consolas, monospace; font-size: 12px; color: #2a8a3a; margin: 4px 0 8px; }
+#em-width.badw { color: #c22; font-weight: bold; }
+/* 修改记录 */
+.edits-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.edits-table th { background: #eae6dc; padding: 5px 8px; text-align: left; }
+.edits-table td { border-bottom: 1px solid #eee; padding: 4px 8px; vertical-align: top; }
+.edits-table .mono { white-space: pre; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
+/* 字体微调控件条 */
+.reader-fontbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+                  margin: 0 0 10px; padding: 6px 10px; background: #fffdf7;
+                  border: 1px solid #d8c8a8; border-radius: 4px; font-size: 12.5px; }
+.font-val { display: inline-block; min-width: 34px; text-align: center; font-family: Consolas, monospace; color: #555; }
+.fw-btn.on { background: #7a5a3a; color: #fff; border-color: #7a5a3a; }
+/* ---- 台词纠正悬浮开关（2026-08-29 第 2 步） ---- */
+.dlg-toggle { position: fixed; top: 54px; right: 16px; z-index: 150; padding: 7px 14px;
+             background: #2c2c3a; color: #eee; border: 1px solid #55557a; border-radius: 5px;
+             cursor: pointer; font-size: 13px; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.dlg-toggle.on { background: #8a5a3a; color: #fff; border-color: #a87a52; font-weight: bold; }
+.dlg-hint { position: fixed; top: 142px; right: 16px; z-index: 150; background: rgba(44,44,58,.9);
+            color: #ffd; font-size: 12px; padding: 4px 10px; border-radius: 4px;
+            display: none; max-width: 260px; }
+body.dlg-on .dlg-hint { display: block; }
+.dlg-mark { display: none; position: absolute; left: calc(100% + 2px); top: 0;
+            width: 14px; text-align: center; border-radius: 3px;
+            font-size: 11px; line-height: var(--aa-lh, 16px); }
+body.dlg-on .dlg-mark { display: block; }
+.dlg-mark.yes { background: #bcd6ff; color: #134; }
+.dlg-mark.no { background: #f0d0d0; color: #832; }
+body.dlg-on span.aa-line.dlg-line { background: rgba(188,214,255,.25); }
+body.dlg-on span.aa-line.dlg-hl { background: rgba(188,214,255,.6); }
+body.dlg-on span.aa-line:not(.dlg-line).dlg-hl { outline: 1px dashed #8a5a3a; }
+body.dlg-on span.aa-line { cursor: pointer; }
+.tr-replace-toggle { position: fixed; top: 96px; right: 16px; z-index: 150; padding: 7px 14px;
+                     background: #1f4a4a; color: #eaf6f6; border: 1px solid #2f6a6a;
+                     border-radius: 5px; cursor: pointer; font-size: 13px;
+                     box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.tr-replace-toggle:hover { background: #2a5f5f; }
+/* ---- 全库搜索（2026-10-07，用户要求）----
+   右上角按钮（在「台词纠正」「翻译替换」下方）→ 弹窗；默认中日文都搜，
+   只搜 text/mixed 行；点结果跳该章该行；关键词/结果存 sessionStorage，翻章后仍在。 */
+.search-toggle { position: fixed; top: 138px; right: 16px; z-index: 150; padding: 7px 14px;
+                 background: #2a3a5a; color: #e6eeff; border: 1px solid #4a5f8a;
+                 border-radius: 5px; cursor: pointer; font-size: 13px;
+                 box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.search-toggle:hover { background: #35496f; }
+.search-toggle .sp-badge { display: none; margin-left: 6px; padding: 0 6px; border-radius: 9px;
+                           background: #b4531f; color: #fff; font-size: 11px; }
+.search-toggle .sp-badge.on { display: inline-block; }
+#search-modal .modal-box { width: min(1040px, 96vw); height: 84vh; max-height: 84vh;
+                           display: flex; flex-direction: column; overflow: hidden; }
+#search-modal h3 { flex: 0 0 auto; margin: 0 0 8px; }
+.sp-row { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 6px; }
+#sp-q { flex: 1 1 280px; min-width: 180px; font-size: 14px; padding: 6px 10px;
+        border: 1px solid #bbb; border-radius: 4px; }
+.sp-seg { display: inline-flex; border: 1px solid #c9b8a8; border-radius: 5px; overflow: hidden; }
+.sp-seg button { border: none; background: #f6f1e6; color: #555; cursor: pointer;
+                 font-size: 12.5px; padding: 6px 10px; }
+.sp-seg button + button { border-left: 1px solid #d8c8a8; }
+.sp-seg button.on { background: #7a5a3a; color: #fff; font-weight: bold; }
+.sp-stat { flex: 0 0 auto; font-size: 12px; color: #666; margin: 0 0 6px; min-height: 16px; }
+.sp-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; border-top: 1px solid #eee4cc; padding-top: 2px; }
+.sp-ch { position: sticky; top: 0; z-index: 1; background: #fff; font-size: 12px; font-weight: bold;
+         color: #7a5a3a; margin: 8px 0 2px; padding: 2px 0; }
+.sp-ch .cnt { color: #999; font-weight: normal; }
+.sp-hit { display: block; width: 100%; text-align: left; border: 1px solid #eee4cc; border-radius: 4px;
+          background: #fffdf6; margin: 3px 0; padding: 4px 7px; cursor: pointer; font-size: 13px; }
+.sp-hit:hover { background: #f6efdd; border-color: #c9b8a8; }
+.sp-hit.cur { border-color: #b4531f; background: #fdf0dc; box-shadow: inset 3px 0 0 #b4531f; }
+.sp-hit .no { color: #999; font-size: 11.5px; margin-right: 6px; font-family: Consolas, monospace; }
+.sp-hit .zh, .sp-hit .jp { display: block; white-space: pre; overflow: hidden;
+                           text-overflow: ellipsis; font-family: Consolas, "MS Gothic", monospace; }
+.sp-hit .jp { color: #8a7a5a; font-size: 12px; }
+.sp-hit mark { background: #ffe9a8; }
+.sp-empty { color: #888; font-size: 13px; padding: 12px 2px; }
+/* ---- 翻译替换（2026-09-09 建；2026-10-01 改左右双栏：加宽 + 定高）----
+   左栏 = 历史记录（带搜索）；右栏上 = 替换对、下 = 预览（含章节勾选，默认全选）。
+   弹窗高度固定，各栏内部各自滚动——谁都不会把对方挤没（2026-09-21「预览一多替换对没了」的根治版）。 */
+#tr-replace-modal .modal-box { width: min(1400px, 96vw); max-width: none;
+                               height: 88vh; max-height: 88vh;
+                               display: flex; flex-direction: column; overflow: hidden; }
+#tr-replace-modal .tr-note { font-size: 11.5px; color: #666; margin: 2px 0 6px; }
+#tr-replace-modal h3, #tr-replace-modal .tr-note, #tr-replace-modal .tr-scope { flex: 0 0 auto; }
+/* 范围选择（2026-09-16）：全部 / 当前话和后续话（与右下章节勾选叠加 → 取交集） */
+.tr-scope { display: flex; align-items: center; gap: 14px; font-size: 12.5px; margin: 2px 0 8px; }
+.tr-scope label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.tr-scope input[type="radio"] { margin: 0; }
+/* 双栏主体（2026-10-01 用户要求：左右各半） */
+.tr-grid { flex: 1 1 auto; min-height: 0; display: grid;
+           grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.tr-col { min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.tr-pane { min-height: 0; display: flex; flex-direction: column;
+           border: 1px solid #e0d6c0; border-radius: 5px; background: #fffdf6; padding: 6px 8px; }
+.tr-pane-head { flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
+                flex-wrap: wrap; margin: 0 0 4px; }
+.tr-pane-head b { font-size: 12.5px; }
+.tr-pane-head .sp { flex: 1 1 auto; }
+.tr-pane-pairs { flex: 1 1 38%; min-height: 92px; }
+.tr-pane-prev { flex: 1 1 62%; min-height: 150px; }
+.tr-pane-hist { flex: 1 1 auto; }        /* 左栏历史：撑满整栏高度，内部 #tr-hist 自己滚 */
+#tr-pairs { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 2px; }
+.tr-pair { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+.tr-pair input[type="text"] { flex: 1 1 0; min-width: 0; font-size: 13px; padding: 4px 8px;
+                              border: 1px solid #c9b8a8; border-radius: 3px; background: #fff; }
+.tr-pair .tr-find { background: #fff6f2; }
+.tr-pair .tr-repl { background: #f4fff2; }
+.tr-pair .tr-arrow { color: #999; flex: 0 0 auto; }
+/* 2026-09-21: 逐对 sfx 样式勾选框（命中的片段替换后打 sfx 标记 → span.sfx 楷体斜体） */
+.tr-pair .tr-sfxbox { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 3px;
+                      font-size: 11.5px; color: #6a5a3a; cursor: pointer; white-space: nowrap; }
+.tr-pair .tr-sfxbox input { margin: 0; }
+.tr-pair .tr-sfxbox:has(input:checked) { color: #b4531f; font-weight: bold; }
+.tr-pair .tr-del { flex: 0 0 auto; }
+.tr-add-row { flex: 0 0 auto; margin: 2px 0 6px; }
+/* 常用正则示例（2026-10-05，用户要求）：点条目即填入一对；示例表在 reader.js 的 TR_EXAMPLES。
+   放在替换对上方、自带限高滚动——不会把 #tr-pairs 挤没（沿用 2026-09-21「谁都不挤没对方」的口径）。 */
+.tr-ex-wrap { flex: 0 0 auto; margin: 0 0 5px; border: 1px dashed #d8c8a8; border-radius: 4px;
+              background: #fbf7ec; padding: 3px 6px; }
+.tr-ex-head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+              font-size: 11.5px; color: #666; }
+.tr-ex-head b { font-size: 12px; color: #555; }
+.tr-ex-head code { background: #fff; border: 1px solid #e4dac2; border-radius: 3px; padding: 0 3px;
+                   font-family: Consolas, monospace; font-size: 11px; }
+.tr-ex-list { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 1px;
+              max-height: 58px; overflow-y: auto; }
+.tr-ex { flex: 0 0 auto; display: inline-flex; align-items: baseline; gap: 4px; cursor: pointer;
+         font-size: 11.5px; padding: 2px 7px; border: 1px solid #c9b8a8; border-radius: 11px;
+         background: #fff; color: #4a4038; max-width: 100%; }
+.tr-ex:hover { background: #f2e6d0; border-color: #a8875a; }
+.tr-ex .tr-ex-name { color: #8a5a2a; font-weight: bold; white-space: nowrap; }
+.tr-ex .tr-ex-pat { font-family: Consolas, monospace; color: #7a4030; overflow: hidden;
+                    text-overflow: ellipsis; white-space: nowrap; max-width: 230px; }
+/* 预览（右下）：章节勾选条 + 受影响行，各自滚动 */
+#tr-chapters { flex: 0 0 auto; max-height: 62px; overflow-y: auto; display: flex; flex-wrap: wrap;
+               gap: 3px 8px; border: 1px dashed #d8c8a8; border-radius: 4px;
+               background: #fff; padding: 3px 5px; }
+.tr-ch { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px;
+         cursor: pointer; white-space: nowrap; max-width: 240px; }
+.tr-ch input { margin: 0; }
+.tr-ch span { overflow: hidden; text-overflow: ellipsis; }
+.tr-ch.on { color: #1f4a4a; font-weight: bold; }
+.tr-ch-sum { font-size: 11.5px; color: #666; }
+.tr-ch-sum.bad { color: #c22; font-weight: bold; }
+.tr-ch-tools { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* 章节条只在预览出结果后才出现：本工程没有通用 .hidden 规则（style.css 全是 .x.hidden 专条），
+   而 #tr-chapters / .tr-ch-tools 自带 display → 必须显式压过，否则空条会一直占位。 */
+#tr-chapters.hidden, .tr-ch-tools.hidden { display: none !important; }
+/* 预览分组：整章取消勾选 → 变淡 + 章名划掉（提醒这一章不会被改） */
+.gfile.off { opacity: .45; }
+.gfile.off b { text-decoration: line-through; }
+#tr-preview { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin-top: 5px;
+              border: 1px dashed #d8c8a8; border-radius: 4px; background: #fdfbf5;
+              padding: 6px 8px; font-size: 12.5px; }
+#tr-preview ul { margin: 4px 0 0; padding-left: 2px; list-style: none; }
+#tr-preview li { white-space: pre-wrap; word-break: break-all; margin: 3px 0; }
+#tr-preview .ovw { color: #c22; font-weight: bold; }
+#tr-replace-modal .actions { flex-shrink: 0; border-top: 1px solid #eee4cc;
+                             margin-top: 8px; padding-top: 8px; }
+/* 历史替换记录（2026-09-13；2026-10-01 移到左栏 + 加搜索）：整栏滚动 + 逐条勾选是否启用 */
+.tr-hist-tools { flex: 0 0 auto; display: flex; align-items: center; gap: 4px;
+                 flex-wrap: wrap; margin: 0 0 4px; }
+#tr-hist-q { flex: 1 1 96px; min-width: 0; font-size: 12px; padding: 3px 6px;
+             border: 1px solid #c9b8a8; border-radius: 3px; background: #fff; }
+#tr-hist { flex: 1 1 auto; min-height: 80px; overflow-y: auto; border: 1px solid #e0d6c0;
+           border-radius: 4px; background: #fffdf6; padding: 3px 6px; }
+/* 窄屏（<900px）：双栏叠成一列（历史在上），仍各自滚动 */
+@media (max-width: 900px) {
+  #tr-replace-modal .modal-box { width: 96vw; height: 92vh; max-height: 92vh; }
+  .tr-grid { grid-template-columns: minmax(0, 1fr);
+             grid-template-rows: minmax(110px, 28%) minmax(0, 1fr); }
+}
+.tr-hist-row { display: flex; align-items: center; gap: 6px; font-size: 12px;
+               padding: 3px 0; border-bottom: 1px dashed #efe6d2; }
+.tr-hist-row:last-child { border-bottom: none; }
+.tr-hist-row input[type="checkbox"] { flex: 0 0 auto; margin: 0; }
+.tr-hist-row .th-pair { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+                        white-space: nowrap; font-family: Consolas, monospace; font-size: 11.5px; }
+.tr-hist-row .th-find { color: #b04a2a; }
+.tr-hist-row .th-repl { color: #2a7a3a; }
+.tr-hist-row .th-meta { flex: 0 0 auto; color: #999; font-size: 11px; white-space: nowrap; }
+.tr-hist-row .th-add { flex: 0 0 auto; white-space: nowrap; font-size: 11px; padding: 1px 6px; }
+.tr-hist-row.on .th-pair { font-weight: bold; }
+</style>
+<script>
+// 阅读器字体偏好：localStorage 持久化，先于首帧渲染生效（防闪烁）
+// 注意：粗细只用位移双印（text-shadow）——font-weight≥600 会切换真粗体，
+// 字形变宽且 ASCII/全角增量不同（实测 14px 下 +11.1% / +7.7%），行间字符列会错位
+try {
+  const f = JSON.parse(localStorage.getItem('aa_reader_font') || '{}');
+  const r = document.documentElement.style;
+  if (f.fs) r.setProperty('--aa-fs', f.fs + 'px');
+  if (f.lh) r.setProperty('--aa-lh', f.lh + 'px');
+  if (f.bold) r.setProperty('--aa-shadow', '0.6px 0 0 currentColor, -0.6px 0 0 currentColor');
+} catch (e) {}
+</script>
+{% endblock %}
+{% block content %}
+<p><a href="/work/{{ work }}">← {{ cfg.title }} 章节列表</a> ·
+<button class="btn tiny ghost" id="edits-btn">修改记录</button>
+<span class="muted small">点击左侧行号在该行展开修改（类型默认「自动」判定：错译 / 漏译 / 错位 / 校对）；未译章仅原文可读</span></p>
+<div class="reader-wrap">
+  <nav class="reader-nav">
+    <div class="toc-head" style="display:flex;align-items:center;gap:6px;margin:0 0 8px 4px;">
+      <span class="toc-label" style="margin:0;flex:1;">目录：{{ cfg.title }}（{{ total }}）</span>
+      <div class="seg" id="src-toggle" role="group" aria-label="译文原文切换" title="汉化/精译切换（快捷键 h）；原文独立按钮">
+        <button type="button" class="seg-btn" id="btn-refine-toggle" data-mode="tr" title="汉化/精译切换（快捷键 h）" {% if not has_tr %}disabled{% endif %}>汉化</button>
+        <button type="button" class="seg-btn {{ 'active' if not use_tr }}" data-mode="src">原文</button>
+      </div>
+    </div>
+    <div id="toc-pager" class="pager-row"></div>
+    {% for c in toc %}
+    <a href="/work/{{ work }}/read?f={{ c.src_file | urlencode }}" class="{{ 'active' if c.active }}{{ ' notr' if not c.has_tr }}"
+       title="{{ c.title or c.src_file }}">{{ loop.index }}. {{ c.label }}{% if c.r18_hit == 'yes' %}<span class="r-badge" title="R18 章（命中 {{ c.r18_hits }} 次）">R</span>{% elif c.r18_hit == 'suspect' %}<span class="r-badge suspect" title="疑似 R18 章（命中 {{ c.r18_hits }} 次）">R?</span>{% endif %}{% if not c.has_tr %}<span class="badge">未译</span>{% endif %}</a>
+    {% endfor %}
+  </nav>
+  <div class="reader-main">
+    <button type="button" class="dlg-toggle" id="dlg-toggle" title="台词纠正模式：台词行高亮；悬浮任意行加深，点击该行切换「是/否台词」（写 gold_dialogue.json）。开启时屏蔽行内编辑。">✦ 台词纠正</button>
+    <div class="dlg-hint" id="dlg-hint">台词纠正模式：台词行淡蓝底；点行号列左侧小图标切换「是/否台词」。<br>关闭可恢复普通阅读/行内编辑。</div>
+    {% if has_tr %}<button type="button" class="tr-replace-toggle" id="tr-replace-toggle" title="翻译替换：手动输入替换对 → 所选范围（全部 / 当前话和后续话）的 汉化.txt（先自动备份；替换后按各章 SRC 原文宽度自动校正；AA 艺术行跳过不动；预览需手动点「刷新预览」）">⇄ 翻译替换</button>{% endif %}
+    <button type="button" class="search-toggle" id="search-toggle" title="全库搜索：默认中日文都搜（可选只中文/只日文），只搜文本与混排行，AA 艺术行不参与；点结果跳到该章该行；关键词与结果翻章后保留">🔍 搜索<span class="sp-badge" id="sp-badge"></span></button>
+    <div class="reader-head">
+      <h2>{{ title or cur }}</h2>
+      {% if src_url %}<p class="muted small">原帖地址：<a href="{{ src_url }}" target="_blank">{{ src_url }}</a></p>{% endif %}
+      {% if not has_tr %}<p class="warn small">本章未汉化，当前显示日文原文。</p>{% endif %}
+    </div>
+    <div class="reader-fontbar" title="显示微调只改渲染观感，不影响文件内容与宽度校验">
+      <span class="muted small">显示：</span>
+      <button type="button" class="btn tiny ghost" id="fs-dec" title="字号减小（最小 10px）">字号 −</button>
+      <span class="font-val" id="fs-val">14px</span>
+      <button type="button" class="btn tiny ghost" id="fs-inc" title="字号增大（最大 24px）">字号 +</button>
+      <span class="muted small" style="margin-left:10px">粗细：</span>
+      <span id="fw-group">
+        <button type="button" class="btn tiny ghost fw-btn" data-bold="0">常规</button>
+        <button type="button" class="btn tiny ghost fw-btn" data-bold="1" title="位移双印加粗：不改变字符宽度，不会错位">粗</button>
+      </span>
+      <button type="button" class="btn tiny ghost" id="font-reset" style="margin-left:10px">重置</button>
+    </div>
+    <div class="reader-pager">
+      {% if cur_idx > 0 %}<a class="btn" href="/work/{{ work }}/read?f={{ toc[cur_idx - 1].src_file | urlencode }}">&larr; 上一章</a>
+      {% else %}<span></span>{% endif %}
+      {% if cur_idx < total - 1 %}<a class="btn" href="/work/{{ work }}/read?f={{ toc[cur_idx + 1].src_file | urlencode }}">下一章 &rarr;</a>
+      {% else %}<span></span>{% endif %}
+    </div>
+    <div class="reader-body">
+      <!-- 窗口化（2026-09-21）：行号列与正文都由 reader.js 按「窗口 ± 缓冲」渲染（spacer 撑高），
+           服务端只下发几何表（win-data：n / 跳行表 / 非零楼距），行 HTML 走 /range 区间接口 -->
+      <div class="line-col" id="line-col"></div>
+      <pre class="aa" id="chapter-pre" data-mode="{{ 'tr' if use_tr else 'src' }}"></pre>
+      <div id="edit-mask" class="edit-mask hidden"></div>
+    </div>
+    <div class="reader-pager">
+      {% if cur_idx > 0 %}<a class="btn" href="/work/{{ work }}/read?f={{ toc[cur_idx - 1].src_file | urlencode }}">&larr; 上一章</a>
+      {% else %}<span></span>{% endif %}
+      {% if cur_idx < total - 1 %}<a class="btn" href="/work/{{ work }}/read?f={{ toc[cur_idx + 1].src_file | urlencode }}">下一章 &rarr;</a>
+      {% else %}<span></span>{% endif %}
+    </div>
+    <div class="reader-ch-ind">{{ cur_idx + 1 }} / {{ total }} 章 · <span id="mode-hint" class="muted small">{{ '汉化' if use_tr else '原文' }}</span></div>
+  </div>
+</div>
+
+<script type="application/json" id="win-data">{{ win_data | tojson }}</script>
+<!-- 翻译替换弹窗的章节勾选条（2026-10-01）：只含已汉化章，顺序 = 阅读器目录顺序 -->
+<script type="application/json" id="tr-chapters-data">{{ tr_chapters | tojson }}</script>
+
+<!-- 修改记录 -->
+<div id="search-modal" class="modal hidden">
+  <div class="modal-box">
+    <h3>全库搜索 <span class="muted small" style="font-weight:normal">只搜文本/混排行（AA 艺术行、帖头、空行不参与）</span></h3>
+    <div class="sp-row">
+      <input id="sp-q" type="text" placeholder="输入关键词（中日文都可搜），回车即搜" autocomplete="off">
+      <span class="sp-seg" id="sp-scope">
+        <button type="button" data-scope="both" class="on">中日都搜</button>
+        <button type="button" data-scope="zh">只中文</button>
+        <button type="button" data-scope="jp">只日文</button>
+      </span>
+      <button type="button" class="btn primary" id="sp-go">搜索</button>
+      <button type="button" class="btn ghost" id="sp-close">关闭</button>
+    </div>
+    <div class="sp-stat" id="sp-stat"></div>
+    <div class="sp-list" id="sp-list"></div>
+  </div>
+</div>
+
+<div id="edits-modal" class="modal hidden">
+  <div class="modal-box wide">
+    <h3>修改记录（最近 100 条，{{ cfg.title }}）</h3>
+    <div id="edits-body">加载中…</div>
+    <div class="actions"><button id="edits-close" class="btn ghost">关闭</button></div>
+  </div>
+</div>
+
+<!-- 翻译替换（2026-09-09；2026-10-01 改左右双栏：左历史（可搜索）/ 右上替换对 / 右下预览（章节勾选）） -->
+<div id="tr-replace-modal" class="modal hidden">
+  <div class="modal-box">
+    <h3>翻译替换 <span class="muted small">（按所选范围，先自动备份）</span></h3>
+    <p class="tr-note">每行一对：左「查找」→ 右「替换为」（替换为空 = 删除该串）。替换后按各章 SRC 原文宽度自动补齐，AA 艺术行跳过。勾「sfx」的对：命中的片段替换后一并打 sfx 标记（拟声词/效果音 → 楷体+斜体+小一点），逐对人工选择。改完替换对或范围请点「刷新预览」；预览后会列出**有命中的章**（默认全选），取消勾选的章不会被改。「应用」先自动备份。</p>
+    <div class="tr-scope">
+      <b>范围：</b>
+      <label title="本作品全部已汉化章节"><input type="radio" name="tr-scope" value="all"> 全部</label>
+      <label title="从当前阅读的这一话起（含当前话）直到最后一话"><input type="radio" name="tr-scope" value="from" checked> 当前话和后续话<span class="muted small" id="tr-scope-note"></span></label>
+    </div>
+    <div class="tr-ex-wrap" id="tr-examples">
+      <div class="tr-ex-head">
+        <b>常用正则示例</b>
+        <span class="muted small" title="查找串以 re: 开头按正则（Python 语法）；替换串里 \1（或 \g&lt;1&gt;）= 第 1 个括号捕到的内容；替换为留空 = 删除该串。
+示例只收「碰不到 ASCII 笔画」的通用式——凡会动 . / 半角括号 / 片假名连串的规则，在这套语料里必然命中 art 行（真机实测：半角括号 21 行、省略号 304 行，全是画），要用请自己写并先预览。
+「替换为」为空的示例会删字符，同样先预览再应用。
+点一下 = 在下方替换对里追加一条并填入，可再改。">点一下即填入下方替换对（可再改）· 鼠标悬停看语法与坑</span>
+      </div>
+      <div class="tr-ex-list" id="tr-ex-list"></div>
+    </div>
+    <div class="tr-grid">
+      <div class="tr-col">
+        <div class="tr-pane tr-pane-hist">
+          <div class="tr-pane-head">
+            <b>历史替换记录</b>
+            <span class="muted small" id="tr-hist-info"></span>
+          </div>
+          <div class="tr-hist-tools">
+            <input id="tr-hist-q" type="search" placeholder="搜索历史（查找 / 替换 / 时间）" spellcheck="false">
+            <button type="button" class="btn tiny ghost" id="tr-hist-all" title="勾选当前搜索结果里的全部记录">全选</button>
+            <button type="button" class="btn tiny ghost" id="tr-hist-none" title="取消勾选当前搜索结果里的全部记录">全不选</button>
+          </div>
+          <div id="tr-hist"></div>
+        </div>
+      </div>
+      <div class="tr-col">
+        <div class="tr-pane tr-pane-pairs">
+          <div class="tr-pane-head">
+            <b>替换对</b>
+            <span class="muted small">左「查找」→ 右「替换为」（留空 = 删除该串）</span>
+            <span class="sp"></span>
+            <button type="button" id="tr-add-pair" class="btn tiny ghost">+ 添加替换对</button>
+          </div>
+          <div id="tr-pairs"></div>
+        </div>
+        <div class="tr-pane tr-pane-prev">
+          <div class="tr-pane-head">
+            <b>预览</b>
+            <span class="muted small" id="tr-prev-hint">点「刷新预览」出结果（无命中的章不会出现在这里）</span>
+            <span class="sp"></span>
+            <span class="tr-ch-tools hidden" id="tr-ch-tools">
+              <span class="muted small">取消勾选的章不会被改：</span>
+              <button type="button" class="btn tiny ghost" id="tr-ch-all" title="勾选全部有命中的章">全选</button>
+              <button type="button" class="btn tiny ghost" id="tr-ch-none" title="取消全部勾选">全不选</button>
+              <span class="tr-ch-sum" id="tr-ch-sum"></span>
+            </span>
+          </div>
+          <div id="tr-chapters" class="hidden"></div>
+          <div id="tr-preview"><p class="muted small" style="margin:2px 0">尚未预览——点击「刷新预览」查看受影响行（点行号可跳转该行）。</p></div>
+        </div>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="tr-recalc" class="btn ghost">刷新预览</button>
+      <button id="tr-apply" class="btn">应用</button>
+      <button id="tr-cancel" class="btn ghost">取消</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>window.READER_CFG = {
+  work: {{ work | tojson }},
+  fname: {{ (toc[cur_idx].tr_file if has_tr else toc[cur_idx].src_file) | tojson }},
+  base: {{ cur.replace('.txt', '') | tojson }},
+  curLabel: {{ (toc[cur_idx].label if toc else '') | tojson }},
+  hasTr: {{ 1 if has_tr else 0 }},
+  win: {{ 1 if win_mode else 0 }},
+  curIdx: {{ cur_idx }},
+  resumeLine: {{ resume_line }},
+  jumpLine: {{ request.query_params.get('line', '') | int if request.query_params.get('line') else 'null' }},
+  gold: {{ gold | tojson }}
+};</script>
+{% if cand_data %}
+<script>window.CAND_DATA = {{ cand_data | tojson }};</script>
+<div id="cand-panel" class="cand-panel hidden">
+  <div class="cand-head">
+    <strong>候选确认</strong>
+    <span class="muted small" id="cand-progress"></span>
+    <span class="cand-close" id="cand-close">×</span>
+  </div>
+  <div class="cand-body" id="cand-body">加载中…</div>
+  <div class="cand-actions">
+    <button class="btn tiny" id="cand-prev" title="上一候选">上</button>
+    <button class="btn tiny" id="cand-skip">跳过</button>
+    <button class="btn tiny danger" id="cand-del">删除</button>
+    <button class="btn tiny primary" id="cand-confirm">确认</button>
+    <button class="btn tiny wl" id="cand-whitelist" title="这个词不该翻/不是术语 → 记入**本作品**术语表白名单（不再进本作品候选池；要跨作品生效须在作品页「检查可反哺项」手动勾选写入全局），并移除本条候选">白名单</button>
+    <button class="btn tiny" id="cand-next" title="下一候选">下</button>
+  </div>
+  <div class="cand-batch-actions">
+    <button class="btn tiny highlight" id="cand-promote" title="把已确认候选一次性写入作品术语表（角色同时进知识库人物）；不覆盖人工确认条目">写入作品表</button>
+  </div>
+</div>
+{% endif %}
+<script src="/static/reader.js?v=20261006a"></script>
+<script>window.AA_SEL = { work: {{ work | tojson }}, base: {{ cur.replace('.txt', '') | tojson }}, enabled: {{ sel_enabled() | tojson }} };</script>
+<script src="/static/selection_translate.js?v=20261008a"></script>
+<script>
+// 目录分页（每页 10/50/100，2026-09-13）：自动跳到当前章所在页；只隐藏链接，键盘 ← → 翻章不受影响
+aaPager({rows: '.reader-nav > a', controls: '#toc-pager', key: 'reader:{{ work }}',
+         symbols: true, sizeLast: true,
+         activeOf: el => el.classList.contains('active')});
+// 键盘 ← → 翻章
+const NAV = {{ toc | map(attribute='src_file') | list | tojson }};
+document.addEventListener('keydown', e => {
+  // 编辑模式（行号矫正弹窗）打开时不翻章，避免方向键误触换章丢编辑
+  if (window.__aaEditing) return;
+  if (e.target.closest && e.target.closest('#edit-panel, #edits-modal, #tr-replace-modal')) return;   // 编辑面板/弹窗打开时不翻章
+  const cur = {{ cur_idx }};
+  if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+    if (cur + 1 < NAV.length) { if (window.__saveAAResume) window.__saveAAResume(); location.href = '/work/{{ work }}/read?f=' + NAV[cur + 1]; }
+  } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+    if (cur > 0) { if (window.__saveAAResume) window.__saveAAResume(); location.href = '/work/{{ work }}/read?f=' + NAV[cur - 1]; }
+  }
+});
+</script>
+{% endblock %}
