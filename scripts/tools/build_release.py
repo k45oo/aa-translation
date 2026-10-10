@@ -153,12 +153,22 @@ def stage_webapp(stage):
 
 
 def stage_assets(stage):
-    """字体 + CLI/env 接口文档 + 宝可梦 wiki 翻译素材。"""
+    """字体（含 OFL 许可证文本）+ CLI/env 接口文档 + 宝可梦 wiki 翻译素材 + 代码许可。"""
     font = os.path.join(_ROOT, "fonts", "SarasaMonoSC-Regular.ttf")
     if os.path.isfile(font):
         dst = os.path.join(stage, "fonts")
         os.makedirs(dst, exist_ok=True)
         shutil.copy2(font, os.path.join(dst, "SarasaMonoSC-Regular.ttf"))
+        # OFL 1.1 要求分发字体时随附许可证文本（少了这份就是不合法分发）
+        ofl = os.path.join(_ROOT, "fonts", "OFL.txt")
+        if os.path.isfile(ofl):
+            shutil.copy2(ofl, os.path.join(dst, "OFL.txt"))
+        else:
+            _log("  ⚠️ fonts/OFL.txt 缺失 —— 随包分发字体必须带 OFL 许可证文本")
+    # 代码许可是 MIT：分发副本要带 LICENSE
+    lic = os.path.join(_ROOT, "LICENSE")
+    if os.path.isfile(lic):
+        _write(os.path.join(stage, "LICENSE"), _read(lic))
     doc_src = os.path.join(_ROOT, "doc", "接口文档.md")
     if os.path.isfile(doc_src):
         _write(os.path.join(stage, "doc", "接口文档.md"), _read(doc_src))
