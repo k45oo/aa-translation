@@ -65,8 +65,8 @@ class TestParse(_Base):
         self.assertEqual(aa_env.env_path(), self.env)
         # 仓库根 = aa_env.py 上跳 3 级（scripts/common/aa_env.py → 仓库根）
         self.assertTrue(os.path.isdir(os.path.join(aa_env.repo_root(), "scripts", "common")))
-        self.assertEqual(len(aa_env.read_paths()), 3)          # 仓库根 .env + hermes 两处兜底
-        self.assertEqual(aa_env.read_paths()[0], self.env)
+        self.assertEqual(aa_env.fallback_paths(), (), "2026-10-10: hermes 兜底路径已废除")
+        self.assertEqual(aa_env.read_paths(), (self.env,))     # 唯一来源 = 仓库根 .env
 
     def test_缺文件时不炸(self):
         self.assertEqual(aa_env.load(force=True), {})

@@ -34,7 +34,7 @@
 
   function renderKeys(s) {
     const rows = s.keys.map(function (k) {
-      const src = { 'env': '真实环境变量', '.env': '.env', 'hermes': 'hermes 档案（只读兜底）' }[k.source] || '';
+      const src = { 'env': '真实环境变量', '.env': '.env' }[k.source] || '';
       const state = k.configured
         ? '<span class="ok">已配置</span> <span class="mono">' + esc(k.masked) + '</span>'
         : '<span class="warn">未配置</span>';

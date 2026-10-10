@@ -7,8 +7,8 @@
 
 * `load_dotenv()` 把 `.env` 里的 `KEY=value` 灌进 `os.environ`（**不覆盖**已存在的真实 env）
   —— 因此「读 os.environ」天然就是上面这条优先级的前两层；工作台设置页保存时同步调它即可立即生效。
-* `read_key(name)` 供各后端的 key 读取使用：env → 仓库根 `.env` → hermes 两处 `.env`（保留兜底，
-  生成者本机零回归）；`aa_translate.get_key()` 与 `aa_backend._read_env_key()` 都走这里，不再各自实现。
+* `read_key(name)` 供各后端的 key 读取使用：env → 仓库根 `.env`（**2026-10-10 用户指定：唯一读取来源，
+  不再有 hermes 兜底**）；`aa_translate.get_key()` 与 `aa_backend._read_env_key()` 都走这里，不再各自实现。
 * `write_values()` 行级替换 + 原子写：**保留注释与未改动行**，缺失的键追加到文件末尾。
   值里出现换行会被拒绝（防写坏文件）；刻意不做整表重写（术语表整表覆盖事故同款陷阱）。
 
@@ -33,8 +33,8 @@ ENV_EXTRA = {
     "COMMANDCODE_API_KEY", "SILICONFLOW_API_KEY", "SILICONFLOW_FREE_API_KEY",
     "QWEN_API_KEY", "MINIMAX_CN_API_KEY", "XIAOMI_API_KEY", "XIAOMI_MIMO_API_KEY",
     "DEEPSEEK_API_KEY", "DEEPINFRA_API_KEY", "RUNINFRA_API_KEY",
-    "OPENROUTER_API_KEY", "GMI_API_KEY",
-    "OPENCODE_GO_API_KEY", "OPENCODE_FREE_ZEN_API_KEY",
+    "OPENROUTER_API_KEY", "GMI_API_KEY", "GLM_API_KEY", "COMMANDCODE_FREE_API_KEY",
+    "OPENCODE_GO_API_KEY", "OPENCODE_FREE_ZEN_API_KEY", "OPENCODE_ZEN_API_KEY",
 }
 
 
@@ -50,14 +50,18 @@ def env_path():
 
 
 def fallback_paths():
-    """只读兜底路径（生成者本机的 hermes 档案 .env）—— 打包给别人后这两处不存在，自动跳过。"""
-    return (os.path.join("F:", os.sep, "hermes", "profiles", "translation", ".env"),
-            os.path.join("F:", os.sep, "hermes", ".env"))
+    """只读兜底路径 —— **2026-10-10 用户指定：已废除，恒为空**。
+
+    此前是生成者本机的 hermes 档案 .env（`<hermes>\\profiles\\translation\\` 与 `<hermes>\\`）；
+    现在 key 的唯一来源 = `<仓库根>\\.env`（+ 真实环境变量优先）。函数保留只为兼容
+    调用方/测试/发行包变换，别再往里加路径。
+    """
+    return ()
 
 
 def read_paths():
-    """按优先级返回 key 查找路径：仓库根 .env → hermes 翻译档案 → hermes 主。"""
-    return (env_path(),) + fallback_paths()
+    """key 查找路径：**只有仓库根 `.env`**（唯一来源，无其它文件兜底）。"""
+    return (env_path(),)
 
 
 # ---------------------------------------------------------------- 解析 / 读
@@ -137,7 +141,7 @@ def load_dotenv(force=False):
 
 
 def get(name, default=None):
-    """按优先级取单个值：真实/进程 env → 仓库根 .env → hermes 兜底 → default。"""
+    """按优先级取单个值：真实/进程 env → 仓库根 .env（唯一文件来源）→ default。"""
     v = os.environ.get(name)
     if v:
         return v
@@ -154,9 +158,9 @@ def get(name, default=None):
 
 
 def read_key(name, paths=None):
-    """按路径顺序查 key 值（env 优先，其次各 .env 文件）；查不到返回 None。
+    """按路径顺序查 key 值（env 优先，其次 .env 文件）；查不到返回 None。
 
-    路径顺序 = 仓库根 .env → hermes 翻译档案 → hermes 主（打包给别人后 hermes 不存在，自动跳过）。
+    路径顺序 = **只有仓库根 .env**（2026-10-10 起无 hermes 兜底）。
     """
     v = os.environ.get(name)
     if v:
