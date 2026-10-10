@@ -1108,6 +1108,28 @@ WORKS = {
         source_note="来源：yaruobook | 翻译：机翻 + 清理 | 帖头颜色保留原站",
         chapters_source="cache",
     ),
+    # ---- ポケの子（？）作者本人 FC2 博客（原站；r401 分类 24640）----
+    # inzainewtown.blog.fc2.com（だっておｗｗｗキャンセル）：440 話（第一話〜第四百四十話）。
+    # 与 yaruobook 镜像 ポケの子 同作不同源：站点页只收**作者自己的帖**（无读者 名無し 回复），
+    # 章号/切分亦不同（FC2「第一話」作者帖 res 1〜570 ＝ yaruobook「第2話」的一部分，正文逐字节一致）。
+    # 解析器 sites/inzainewtown_fc2.py（单 div + <br> 流式，帖头 `NNN 名前：… [] 投稿日：… ID:… [n/m]`）。
+    "pokeko_fc2": dict(
+        r401_cid="24640",
+        site="inzainewtown_fc2",
+        title="ポケの子（？）(FC2)",
+        aa_dir=BASE + r"\aaManga\ポケの子_fc2\aa",
+        out_dir=BASE + r"\aaManga\ポケの子_fc2\汉化",
+        work_dir=BASE + r"\aaManga\ポケの子_fc2\work",
+        raw_dir=BASE + r"\aaManga\ポケの子_fc2\raw",
+        name_style="entry_eid",
+        r18=False,
+        url_pattern="https://inzainewtown.blog.fc2.com/blog-entry-{eid}.html",
+        min_size=50000,
+        label_style="plain",
+        html_out=BASE + r"\aaManga\交付HTML\ポケの子_fc2_汉化合集",
+        html_title="ポケの子（？）(FC2) 汉化合集",
+        source_note="来源：inzainewtown.blog.fc2.com（作者本人 FC2 原站）| 翻译：机翻 + 清理 | 帖头颜色保留原站",
+    ),
     "超能力が使えるようになったので限界まで極める事にした件": dict(
         site="yaruobook",
         title="超能力が使えるようになったので限界まで極める事にした件",

@@ -68,6 +68,19 @@
 .bs-item .bs-item-prev { margin-top: 2px; font-size: 12.5px; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; color: #444; font-family: "ＭＳ Ｐゴシック", "MS Gothic", monospace; }
 .bs-empty { padding: 18px; text-align: center; color: #999; font-size: 12.5px; }
+/* 添加/更新揭示板（2026-10-10）：下载原始 dat，零 token */
+.board-add { background: #fff; border: 1px solid #d8c8a8; border-radius: 6px; padding: 10px 14px; margin: 10px 0 14px; }
+.board-add summary { cursor: pointer; font-weight: 600; color: #6a4a2a; }
+.ba-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px 14px; margin: 10px 0 6px; }
+.ba-grid label { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #555; }
+.ba-grid input { flex: 1; min-width: 0; padding: 4px 7px; border: 1px solid #bbb; border-radius: 4px; font-size: 12.5px; }
+.ba-grid .ba-inline { display: flex; align-items: center; gap: 4px; flex: 1; }
+.ba-grid .ba-inline input { width: 70px; flex: 0 0 70px; }
+.ba-chk { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: #555; margin: 2px 12px 2px 0; }
+.ba-status { font-size: 12.5px; color: #8a5a3a; margin-left: 8px; }
+.ba-status.bad { color: #c22; }
+.ba-status.good { color: #2a8a3a; }
+#board-upd-btn { margin-left: 8px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -88,7 +101,7 @@
   <div class="board-main">
     <div class="board-head">
       <h2>{{ parsed.title }}</h2>
-      <div class="board-meta">作者：{{ author }} · 帖 eid {{ cur.eid }} · 共 {{ total_res }} 楼（本页 {{ res | length }} 楼）<button class="btn tiny ghost" id="board-search-btn" type="button">🔍 全局搜索</button></div>
+      <div class="board-meta">作者：{{ author }} · 帖 eid {{ cur.eid }} · 共 {{ total_res }} 楼（本页 {{ res | length }} 楼）<button class="btn tiny ghost" id="board-search-btn" type="button">🔍 全局搜索</button><button class="btn tiny ghost" id="board-upd-btn" type="button" title="拉原站分类/归档索引，增量更新本连载的全部贴（零 token）">↻ 更新揭示板</button><span class="ba-status" id="board-upd-status"></span></div>
     </div>
     {% if total_pages > 1 %}
     <div class="board-pager">
@@ -241,14 +254,77 @@
 })();
 </script>
 {% if author %}
+<script>
+// 揭示板「更新」：入队 board 任务（增量拉活跃贴 + 已归档 eid 重抓），轮询任务进度
+(function(){
+  const btn = document.getElementById('board-upd-btn');
+  const st = document.getElementById('board-upd-status');
+  if (!btn || !st) return;
+  const dir = {{ author | tojson }};
+  let timer = null;
+  function poll(){
+    fetch('/api/board/task?dir=' + encodeURIComponent(dir))
+      .then(r => r.json()).then(d => {
+        const t = d.task;
+        if (!t) return;
+        const ph = t.chapter_total ? ` ${t.chapter_idx || 0}/${t.chapter_total}` : '';
+        st.className = 'ba-status ' + (['failed','crashed'].includes(t.status) ? 'bad'
+                       : (t.status === 'done' ? 'good' : ''));
+        st.textContent = `${t.status}${ph} · ${t.task_id}`;
+        if (['done','failed','stopped','crashed','cancelled'].includes(t.status)) {
+          if (timer) { clearInterval(timer); timer = null; }
+          if (t.status === 'done') setTimeout(() => location.reload(), 1200);
+        }
+      }).catch(() => {});
+  }
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    st.className = 'ba-status'; st.textContent = '入队中…';
+    try {
+      const r = await fetch('/api/board/' + encodeURIComponent(dir) + '/update',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const j = await r.json();
+      if (!j.ok) { st.className = 'ba-status bad'; st.textContent = j.error || '入队失败'; return; }
+      st.textContent = '已入队 ' + j.task_id + '，运行中…';
+      timer = setInterval(poll, 2000); poll();
+    } catch (e) {
+      st.className = 'ba-status bad'; st.textContent = '请求失败: ' + e;
+    } finally { btn.disabled = false; }
+  });
+  poll();      // 打开页面时若已有在跑/刚结束的任务，直接显示状态
+})();
+</script>
+{% endif %}
+{% if author %}
 <script>window.AA_SEL = { work: '', base: '', enabled: {{ sel_enabled() | tojson }} };</script>
 <script src="/static/selection_translate.js?v=20261008a"></script>
 {% endif %}
 {% else %}
 <h1>揭示板（本地）</h1>
-<p class="muted">数据源：<code>揭示板/</code>（每子目录 = 一个作者/题材连载，贴按スレ目编号排序）。当前支持浏览，人工矫正后续接入。</p>
+<p class="muted">数据源：<code>揭示板/</code>（每子目录 = 一个作者/题材连载，贴按スレ目编号排序）。下载原始 dat：展开下面的表单，或进作者页点「↻ 更新揭示板」。<b>同一作者的另一部作品要另用一个目录</b>（目录名建议 <code>&lt;作者&gt;_&lt;作品短名&gt;</code>）。</p>
+
+<details class="board-add" id="board-add">
+  <summary>＋ 添加 / 更新揭示板（下载原始揭示板 dat，零 token）</summary>
+  <div class="ba-grid">
+    <label>板 id<input id="ba-board" value="FOX" placeholder="FOX"></label>
+    <label>站点根<input id="ba-host" value="http://yarufox.sakura.ne.jp"></label>
+    <label>标题关键词<input id="ba-match" placeholder="ポケの子"></label>
+    <label>作者 trip<input id="ba-author" placeholder="◆LXwkncCAp."></label>
+    <label>保存目录<input id="ba-dir" placeholder="◆LXwkncCAp_ポケの子"></label>
+    <label>作品 id（可选）<input id="ba-work" placeholder="pokeko_fc2"></label>
+    <label>作品名（可选）<input id="ba-title" placeholder="ポケの子（？）"></label>
+    <label>kako dir1 范围（首次收录历史贴）
+      <span class="ba-inline"><input id="ba-kako-from" placeholder="1746"><span>~</span><input id="ba-kako-to" placeholder="1774"></span>
+    </label>
+  </div>
+  <label class="ba-chk"><input type="checkbox" id="ba-scan"> 强制扫 kako 归档索引（首次/漏贴时勾；已收录只需更新则不必）</label>
+  <label class="ba-chk"><input type="checkbox" id="ba-force"> 强制重抓已有 .dat</label>
+  <button class="btn" id="ba-go" type="button">开始下载</button>
+  <span class="ba-status" id="ba-status"></span>
+</details>
+
 {% if cols %}<table class="board-cols">
-  <thead><tr><th>作者 / 题材</th><th>貼数</th><th>范围</th></tr></thead>
+  <thead><tr><th>作者 / 题材</th><th>貼数</th><th>范围</th><th>操作</th></tr></thead>
   <tbody>
   {% for c in cols %}
     <tr>
@@ -257,10 +333,80 @@
       <td class="small">
         {% if c.slaves %}{{ c.slaves[0].label }}（{{ c.slaves[0].ts }}）~ {{ c.slaves[-1].label }}（{{ c.slaves[-1].ts }}）{% endif %}
       </td>
+      <td class="small" style="white-space:nowrap;">
+        <button class="btn tiny ghost ba-row-upd" data-dir="{{ c.name }}" type="button"
+                title="增量更新该连载的全部揭示板贴（零 token）">↻ 更新</button>
+        <span class="ba-status" data-st="{{ c.name }}"></span>
+      </td>
     </tr>
   {% endfor %}
   </tbody>
 </table>
-{% else %}<p class="warn">尚无揭示板数据。请在 <code>揭示板/</code> 下建子目录，放 <code>*.dat</code>（含 index.json 更佳）。</p>{% endif %}
+{% else %}<p class="warn">尚无揭示板数据。用上面的表单添加（或手建 <code>揭示板/&lt;目录&gt;/</code> 放 <code>*.dat</code>）。</p>{% endif %}
+<script>
+// 揭示板首页：① 添加表单入队 board 任务；② 每行「↻ 更新」（按 index.json 记的板信息增量更新）
+(function(){
+  const $ = (id) => document.getElementById(id);
+  const st = $('ba-status');
+  const timers = {};
+
+  function fmt(t){
+    const ph = t.chapter_total ? ` ${t.chapter_idx || 0}/${t.chapter_total}` : '';
+    return `${t.status}${ph} · ${t.task_id}`;
+  }
+  function cls(s){ return 'ba-status ' + (['failed','crashed'].includes(s) ? 'bad' : (s === 'done' ? 'good' : '')); }
+  function poll(dir, el){
+    fetch('/api/board/task?dir=' + encodeURIComponent(dir))
+      .then(r => r.json()).then(d => {
+        const t = d.task;
+        if (!t || !el) return;
+        el.className = cls(t.status); el.textContent = fmt(t);
+        if (['done','failed','stopped','crashed','cancelled'].includes(t.status) && timers[dir]) {
+          clearInterval(timers[dir]); delete timers[dir];
+        }
+      }).catch(() => {});
+  }
+  async function enqueue(url, body, dir, el){
+    el.className = 'ba-status'; el.textContent = '入队中…';
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                   body: JSON.stringify(body) });
+      const j = await r.json();
+      if (!j.ok) { el.className = 'ba-status bad'; el.textContent = j.error || '入队失败'; return; }
+      el.textContent = '已入队 ' + j.task_id + '，运行中…';
+      if (dir && !timers[dir]) timers[dir] = setInterval(() => poll(dir, el), 2500);
+      poll(dir, el);
+    } catch (e) { el.className = 'ba-status bad'; el.textContent = '请求失败: ' + e; }
+  }
+
+  const go = $('ba-go');
+  if (go) go.addEventListener('click', () => {
+    const dir = ($('ba-dir').value || $('ba-author').value || $('ba-match').value || '').trim();
+    enqueue('/api/board/download', {
+      board: $('ba-board').value.trim() || 'FOX',
+      host: $('ba-host').value.trim(),
+      match: $('ba-match').value.trim(),
+      author: $('ba-author').value.trim(),
+      dir: dir,
+      title: $('ba-title').value.trim(),
+      work_id: $('ba-work').value.trim(),
+      kako_from: $('ba-kako-from').value.trim() || null,
+      kako_to: $('ba-kako-to').value.trim() || null,
+      scan_kako: $('ba-scan').checked,
+      force: $('ba-force').checked,
+    }, dir, st);
+  });
+
+  document.querySelectorAll('.ba-row-upd').forEach(b => {
+    b.addEventListener('click', () => {
+      const dir = b.dataset.dir;
+      const el = document.querySelector('.ba-status[data-st="' + dir.replace(/"/g, '\\"') + '"]');
+      enqueue('/api/board/' + encodeURIComponent(dir) + '/update', {}, dir, el);
+    });
+  });
+  // 打开页面就把各行/表单已有任务的进度显示出来
+  document.querySelectorAll('.ba-status[data-st]').forEach(el => poll(el.dataset.st, el));
+})();
+</script>
 {% endif %}
 {% endblock %}

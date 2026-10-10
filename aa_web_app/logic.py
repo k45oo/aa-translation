@@ -1371,6 +1371,8 @@ def board_collections():
     if not os.path.isdir(BOARD_ROOT):
         return out
     for name in sorted(os.listdir(BOARD_ROOT)):
+        if name.startswith("."):          # .cache 等隐藏目录不是连载（下载缓存 2026-10-10）
+            continue
         d = os.path.join(BOARD_ROOT, name)
         if not os.path.isdir(d):
             continue

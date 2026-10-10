@@ -1,12 +1,12 @@
 {
  "generated_at": null,
  "stats": {
-  "total": 310,
+  "total": 313,
   "legacy": 108,
-  "core": 72,
+  "core": 74,
   "tool": 60,
   "deprecated_candidate": 3,
-  "test": 67,
+  "test": 68,
   "hardcoded": 30,
   "top_consts": 49,
   "dup_function_counts": {
@@ -21,8 +21,8 @@
    "render_line": 6,
    "build_whitelist": 8,
    "residual_bad": 6,
-   "render_header": 20,
-   "entry_url": 18
+   "render_header": 21,
+   "entry_url": 19
   },
   "hardcoded_files": [
    "scripts/aa_translate.py",
@@ -686,6 +686,7 @@
      "fix.refine_aa",
      "fix.refix_mixed_segs",
      "legacy.refill_manual_saki",
+     "runner.board_runner",
      "runner.dl_runner",
      "runner.refine_runner",
      "runner.translate_runner",
@@ -2175,6 +2176,7 @@
      "aa_translate",
      "common.gen_chapter_summaries",
      "fix.refine_aa",
+     "runner.board_runner",
      "runner.dl_runner",
      "runner.refine_runner",
      "runner.translate_runner",
@@ -5988,6 +5990,78 @@
    "has_main_guard": false,
    "docstring": "runner 共享日志模块（2026-08-21）：双写 stdout + 文件，按时间戳归档旧日志。"
   },
+  "scripts/runner/board_runner.py": {
+   "path": "scripts/runner/board_runner.py",
+   "grade": "core",
+   "cli": [
+    "--allow-mixed",
+    "--author",
+    "--base",
+    "--board",
+    "--dir",
+    "--dry-run",
+    "--force",
+    "--host",
+    "--json",
+    "--kako-from",
+    "--kako-to",
+    "--label",
+    "--match",
+    "--no-kako",
+    "--scan-kako",
+    "--title",
+    "--work"
+   ],
+   "argparse": [
+    "--allow-mixed",
+    "--author",
+    "--base",
+    "--board",
+    "--dir",
+    "--dry-run",
+    "--force",
+    "--host",
+    "--json",
+    "--kako-from",
+    "--kako-to",
+    "--label",
+    "--match",
+    "--no-kako",
+    "--scan-kako",
+    "--title",
+    "--work"
+   ],
+   "env_vars": [
+    "AA_BOARD_CACHE_TTL",
+    "AA_BOARD_DELAY"
+   ],
+   "refs": {
+    "imports": [
+     "aa_config",
+     "argparse",
+     "hashlib",
+     "json",
+     "os",
+     "re",
+     "sys",
+     "task_report",
+     "time",
+     "urllib"
+    ],
+    "subprocess": [],
+    "referenced_by": [
+     "tests.test_board_runner"
+    ],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "揭示板（2ch 系 zeroczhan 改変板）dat 下载/更新 runner（2026-10-10）。"
+  },
   "scripts/runner/dl_runner.py": {
    "path": "scripts/runner/dl_runner.py",
    "grade": "core",
@@ -6202,6 +6276,7 @@
      "sites.fc2",
      "sites.himanatokiniyaruo",
      "sites.iitokolo_fc2",
+     "sites.inzainewtown_fc2",
      "sites.manyoshu",
      "sites.matomemo3",
      "sites.mukankei_fc2",
@@ -6420,6 +6495,39 @@
    ],
    "has_main_guard": true,
    "docstring": "iitokolo.blog.fc2.com（FC2 博客，BAR『初音ミク』系）：<div class=\"article\"> 直排流式。"
+  },
+  "scripts/sites/inzainewtown_fc2.py": {
+   "path": "scripts/sites/inzainewtown_fc2.py",
+   "grade": "core",
+   "cli": "argv-manual",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "_base",
+     "html",
+     "json",
+     "os",
+     "re",
+     "sites",
+     "sys"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": [
+     "doc/接口文档.md"
+    ]
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [
+    "entry_url",
+    "render_header"
+   ],
+   "has_main_guard": true,
+   "docstring": "inzainewtown.blog.fc2.com（だっておｗｗｗキャンセル，FC2 博客）：<div class=\"entry_body\"> 内单块 + <br> 流式。"
   },
   "scripts/sites/manyoshu.py": {
    "path": "scripts/sites/manyoshu.py",
@@ -7186,6 +7294,39 @@
    "dup_functions": [],
    "has_main_guard": true,
    "docstring": "备份目录保留策略（2026-10-01 用户指定：同类 `backup_<kind>_<ts>/` 只保留最近 2 次运行）。"
+  },
+  "scripts/tests/test_board_runner.py": {
+   "path": "scripts/tests/test_board_runner.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_web_app",
+     "board_runner",
+     "fastapi",
+     "json",
+     "os",
+     "re",
+     "sys",
+     "task_manager",
+     "tempfile",
+     "unittest"
+    ],
+    "subprocess": [
+     "board_runner.py"
+    ],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "揭示板下载/更新 runner（scripts/runner/board_runner.py）+ 任务管理器 board 类型用例。"
   },
   "scripts/tests/test_candidates.py": {
    "path": "scripts/tests/test_candidates.py",
