@@ -68,9 +68,16 @@ WIKI_FILES_WORK = ("术语表.json", "官方译名对照.json", "人工修正.js
 
 # 包根下允许出现的东西（多一个就拒绝出包 —— 防"顺手带进去"的目录）
 TOP_ENTRIES = {"scripts", "aa_web_app", "aaManga", "doc", "fonts",
-               "README.md", "LICENSE", "requirements.txt", ".env.example",
+               "README.md", "工作台使用说明.md", "LICENSE", "requirements.txt", ".env.example",
                "安装依赖.bat", "启动工作台.bat", "glossary.json", "roles.json",
                RELEASE_MARKER, EXE_NAME}
+
+# 图文操作手册（2026-10-10）：源文件在仓库 doc/ 下，打包时复制到**包根**
+# （使用者解包先看到的就是它，和 README.md 并排）；配图留在包内 doc/使用说明图/，
+# 因此复制时把 md 里的相对链接 "使用说明图/xxx.png" 改写成 "doc/使用说明图/xxx.png"。
+MANUAL_SRC_REL = os.path.join("doc", "工作台使用说明.md")
+MANUAL_DST = "工作台使用说明.md"
+SHOTS_DIR = "使用说明图"
 
 SCRIPTS_SKIP_DIRS = {"legacy", "logs", "benchmark", "dist", "build", "__pycache__"}
 SCRIPTS_SKIP_GLOBS = ("*.pyc", "*.log", "*.bak", "*.bak_*", "*_副本*", "*- 副本*", "*.tmp")
@@ -482,6 +489,8 @@ README = """# AA 翻译 —— やる夫系 AA 漫画汉化管线
   （exe 默认 8766，源码路线默认 8765，两条路可同时开；`AA_PORT` 可改，端口被占自动顺延）。
 * **命令行（CLI）零依赖**：装在 `scripts/` 下的脚本是纯标准库，任何 Python 3.11+ 直接跑。
 * **图形界面（源码路线）**：先双击 `安装依赖.bat`，再双击 `启动工作台.bat` → http://127.0.0.1:8765
+* **图文操作手册**：[`工作台使用说明.md`](工作台使用说明.md) —— 界面截图 + 逐步说明
+  （设置 / 下载 / 翻译 / 校对 / 阅读纠错），没有编程经验也能照着做。
 
 ## 一、三步开始
 
@@ -548,6 +557,32 @@ python scripts/common/gen_aa_html.py      --work <id>                           
 """
 
 
+def stage_manual(stage):
+    """图文操作手册 → 包根 `工作台使用说明.md` + 包内 `doc/使用说明图/*.png`。
+
+    源文件在仓库 `doc/工作台使用说明.md`；手册里的图片链接写成相对自身的
+    `使用说明图/xxx.png`，复制到包根后要改写成 `doc/使用说明图/xxx.png`
+    （图仍放在 doc/ 下，免得包根堆一堆图片目录）。
+    """
+    src = os.path.join(_ROOT, MANUAL_SRC_REL)
+    if not os.path.isfile(src):
+        _log("  ⚠️ 缺少 %s —— 发行包不会带图文操作手册" % MANUAL_SRC_REL)
+        return 0
+    text = _read(src).replace("](%s/" % SHOTS_DIR, "](doc/%s/" % SHOTS_DIR)
+    _write(os.path.join(stage, MANUAL_DST), text)
+    shots_src = os.path.join(_ROOT, "doc", SHOTS_DIR)
+    n = 0
+    if os.path.isdir(shots_src):
+        for fn in sorted(os.listdir(shots_src)):
+            if fn.lower().endswith(".png"):
+                dst = os.path.join(stage, "doc", SHOTS_DIR)
+                os.makedirs(dst, exist_ok=True)
+                shutil.copy2(os.path.join(shots_src, fn), os.path.join(dst, fn))
+                n += 1
+    _log("  %s    %d 张配图 → doc/%s/" % (MANUAL_DST, n, SHOTS_DIR))
+    return n
+
+
 def write_readme(stage):
     _write(os.path.join(stage, "README.md"), README)
     _log("  README.md            新写（快速开始 / 配置 / CLI / 坑）")
@@ -592,6 +627,8 @@ def gates(stage):
     must = ["scripts/tools/aa_web.py", "scripts/config/model_config.toml", "README.md",
             "requirements.txt", ".env.example", "aa_web_app/main.py",
             "doc/接口文档.md", "glossary.json", "roles.json",
+            # 图文操作手册（包根 md + doc/使用说明图/*.png 配图目录）
+            MANUAL_DST, os.path.join("doc", SHOTS_DIR),
             # 许可：代码 MIT + 字体 OFL（分发字体必须随附 OFL 文本，缺了就是不合规分发）
             "LICENSE", os.path.join("fonts", "OFL.txt"),
             os.path.join("aaManga", EXAMPLE["dir"], "work", "glossary_%s.json" % EXAMPLE["id"])]
@@ -957,6 +994,7 @@ def main(argv=None):
     write_env_example(stage)
     write_bats(stage)
     write_readme(stage)
+    stage_manual(stage)
 
     n_files, n_hits = rc.desensitize(stage)
     _log("=== 脱敏: %d 个文件 / %d 处本机路径" % (n_files, n_hits))
