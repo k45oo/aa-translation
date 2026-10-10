@@ -353,10 +353,8 @@ def _call_refine(rf, system, user, timeout=None, retries=5):
     key: 按 [refine].key_env 从 .env 读。timeout: 块大小自适应。"""
     key = None
     if rf.key_env:
-        # 2026-08-30: COMMANDCODE_API_KEY 已换新 key(translation/.env 优先, <hermes>/.env 是旧值)
-        # _read_env_key 默认只读 <hermes>/.env → 显式传 translation 档案路径
-        k = (AB._read_env_key(rf.key_env, ("<hermes>/profiles/translation/.env",))
-             if hasattr(AB, "_read_env_key") else None)
+        # 2026-10-10: key 唯一来源 = 仓库根 .env（+ 真实 env 优先），不再硬编码 hermes 档案路径
+        k = AB._read_env_key(rf.key_env) if hasattr(AB, "_read_env_key") else None
         key = k or os.environ.get(rf.key_env)
     backend = rf.backend
     last = None

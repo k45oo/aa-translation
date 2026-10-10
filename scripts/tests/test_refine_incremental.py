@@ -49,10 +49,18 @@ class TestChainSource(unittest.TestCase):
                 os.environ["AA_REFINE_BACKEND"] = old
 
     def test_default_chain_is_deepseek_primary_with_fallback(self):
+        """无 env 时的**代码兜底链**（TOML 付费链读不到时的最后一级）= deepseek,deepinfra。
+
+        2026-10-10: 运行时链**跟随付费链**（`_set_chain_for_work` 会把 `_REFINE_CHAIN` 改成付费链，
+        链首已是 opencode_go）——原先直接断言 `_REFINE_CHAIN` 的初值，跨用例顺序一变就红；
+        改为断言兜底常量，并复位模块全局（本用例不改运行态）。
+        """
         if os.environ.get("AA_REFINE_BACKEND"):
             self.skipTest("env 覆盖了链, 该用例断言默认值")
-        self.assertEqual(R._REFINE_CHAIN[0], "deepseek")
-        self.assertEqual(len(R._REFINE_CHAIN), 2)
+        dflt = R._parse_refine_entries(R.DEFAULT_REFINE_CHAIN)
+        self.assertEqual(dflt[0][0], "deepseek")
+        self.assertEqual(len(dflt), 2)
+        R._REFINE_CHAIN = [b for b, _m in R._REFINE_ENTRIES]      # 复位被别的用例改过的全局
 
     def test_call_budget_env_overrides(self):
         old_t, old_r = os.environ.get("AA_REFINE_CALL_TIMEOUT"), os.environ.get("AA_REFINE_CALL_RETRY")

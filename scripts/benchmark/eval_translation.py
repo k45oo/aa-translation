@@ -105,6 +105,14 @@ MODELS = [
     #   (none → 400)，故用 low + 生产预算 16384。
     {"name": "commandcode/xiaomi/mimo-v2.6-flash", "backend": "commandcode",
      "model": "xiaomi/mimo-v2.6-flash", "r18": True, "reasoning": "low", "max_tokens": 16384},
+    # opencode **Go 门**（2026-10-10 接入 normal/r18 两条链首）: /zen/go/v1 = $10/月订阅含用量,
+    #   **必须** `x-opencode-session`（缺 → 400 MissingSessionID）+ 浏览器 UA; 关思考 reasoning_effort=none
+    #   （上游偶拒 400 → 生产函数自适应改 thinking:{type:disabled}）; 同 session 同前缀缓存命中 95.5%。
+    #   端点与 Zen 门(/zen/v1, 按量)不同 —— 别改成 zen 门, 那是另一套计费。
+    {"name": "opencode_go/deepseek-v4.1-flash", "backend": "opencode_go",
+     "model": "deepseek-v4.1-flash", "r18": True, "reasoning": "none", "direct": True,
+     "url": "https://opencode.ai/zen/go/v1/chat/completions",
+     "headers": {"x-opencode-session": "aa-bench-opencode-go"}},
 ]
 
 # 价格表（2026-09-06 快照，$/1M token）。换价需人工更新。
@@ -130,6 +138,9 @@ PRICES = {
     # flash $0.0028/$0.14/$0.28, pro $0.0036/$0.435/$0.87 (hit/miss/out); 国内价 ¥0.02/¥1/¥2 与 ¥0.025/¥3/¥6。
     "mimo/mimo-v2.6-flash": (0.14, 0.28),
     "mimo/mimo-v2.6-pro":   (0.435, 0.87),
+    # opencode **Go 门**订阅折算价（models.dev opencode-go: in $0.15 / out $0.60 / cache_read $0.003 per M,
+    # 2026-10-10）—— **实付是 $10/月订阅费**，此处只是折算「消耗了多少套餐价值」。
+    "opencode_go/deepseek-v4.1-flash": (0.15, 0.60),
     # 2026-09-23 第三方托管版同价 (deepinfra 实时价 / commandcode 模型页): flash $0.14/$0.28 (cache_read $0.0028)
     "deepinfra/XiaomiMiMo/MiMo-V2.6-Flash": (0.14, 0.28),
     "commandcode/xiaomi/mimo-v2.6-flash":   (0.14, 0.28),
@@ -285,11 +296,11 @@ def direct_call(spec, body, max_tokens=2048, timeout=180, temperature=0.4):
     # spec 可注入后端专属参数(如 deepseek 官网关思考: {"thinking":{"type":"disabled"}})
     payload.update(spec.get("extra") or {})
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={
+    req = urllib.request.Request(url, data=data, headers=dict({
         "Authorization": "Bearer " + key,
         "Content-Type": "application/json",
         "User-Agent": UA,
-    })
+    }, **(spec.get("headers") or {})))          # spec 可加自定义头(如 opencode Go 门要 x-opencode-session)
     # spec["direct"]=True 绕过代理(国内直连端点, 如 api.deepseek.com)
     opener = (urllib.request.build_opener() if spec.get("direct")
               else urllib.request.build_opener(urllib.request.ProxyHandler(PROXY)))

@@ -370,6 +370,11 @@ def _call_glm(system, body, max_tokens=900, timeout=0, temperature=0.4, gloss_hi
             if b == "commandcode":
                 return AB.call_commandcode(_sys, body, max_tokens=_mt, timeout=timeout,
                                            temperature=temperature, model=mdl, tag="refine")
+            if b == "opencode_go":
+                # 2026-10-10: 付费链首 = opencode Go 门（[backend.opencode_go]）——
+                #   必须有这一支，否则落 _call_named 会把校对消耗记成 tag=translate
+                return AB.call_opencode_go(_sys, body, max_tokens=_mt, timeout=timeout,
+                                           temperature=temperature, model=mdl, tag="refine")
             return AB._call_named(b, _sys, body, model=mdl, max_tokens=_mt, timeout=timeout)
         except Exception as e:
             last_err = e
