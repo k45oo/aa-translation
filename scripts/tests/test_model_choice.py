@@ -24,8 +24,40 @@ sys.path.insert(0, os.path.join(_REPO_ROOT, "scripts", "common"))
 sys.path.insert(0, os.path.join(_REPO_ROOT, "aa_web_app"))
 
 import aa_config as AC  # noqa: E402
+import aa_env  # noqa: E402
 from aa_web_app import main as M  # noqa: E402
 from _work_guard import repo_only  # noqa: E402 （发行包内跳过生成者专属用例）
+
+
+class _IsolatedEnv(unittest.TestCase):
+    """夹具与操作者 .env 隔离：把 `AA_ENV_PATH` 指向空临时文件。
+
+    2026-10-10: 工作台设置页会把模型勾选写进**仓库根 .env**（`AA_CHAIN` / `AA_REFINE_BACKEND`），
+    `aa_config` import 时的 `load_dotenv()` 又把它灌进 `os.environ`；且同文件里跑设置保存的用例会
+    `load_dotenv(force=True)` **重新灌回**（`os.environ.pop` 挡不住）→ 断言「默认 / 整条链」的用例假红。
+    隔离后这些用例只看 TOML + 用例自己 patch 的 env。
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp(prefix="aa_chain_")
+        self._envp = os.path.join(self._tmp, ".env")
+        open(self._envp, "w").close()
+        self._old = {k: os.environ.get(k) for k in ("AA_ENV_PATH", "AA_ENV", "AA_CHAIN",
+                                                    "AA_REFINE_BACKEND")}
+        os.environ.pop("AA_ENV", None)
+        os.environ.pop("AA_CHAIN", None)
+        os.environ.pop("AA_REFINE_BACKEND", None)
+        os.environ["AA_ENV_PATH"] = self._envp
+        aa_env.load(force=True)
+
+    def tearDown(self):
+        for k, v in self._old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        aa_env.load(force=True)
+        shutil.rmtree(self._tmp, ignore_errors=True)
 
 
 class CatalogTest(unittest.TestCase):
@@ -82,7 +114,7 @@ class CatalogTest(unittest.TestCase):
         self.assertIn(items[0]["id"], dflt)
 
 
-class ChainOverrideTest(unittest.TestCase):
+class ChainOverrideTest(_IsolatedEnv):
     """AA_CHAIN=后端名,后端名 → backend_chain 只留这些（保持 TOML 链序）。"""
 
     def _names(self):
@@ -123,7 +155,7 @@ class ChainOverrideTest(unittest.TestCase):
         self.assertEqual(self._names(), full)
 
 
-class ChainEnvMappingTest(unittest.TestCase):
+class ChainEnvMappingTest(_IsolatedEnv):
     """main._chain_env：勾选集 == 默认集 → {}（整条链，含兜底端点，与旧行为一致）。"""
 
     def setUp(self):
@@ -210,6 +242,121 @@ class EntryIdTest(unittest.TestCase):
         self.assertTrue(full)
         self.assertEqual([b for b, _m in got], [b for b, _m in full],
                          "全匹配不上 → 回退整条链")
+
+
+class ChainSelectionTest(_IsolatedEnv):
+    """`aa_config.chain_selection` —— 设置页保存的链 = 控制台多选的默认勾选（2026-10-10）。
+
+    背景：控制台多选此前一律按 TOML 链的「默认集」勾（= 整条链），设置页里改过的选择
+    在控制台看不到 → 用户每次开任务都要手点一遍同样的取消勾选。
+    """
+
+    def test_未设env时等于默认集(self):
+        items, dflt = AC.chain_catalog(False)
+        self.assertTrue(dflt, "默认集不该为空")
+        sel = AC.chain_selection("AA_CHAIN", items, dflt)
+        self.assertEqual(sel["selected"], dflt)
+        self.assertFalse(sel["custom"])
+
+    def test_条目id子集(self):
+        items, dflt = AC.chain_catalog(False)
+        if len(dflt) < 2:
+            self.skipTest("可用端点不足两个")
+        os.environ["AA_CHAIN"] = ",".join(dflt[:2])
+        sel = AC.chain_selection("AA_CHAIN", items, dflt)
+        self.assertEqual(sel["selected"], dflt[:2], "按 env 顺序 = 控制台勾选集")
+        self.assertTrue(sel["custom"])
+
+    def test_旧后端名等价于该后端全部条目(self):
+        items, dflt = AC.chain_catalog(False)
+        os.environ["AA_CHAIN"] = items[0]["backend"]
+        sel = AC.chain_selection("AA_CHAIN", items, dflt)
+        same = [it["id"] for it in items if it["backend"] == items[0]["backend"]]
+        self.assertEqual(sel["selected"], same)
+        self.assertTrue(sel["custom"])
+
+    def test_认不出的项回默认集(self):
+        items, dflt = AC.chain_catalog(False)
+        os.environ["AA_CHAIN"] = "nope|x,yet|another"
+        sel = AC.chain_selection("AA_CHAIN", items, dflt)
+        self.assertEqual(sel["selected"], dflt)
+        self.assertFalse(sel["custom"], "全认不出 = 没自定义过")
+
+    def test_部分认不出只保留认得的(self):
+        items, dflt = AC.chain_catalog(False)
+        os.environ["AA_CHAIN"] = dflt[0] + ",nope|x"
+        sel = AC.chain_selection("AA_CHAIN", items, dflt)
+        self.assertEqual(sel["selected"], [dflt[0]])
+        self.assertTrue(sel["custom"])
+
+
+class WorkModelsSelectionTest(_IsolatedEnv):
+    """/api/work/<id>/models：`selected` = 设置页保存的链；`head` 按**生效链**算。"""
+
+    def setUp(self):
+        super().setUp()
+        self._cfg = M.cfg_of
+        M.cfg_of = lambda w: {"r18": False}
+
+    def tearDown(self):
+        M.cfg_of = self._cfg
+        super().tearDown()
+
+    def _j(self, type="translate"):
+        j = M.api_work_models("w", type=type)
+        self.assertTrue(j.get("ok"), j)
+        return j
+
+    @repo_only("断言生成者的付费链")
+    def test_勾选集来自AA_CHAIN而非默认集(self):
+        items, dflt = AC.chain_catalog(False)
+        if len(dflt) < 2:
+            self.skipTest("可用端点不足两个")
+        os.environ["AA_CHAIN"] = dflt[1]
+        j = self._j()
+        self.assertEqual(j["default"], dflt, "default 仍是整条链（界面「全勾回默认」口径）")
+        self.assertEqual(j["selected"], [dflt[1]], "默认勾选 = 设置页保存的选择")
+        self.assertTrue(j["custom"])
+        want = next(it for it in items if it["id"] == dflt[1])["label"]
+        self.assertEqual(j["head"], want, "主力端点 = 生效链的头一个端点")
+
+    def test_未设AA_CHAIN时勾选集等于默认集(self):
+        os.environ.pop("AA_CHAIN", None)
+        j = self._j()
+        self.assertEqual(j["selected"], j["default"])
+        self.assertFalse(j["custom"])
+        self.assertTrue(j["head"])
+
+    @repo_only("断言生成者的付费链")
+    def test_链首仍可缓存端点时主力为它(self):
+        items, dflt = AC.chain_catalog(False)
+        os.environ["AA_CHAIN"] = dflt[0]
+        j = self._j()
+        self.assertEqual(j["selected"], [dflt[0]])
+        self.assertEqual(j["head"], next(it for it in items if it["id"] == dflt[0])["label"])
+
+    def test_校对端点读AA_REFINE_BACKEND(self):
+        items, dflt = AC.chain_catalog(False)          # 校对链跟随付费链 → 同一批条目
+        os.environ.pop("AA_CHAIN", None)
+        os.environ["AA_REFINE_BACKEND"] = dflt[0]
+        j = self._j("proofread")
+        self.assertEqual(j["selected"], [dflt[0]])
+        self.assertTrue(j["custom"])
+        del os.environ["AA_REFINE_BACKEND"]
+
+    def test_选中项不在本作品链上时回默认集(self):
+        """给 R18 作品选了不接 R18 的端点（交集为空）→ 界面显示整条 r18 链的默认勾选。"""
+        r18_chain, r18_dflt = AC.refine_catalog(True)
+        norm_ids = {it["id"] for it in AC.chain_catalog(False)[0]}
+        outside = sorted(norm_ids - {it["id"] for it in r18_chain})
+        if not outside:
+            self.skipTest("normal 链条目全在 r18 链上，构造不出链外选择")
+        os.environ["AA_CHAIN"] = outside[0]
+        M.cfg_of = lambda w: {"r18": True}
+        j = self._j()                                  # type=translate + r18 作品 → r18 链
+        self.assertEqual(j["default"], r18_dflt)
+        self.assertEqual(j["selected"], r18_dflt)
+        self.assertFalse(j["custom"])
 
 
 class _EstFixture(unittest.TestCase):

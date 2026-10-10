@@ -338,6 +338,35 @@ def chain_catalog(work_r18):
     return items, default
 
 
+def chain_selection(env_name, entries, default_ids):
+    """当前**生效的勾选集**（设置页 / 翻译·校对控制台 / 划词共用口径）。
+
+    `env_name` = `AA_CHAIN` / `AA_REFINE_BACKEND` / `AA_SEL_CHAIN`；值为逗号分隔的
+    **链条目 id**（`backend|model`）或旧式**后端名**（= 该后端全部条目，保持兼容）。
+    未设/空/全部认不出 → `selected` = `default_ids`（= 整条链的默认勾选）。
+
+    返回 `{"selected": [条目 id], "default": [...], "custom": bool, "raw": str}`；
+    `custom` = env 里确有被认出的选择项（界面据此区分「用户自定义过」与「用默认」）。
+    """
+    raw = (os.environ.get(env_name) or "").strip()
+    sels = [s.strip() for s in raw.split(",") if s.strip()]
+    if not sels:
+        return {"selected": list(default_ids), "default": list(default_ids),
+                "custom": False, "raw": raw}
+    valid = {it["id"] for it in entries}
+    by_backend = {}
+    for it in entries:
+        by_backend.setdefault(it["backend"], []).append(it["id"])
+    ids = []
+    for s in sels:
+        cand = by_backend.get(s) or ([s] if s in valid else [])
+        for eid in cand:
+            if eid not in ids:
+                ids.append(eid)
+    return {"selected": ids or list(default_ids), "default": list(default_ids),
+            "custom": bool(ids), "raw": raw}
+
+
 # 固定链（`follow_default = false`）里 deepinfra 路径若写 `glm` 别名 → 钉 GLM-5.3-Flash
 # （refine_aa._chain_models 同口径；展示/计价都要按 GLM，不能按 [backend.deepinfra].model）
 _REFINE_MODEL_FIXED = {"glm": "zai-org/GLM-5.3-Flash"}
@@ -434,7 +463,7 @@ def fallback_only_names(work_r18):
 
 
 def _env_key_exists(key_env):
-    """该 key 是否有值（真实 env → 仓库根 .env → hermes 两处兜底）。"""
+    """该 key 是否有值（真实 env → 仓库根 .env；唯一文件来源）。"""
     if not key_env:
         return False
     try:
