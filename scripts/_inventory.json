@@ -1,12 +1,12 @@
 {
  "generated_at": null,
  "stats": {
-  "total": 313,
+  "total": 314,
   "legacy": 108,
   "core": 74,
   "tool": 60,
   "deprecated_candidate": 3,
-  "test": 68,
+  "test": 69,
   "hardcoded": 30,
   "top_consts": 49,
   "dup_function_counts": {
@@ -1428,6 +1428,7 @@
      "AGENTS.md",
      "doc/aa作品相关/时间停止探索者_本地翻译质量对照报告_1-10话.md",
      "doc/同步记录.md",
+     "doc/工作台使用说明.md",
      "doc/接口文档.md",
      "doc/方案归档/runner自动化方案_2026-08-21.md",
      "doc/方案归档/宝可梦术语替换歧义守卫方案_2026-09-30.md",
@@ -1624,6 +1625,7 @@
     ],
     "webapp": [],
     "docs": [
+     "doc/工作台使用说明.md",
      "doc/接口文档.md"
     ]
    },
@@ -2451,6 +2453,7 @@
     "webapp": [],
     "docs": [
      "AGENTS.md",
+     "doc/工作台使用说明.md",
      "doc/接口文档.md",
      "doc/方案归档/refine_aa优化方案_2026-10-03.md",
      "doc/方案归档/refine_aa独立精译流程方案_2026-09-06.md",
@@ -6053,7 +6056,10 @@
      "tests.test_board_runner"
     ],
     "webapp": [],
-    "docs": []
+    "docs": [
+     "AGENTS.md",
+     "doc/接口文档.md"
+    ]
    },
    "dup_of": null,
    "hardcoded_path": false,
@@ -6094,6 +6100,7 @@
     "webapp": [],
     "docs": [
      "AGENTS.md",
+     "doc/工作台使用说明.md",
      "doc/接口文档.md",
      "doc/方案归档/runner自动化方案_2026-08-21.md",
      "doc/方案归档/工作台设置页与配置文件方案_2026-10-08.md",
@@ -6217,6 +6224,7 @@
     "webapp": [],
     "docs": [
      "AGENTS.md",
+     "doc/工作台使用说明.md",
      "doc/接口文档.md",
      "doc/方案归档/R18分级与章节级判定方案_2026-08-24.md",
      "doc/方案归档/runner自动化方案_2026-08-21.md",
@@ -6244,7 +6252,9 @@
    "refs": {
     "imports": [],
     "subprocess": [],
-    "referenced_by": [],
+    "referenced_by": [
+     "tests.test_mirror_message"
+    ],
     "webapp": [],
     "docs": [
      "doc/接口文档.md"
@@ -6287,7 +6297,8 @@
      "sites.yaruocheck",
      "sites.yaruohiroba",
      "sites.yaruomatomex",
-     "sites.yomuaa"
+     "sites.yomuaa",
+     "tests.test_mirror_message"
     ],
     "webapp": [],
     "docs": [
@@ -7763,6 +7774,37 @@
    "dup_functions": [],
    "has_main_guard": true,
    "docstring": "P0-C 人工修复保护（M0）单元测试。零依赖 unittest。\n运行：cd scripts/tests && python -m unittest test_manual_fix -v"
+  },
+  "scripts/tests/test_mirror_message.py": {
+   "path": "scripts/tests/test_mirror_message.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "os",
+     "push_code_mirror",
+     "sys",
+     "tempfile",
+     "unittest"
+    ],
+    "subprocess": [
+     "scripts/sites/__init__.py",
+     "scripts/sites/_base.py",
+     "sites/__init__.py",
+     "sites/_base.py"
+    ],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "镜像提交说明（scripts/tools/push_code_mirror.py::mirror_message）用例。"
   },
   "scripts/tests/test_mixed_seg_rule.py": {
    "path": "scripts/tests/test_mixed_seg_rule.py",
@@ -10697,8 +10739,12 @@
      "time",
      "works"
     ],
-    "subprocess": [],
-    "referenced_by": [],
+    "subprocess": [
+     "_base.py"
+    ],
+    "referenced_by": [
+     "tests.test_mirror_message"
+    ],
     "webapp": [],
     "docs": [
      "AGENTS.md",

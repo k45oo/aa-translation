@@ -14,6 +14,8 @@ r"""生成「脱敏代码镜像」并推送到裸仓库（默认 `origin`，即 
 
 快照内容 = 下面的 INCLUDE 白名单 − EXCLUDE 规则；wiki 目录只取「生成物 + 手改源」（不含 `_raw/`）。
 门禁（命中即 rc=2 拒推）：未脱敏路径 / 用户名 / 密钥形状 / 体积上限；`.py` 额外要求 py_compile 全过。
+提交说明由 `mirror_message()` 依**快照内容 + 当天日期 + 工作库近期提交标题**生成（刻意不含远端信息：
+同一份内容在同一天于两处镜像推出同一个 sha，便于交叉核对）。
 """
 import argparse
 import io
@@ -312,6 +314,95 @@ def local_tree(dst, branch):
     return out
 
 
+def _recent_subjects(limit=12):
+    """工作库最近的提交标题（写进镜像提交说明，读起来像 changelog）。
+
+    只取标题、不带 sha：镜像里没有这些提交（全新历史的单提交快照），给 sha 反而误导。
+    """
+    try:
+        r = subprocess.run(["git", "log", f"-{limit}", "--no-merges", "--format=%s"],
+                           cwd=REPO, capture_output=True, text=True, timeout=20)
+    except Exception:
+        return []
+    if r.returncode:
+        return []
+    return [s.strip() for s in r.stdout.splitlines() if s.strip()][:limit]
+
+
+def _mirror_counts(dst):
+    """快照内的结构性计数（站点解析器 / 测试文件 / 技能 / wiki 目录），供目录注记用。"""
+    def count(sub, pred):
+        n = 0
+        for _dp, _dn, filenames in os.walk(os.path.join(dst, *sub.split("/"))):
+            n += sum(1 for fn in filenames if pred(fn))
+        return n
+
+    wiki_root = os.path.join(dst, "doc", "aa作品相关")
+    wikis = 0
+    if os.path.isdir(wiki_root):
+        wikis = len([x for x in os.listdir(wiki_root)
+                     if x.endswith("wiki") and os.path.isdir(os.path.join(wiki_root, x))])
+    return {
+        "sites": count("scripts/sites", lambda fn: fn.endswith(".py") and not fn.startswith("__")
+                       and fn != "_base.py"),
+        "tests": count("scripts/tests", lambda fn: fn.startswith("test_") and fn.endswith(".py")),
+        "skills": count(".codex/skills", lambda fn: fn == "SKILL.md"),
+        "wikis": wikis,
+    }
+
+
+def mirror_message(dst, stamp, n, total, per_dir, subjects=None):
+    """镜像单提交的说明。
+
+    **刻意只用「快照内容 + 当天日期 + 工作库近期提交标题」**，不引入任何远端相关信息
+    （例如「相对上次快照的 diff」）——否则两处镜像（本地裸仓库 / GitHub）在同一份内容上
+    会因 push 顺序不同而得到不同 sha，破坏「同内容同日期 = 同 sha 可交叉核对」。
+    """
+    c = _mirror_counts(dst)
+    note = {
+        "scripts": ("共享实现 common/ · runner/ 入口（下载/翻译/校对/揭示板）· sites/ "
+                    f"{c['sites']} 个站点解析器\n"
+                    "tools/ 独立 CLI · fix/ 修复 · verify/ 校验 · benchmark/ 模型评估 · tests/ "
+                    f"{c['tests']} 个测试文件"),
+        ".codex": f"Codex CLI 兼容格式的技能副本（{c['skills']} 个技能，由 tools/sync_codex_skills.py 生成）",
+        "aa_web_app": "本地矫正工作台（FastAPI）：main 路由 · logic · task_manager · settings · work_pack · selection",
+        "doc": f"方案归档 + 作品 wiki 素材（{c['wikis']} 部）",
+        "fonts": "Sarasa Mono SC（OFL 1.1）+ 许可文本",
+    }
+    L = [f"AA翻译管线代码与文档快照（{stamp}）", ""]
+    L += [
+        "やる夫系 AA 漫画（2ch 字符画）汉化管线：抓页 → 提取 → 分块翻译 → 漏译清理 → 宽度/残留校验 →",
+        "术语统一 → HTML 合集。命令行脚本只用 Python 标准库（3.11+）；另带本地矫正工作台（FastAPI）。",
+        "",
+        "本仓库是**全新历史的单提交快照**（每次同步 force-push 覆盖）：只含代码 / 文档 / 技能 / 字体 /",
+        "术语表；作品数据（原文·汉化·抓取的网页·任务与使用记录）、legacy 归档与构建产物均不入库。",
+        "",
+        f"内容：{n} 文件 / {total / 1048576:.1f} MB",
+    ]
+    singles = []
+    for k, v in sorted(per_dir.items(), key=lambda kv: (-kv[1], kv[0])):
+        top = k.split("/")[0]
+        # 目录（k == top 且在注记表里）走目录行；其余（顶层单文件 + doc/接口文档.md 这类深路径文件）平铺
+        if top in note and k == top:
+            head, *more = note[top].split("\n")
+            L.append(f"  {k:<18}{v:>4}  {head}")
+            L += [f"  {'':<18}{'':>4}  {m}" for m in more]
+        else:
+            singles.append(k.replace("(生成)", ""))
+    if singles:
+        L.append("  另含单文件：" + " · ".join(sorted(singles)))
+    subj = _recent_subjects() if subjects is None else list(subjects)
+    if subj:
+        L += ["", f"快照内的近期改动（工作库最近 {len(subj)} 条提交，对照片里已包含哪些功能）"]
+        L += [f"  - {s}" for s in subj]
+    L += [
+        "",
+        "上手见 `README.md`（环境准备 → 填 API key → 添加作品 → 下载原文 → 生成术语表 → 翻译 → 校对 → 合集）；",
+        "命令与 env 清单见 `doc/接口文档.md`，脚本分级见 `scripts/_inventory.json`，`scripts/` 结构说明见 `scripts/README.md`。",
+    ]
+    return "\n".join(L).rstrip() + "\n"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--remote", default="", help="镜像仓库（默认取 remote origin 解析成绝对路径）")
@@ -359,10 +450,10 @@ def main():
         # 作者/提交时间固定 → 同一份内容在同一日期下 commit sha 恒定（两处镜像可交叉核对）
         env = dict(os.environ, GIT_AUTHOR_DATE=f"{stamp}T00:00:00+08:00",
                    GIT_COMMITTER_DATE=f"{stamp}T00:00:00+08:00")
+        msg = mirror_message(dst, stamp, n, total, per_dir)
         subprocess.run(["git", "-c", "user.name=AA翻译镜像", "-c", "user.email=mirror@localhost",
-                        "commit", "-q", "-m",
-                        f"AA翻译管线代码与文档（{stamp} 同步；作品数据不入库）"],
-                       cwd=dst, check=True, env=env)
+                        "commit", "-q", "-F", "-"],
+                       cwd=dst, check=True, env=env, input=msg.encode("utf-8"))
         head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=dst,
                               capture_output=True, text=True).stdout.strip()
         idx = subprocess.run(["git", "ls-files"], cwd=dst, capture_output=True, text=True).stdout
