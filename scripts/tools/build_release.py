@@ -7,7 +7,8 @@ r"""打包「开箱即用」发行包（方案 doc/方案归档/发行包打包�
                                           [--no-verify] [--smoke-api]
 
 包内容（顶层白名单见 `TOP_ENTRIES`）：干净源码 + 冻结工作台 exe + 示例作品 3 话 +
-宝可梦 wiki 翻译素材 + 独立配置（README / requirements.txt / .env.example / 两个 bat）。
+宝可梦 wiki 翻译素材 + 独立配置（README / LICENSE / requirements.txt / .env.example / 两个 bat；
+字体随包带上 `fonts/OFL.txt`）。
 
 设计要点
 --------
@@ -67,7 +68,7 @@ WIKI_FILES_WORK = ("术语表.json", "官方译名对照.json", "人工修正.js
 
 # 包根下允许出现的东西（多一个就拒绝出包 —— 防"顺手带进去"的目录）
 TOP_ENTRIES = {"scripts", "aa_web_app", "aaManga", "doc", "fonts",
-               "README.md", "requirements.txt", ".env.example",
+               "README.md", "LICENSE", "requirements.txt", ".env.example",
                "安装依赖.bat", "启动工作台.bat", "glossary.json", "roles.json",
                RELEASE_MARKER, EXE_NAME}
 
@@ -591,6 +592,8 @@ def gates(stage):
     must = ["scripts/tools/aa_web.py", "scripts/config/model_config.toml", "README.md",
             "requirements.txt", ".env.example", "aa_web_app/main.py",
             "doc/接口文档.md", "glossary.json", "roles.json",
+            # 许可：代码 MIT + 字体 OFL（分发字体必须随附 OFL 文本，缺了就是不合规分发）
+            "LICENSE", os.path.join("fonts", "OFL.txt"),
             os.path.join("aaManga", EXAMPLE["dir"], "work", "glossary_%s.json" % EXAMPLE["id"])]
     missing = [m for m in must if not os.path.exists(os.path.join(stage, m))]
     if missing:
@@ -626,8 +629,13 @@ def _looks_like_live_data_root(d):
 
     2026-10-10 修正：**上一次打出的包本身**就带非空 `aaManga/`（示例作品）+ 示例
     `work_meta.json`，旧判据会把每个旧包都判成"活数据根" → 同一个 `--out` 永远拒绝重打，
-    `_set_aside_out_dir()` 的挪开机制永远轮不上。现按「包标记 + 是否只有示例作品 + 有没有
-    真实翻译产物」区分：**老包 → 不算活数据（交给挪开机制）**，被人真用过 → 仍拒绝。
+    `_set_aside_out_dir()` 的挪开机制永远轮不上。
+
+    现按「包标记 + 强信号」区分：**有 `.release_package` 的老包 → 不算活数据**（交给挪开机制，
+    只 `os.replace` 不删，数据一个字节不丢）；只有出现**别的作品**、**填过 key 的 `.env`**、
+    或**真出过交付物**才算活数据。注意：冒烟测试就在包目录里跑 exe/脚本，会留下
+    `汉化/*.txt`、`work/*` 缓存、`read_state.json` 等痕迹——**这些不算"被人用过"**。
+    
     """
     if not os.path.isdir(d):
         return False
@@ -651,16 +659,19 @@ def _looks_like_live_data_root(d):
             return True if (subs or any(os.scandir(am))) else False
         if [n for n in subs if n != EXAMPLE["dir"]]:
             return True                                # 包目录里冒出别的作品 = 真数据
-        ex = os.path.join(am, EXAMPLE["dir"])          # 包自带的示例作品
-        for sub, pat in (("汉化", r"_汉化\.txt$"), ("work", r"\.ckpt\.json$")):
-            p = os.path.join(ex, sub)
-            if os.path.isdir(p) and any(re.search(pat, n) for n in os.listdir(p)):
-                return True                            # 真被翻过/校对过 → 认活
 
     for sub in ("交付HTML", "揭示板", "导出"):
         p = os.path.join(d, sub)
-        if os.path.isdir(p) and any(os.scandir(p)):
-            return True                                # 有交付物/揭示板/导出包
+        if not os.path.isdir(p):
+            continue
+        if not marker:
+            if any(os.scandir(p)):
+                return True                            # 非包目录里有交付物/揭示板/导出包
+            continue
+        # 包目录：冒烟测试会建空壳目录，只有**真出过产物**才算活数据
+        for root, dirs, files in os.walk(p):
+            if [f for f in files if not f.startswith(".")]:
+                return True
     if not marker and os.path.isfile(os.path.join(d, "aa_web_app", "data", "work_meta.json")):
         return True                                    # 有作品元数据
     return False

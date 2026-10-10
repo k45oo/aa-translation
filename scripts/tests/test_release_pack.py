@@ -120,16 +120,23 @@ class TestLiveDataRoot(unittest.TestCase):
         """回归：旧包必须允许重打（交给 _set_aside_out_dir 挪开，不删）。"""
         self.assertFalse(self.m._looks_like_live_data_root(self._pkg()), "旧包应可重打")
 
-    def test_示例作品被真翻过就算活数据(self):
+    def test_冒烟测试残留不算活数据(self):
+        """打包含冒烟：包目录里会留下汉化/缓存/进度文件 —— 那是构建者自己弄脏的，不拦重打。"""
         d = self._pkg()
-        open(os.path.join(d, "aaManga", self.ex, "汉化", "entry_1_汉化.txt"), "w",
+        open(os.path.join(d, "aaManga", self.ex, "汉化", "35828_虚空のエントランス_汉化.txt"), "w",
              encoding="utf-8").write("译文")
-        self.assertTrue(self.m._looks_like_live_data_root(d))
-
-    def test_示例作品有校对ckpt就算活数据(self):
-        d = self._pkg()
-        open(os.path.join(d, "aaManga", self.ex, "work", "entry_1.txt.ckpt.json"), "w",
+        open(os.path.join(d, "aaManga", self.ex, "work", "tm_baitou.json"), "w",
              encoding="utf-8").write("{}")
+        open(os.path.join(d, "aaManga", self.ex, "work", "stats_cache.json"), "w",
+             encoding="utf-8").write("{}")
+        open(os.path.join(d, ".aaweb_progress.json"), "w", encoding="utf-8").write("{}")
+        self.assertFalse(self.m._looks_like_live_data_root(d), "冒烟残留不该拦住重打")
+
+    def test_包目录里真出过交付物算活数据(self):
+        d = self._pkg()
+        os.makedirs(os.path.join(d, "交付HTML", "某作品_汉化合集"), exist_ok=True)
+        open(os.path.join(d, "交付HTML", "某作品_汉化合集", "index.html"), "w",
+             encoding="utf-8").write("<html>")
         self.assertTrue(self.m._looks_like_live_data_root(d))
 
     def test_包目录里多出别的作品就算活数据(self):
