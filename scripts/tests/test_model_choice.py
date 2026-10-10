@@ -249,56 +249,80 @@ class ChainSelectionTest(_IsolatedEnv):
 
     背景：控制台多选此前一律按 TOML 链的「默认集」勾（= 整条链），设置页里改过的选择
     在控制台看不到 → 用户每次开任务都要手点一遍同样的取消勾选。
+
+    用**合成默认集**（`_cat()` 的第二项）而非 `chain_catalog` 的真 default：后者要求端点 key
+    存在（发行包里 key 被清空 → default 恒为空集），而 chain_selection 的语义与 key 无关。
     """
 
+    @staticmethod
+    def _cat():
+        items, _d = AC.chain_catalog(False)
+        synth = [it["id"] for it in items if not it.get("fallback_only")][:3] or [items[0]["id"]]
+        return items, synth
+
     def test_未设env时等于默认集(self):
-        items, dflt = AC.chain_catalog(False)
-        self.assertTrue(dflt, "默认集不该为空")
-        sel = AC.chain_selection("AA_CHAIN", items, dflt)
-        self.assertEqual(sel["selected"], dflt)
+        items, synth = self._cat()
+        self.assertTrue(synth, "合成默认集不该为空")
+        sel = AC.chain_selection("AA_CHAIN", items, synth)
+        self.assertEqual(sel["selected"], synth)
         self.assertFalse(sel["custom"])
 
     def test_条目id子集(self):
-        items, dflt = AC.chain_catalog(False)
-        if len(dflt) < 2:
-            self.skipTest("可用端点不足两个")
-        os.environ["AA_CHAIN"] = ",".join(dflt[:2])
-        sel = AC.chain_selection("AA_CHAIN", items, dflt)
-        self.assertEqual(sel["selected"], dflt[:2], "按 env 顺序 = 控制台勾选集")
+        items, synth = self._cat()
+        if len(synth) < 2:
+            self.skipTest("链上可用条目不足两个")
+        os.environ["AA_CHAIN"] = ",".join(synth[:2])
+        sel = AC.chain_selection("AA_CHAIN", items, synth)
+        self.assertEqual(sel["selected"], synth[:2], "按 env 顺序 = 控制台勾选集")
         self.assertTrue(sel["custom"])
 
     def test_旧后端名等价于该后端全部条目(self):
-        items, dflt = AC.chain_catalog(False)
+        items, synth = self._cat()
         os.environ["AA_CHAIN"] = items[0]["backend"]
-        sel = AC.chain_selection("AA_CHAIN", items, dflt)
+        sel = AC.chain_selection("AA_CHAIN", items, synth)
         same = [it["id"] for it in items if it["backend"] == items[0]["backend"]]
         self.assertEqual(sel["selected"], same)
         self.assertTrue(sel["custom"])
 
     def test_认不出的项回默认集(self):
-        items, dflt = AC.chain_catalog(False)
+        items, synth = self._cat()
         os.environ["AA_CHAIN"] = "nope|x,yet|another"
-        sel = AC.chain_selection("AA_CHAIN", items, dflt)
-        self.assertEqual(sel["selected"], dflt)
+        sel = AC.chain_selection("AA_CHAIN", items, synth)
+        self.assertEqual(sel["selected"], synth)
         self.assertFalse(sel["custom"], "全认不出 = 没自定义过")
 
     def test_部分认不出只保留认得的(self):
-        items, dflt = AC.chain_catalog(False)
-        os.environ["AA_CHAIN"] = dflt[0] + ",nope|x"
-        sel = AC.chain_selection("AA_CHAIN", items, dflt)
-        self.assertEqual(sel["selected"], [dflt[0]])
+        items, synth = self._cat()
+        os.environ["AA_CHAIN"] = synth[0] + ",nope|x"
+        sel = AC.chain_selection("AA_CHAIN", items, synth)
+        self.assertEqual(sel["selected"], [synth[0]])
         self.assertTrue(sel["custom"])
 
 
 class WorkModelsSelectionTest(_IsolatedEnv):
-    """/api/work/<id>/models：`selected` = 设置页保存的链；`head` 按**生效链**算。"""
+    """/api/work/<id>/models：`selected` = 设置页保存的链；`head` 按**生效链**算。
+
+    条目清单取真实 TOML，**默认勾选集换成合成的**（`chain_catalog` 被 patch）：发行包里 key 被
+    清空 → 真 default 是空集，断言全废；用合成集后这些用例在包内也跑得动。
+    """
 
     def setUp(self):
         super().setUp()
         self._cfg = M.cfg_of
         M.cfg_of = lambda w: {"r18": False}
+        self._items, _d = AC.chain_catalog(False)
+        self._r18_items, _d2 = AC.chain_catalog(True)
+        self.assertTrue(self._items, "TOML 链定义不该为空")
+        self._synth = ([it["id"] for it in self._items if not it.get("fallback_only")][:3]
+                       or [self._items[0]["id"]])
+        self._r18_synth = ([it["id"] for it in self._r18_items if not it.get("fallback_only")][:2]
+                           or [self._r18_items[0]["id"]])
+        self._p = mock.patch.object(AC, "chain_catalog",
+                                    lambda r18=False: (self._items, list(self._synth)))
+        self._p.start()
 
     def tearDown(self):
+        self._p.stop()
         M.cfg_of = self._cfg
         super().tearDown()
 
@@ -307,17 +331,15 @@ class WorkModelsSelectionTest(_IsolatedEnv):
         self.assertTrue(j.get("ok"), j)
         return j
 
-    @repo_only("断言生成者的付费链")
     def test_勾选集来自AA_CHAIN而非默认集(self):
-        items, dflt = AC.chain_catalog(False)
-        if len(dflt) < 2:
-            self.skipTest("可用端点不足两个")
-        os.environ["AA_CHAIN"] = dflt[1]
+        if len(self._synth) < 2:
+            self.skipTest("链上可用条目不足两个")
+        os.environ["AA_CHAIN"] = self._synth[1]
         j = self._j()
-        self.assertEqual(j["default"], dflt, "default 仍是整条链（界面「全勾回默认」口径）")
-        self.assertEqual(j["selected"], [dflt[1]], "默认勾选 = 设置页保存的选择")
+        self.assertEqual(j["default"], self._synth, "default 仍是整条链（界面「全勾回默认」口径）")
+        self.assertEqual(j["selected"], [self._synth[1]], "默认勾选 = 设置页保存的选择")
         self.assertTrue(j["custom"])
-        want = next(it for it in items if it["id"] == dflt[1])["label"]
+        want = next(it for it in self._items if it["id"] == self._synth[1])["label"]
         self.assertEqual(j["head"], want, "主力端点 = 生效链的头一个端点")
 
     def test_未设AA_CHAIN时勾选集等于默认集(self):
@@ -327,35 +349,44 @@ class WorkModelsSelectionTest(_IsolatedEnv):
         self.assertFalse(j["custom"])
         self.assertTrue(j["head"])
 
-    @repo_only("断言生成者的付费链")
     def test_链首仍可缓存端点时主力为它(self):
-        items, dflt = AC.chain_catalog(False)
-        os.environ["AA_CHAIN"] = dflt[0]
+        os.environ["AA_CHAIN"] = self._synth[0]
         j = self._j()
-        self.assertEqual(j["selected"], [dflt[0]])
-        self.assertEqual(j["head"], next(it for it in items if it["id"] == dflt[0])["label"])
+        self.assertEqual(j["selected"], [self._synth[0]])
+        self.assertEqual(j["head"],
+                         next(it for it in self._items if it["id"] == self._synth[0])["label"])
 
     def test_校对端点读AA_REFINE_BACKEND(self):
-        items, dflt = AC.chain_catalog(False)          # 校对链跟随付费链 → 同一批条目
         os.environ.pop("AA_CHAIN", None)
-        os.environ["AA_REFINE_BACKEND"] = dflt[0]
+        os.environ["AA_REFINE_BACKEND"] = self._synth[0]
         j = self._j("proofread")
-        self.assertEqual(j["selected"], [dflt[0]])
+        self.assertEqual(j["selected"], [self._synth[0]])
         self.assertTrue(j["custom"])
         del os.environ["AA_REFINE_BACKEND"]
 
+    def test_未识别的选择回默认集(self):
+        os.environ["AA_CHAIN"] = "nope|outside"
+        j = self._j()
+        self.assertEqual(j["selected"], j["default"])
+        self.assertFalse(j["custom"])
+
     def test_选中项不在本作品链上时回默认集(self):
         """给 R18 作品选了不接 R18 的端点（交集为空）→ 界面显示整条 r18 链的默认勾选。"""
-        r18_chain, r18_dflt = AC.refine_catalog(True)
-        norm_ids = {it["id"] for it in AC.chain_catalog(False)[0]}
-        outside = sorted(norm_ids - {it["id"] for it in r18_chain})
+        norm_ids = {it["id"] for it in self._items}
+        outside = sorted(norm_ids - {it["id"] for it in self._r18_items})
         if not outside:
             self.skipTest("normal 链条目全在 r18 链上，构造不出链外选择")
+        self._p.stop()
+        self._p = mock.patch.object(
+            AC, "chain_catalog",
+            lambda r18=False: ((self._r18_items, list(self._r18_synth)) if r18
+                               else (self._items, list(self._synth))))
+        self._p.start()
         os.environ["AA_CHAIN"] = outside[0]
         M.cfg_of = lambda w: {"r18": True}
-        j = self._j()                                  # type=translate + r18 作品 → r18 链
-        self.assertEqual(j["default"], r18_dflt)
-        self.assertEqual(j["selected"], r18_dflt)
+        j = self._j()                                  # r18 作品 → r18 链
+        self.assertEqual(j["default"], self._r18_synth)
+        self.assertEqual(j["selected"], self._r18_synth)
         self.assertFalse(j["custom"])
 
 

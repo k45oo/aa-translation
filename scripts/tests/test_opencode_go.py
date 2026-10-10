@@ -93,7 +93,7 @@ class TestCallOpencodeGo(unittest.TestCase):
               "usage": {"prompt_tokens": 10, "completion_tokens": 1}}
         self._install(lambda n: _FakeResp(ok))
         AB.set_zen_session("aa-test-ch1")
-        out = AB.call_opencode_go("sys", "user", max_tokens=16, timeout=5)
+        out = AB.call_opencode_go("sys", "user", max_tokens=16, timeout=5, key="test-key")
         self.assertEqual(out, "好")
         got = self.seen[0]
         self.assertIn("/zen/go/v1/chat/completions", got["url"])
@@ -111,7 +111,7 @@ class TestCallOpencodeGo(unittest.TestCase):
             return _FakeResp({"choices": [{"message": {"content": "好"}, "finish_reason": "stop"}],
                               "usage": {"prompt_tokens": 9, "completion_tokens": 1}})
         self._install(handler)
-        out = AB.call_opencode_go("sys", "user", max_tokens=16, timeout=5)
+        out = AB.call_opencode_go("sys", "user", max_tokens=16, timeout=5, key="test-key")
         self.assertEqual(out, "好")
         self.assertEqual(len(self.seen), 2, "应当自动重试一次")
         self.assertEqual(self.seen[0]["body"].get("reasoning_effort"), "none")
@@ -122,7 +122,7 @@ class TestCallOpencodeGo(unittest.TestCase):
         os.environ["AA_OCGO_URL"] = "https://example.invalid/v1/chat/completions"
         self._install(lambda n: _FakeResp({"choices": [{"message": {"content": "x"},
                                                         "finish_reason": "stop"}], "usage": {}}))
-        AB.call_opencode_go("s", "u", max_tokens=8, timeout=5)
+        AB.call_opencode_go("s", "u", max_tokens=8, timeout=5, key="test-key")
         self.assertEqual(self.seen[0]["url"], "https://example.invalid/v1/chat/completions")
 
 
@@ -197,7 +197,7 @@ class TestZenRetriesBudget(unittest.TestCase):
                 raise self._http400()
             return self._ok()
         self._install(handler)
-        out = AB.call_opencode_go("s", "u", max_tokens=8, timeout=5, retries=1)
+        out = AB.call_opencode_go("s", "u", max_tokens=8, timeout=5, retries=1, key="test-key")
         self.assertEqual(out, "好")
         self.assertEqual(len(self.calls), 2, "retries=1 时自适应换法必须还有一次机会（否则等于白关思考）")
         self.assertEqual(self.calls[0].get("reasoning_effort"), "none")
@@ -208,7 +208,7 @@ class TestZenRetriesBudget(unittest.TestCase):
             raise RuntimeError("connection reset")
         self._install(handler)
         with self.assertRaises(RuntimeError):
-            AB.call_opencode_go("s", "u", max_tokens=8, timeout=5, retries=1)
+            AB.call_opencode_go("s", "u", max_tokens=8, timeout=5, retries=1, key="test-key")
         self.assertEqual(len(self.calls), 1, "retries=1 = 只发一次（划词失败要快、好换下一候选）")
 
     def test_默认retries3(self):
@@ -216,7 +216,7 @@ class TestZenRetriesBudget(unittest.TestCase):
             raise RuntimeError("boom")
         self._install(handler)
         with self.assertRaises(RuntimeError):
-            AB.call_opencode_go("s", "u", max_tokens=8, timeout=5)
+            AB.call_opencode_go("s", "u", max_tokens=8, timeout=5, key="test-key")
         self.assertEqual(len(self.calls), 3, "整章链上的默认仍是 3 次")
 
 

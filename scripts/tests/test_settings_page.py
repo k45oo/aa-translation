@@ -128,13 +128,16 @@ class TestStateView(_Base):
 
     def test_保存的选择回显为勾选集(self):
         """设置页保存的链 → 状态接口 selected（页面勾选状态）+ 控制台多选同源（2026-10-10）。"""
-        ids = [e["id"] for e in self._state()["models"]["translate"]["entries"]]
-        if len(ids) < 2:
-            self.skipTest("可用端点不足两个")
-        self._post({"section": "models", "translate": ids[:2]})
+        default = self._state()["models"]["translate"]["default"]
+        if not default:
+            self.skipTest("没有可用端点（未配 key）")
+        # 「默认集去掉最后一个」= 一定不同于默认集（发行包里链条目被裁到 2 个也成立）
+        want = default[:-1] or default[:1]
+        self._post({"section": "models", "translate": want})
         m = self._state()["models"]["translate"]
-        self.assertEqual(m["selected"], ids[:2])
-        self.assertNotEqual(sorted(m["selected"]), sorted(m["default"]))
+        self.assertEqual(m["selected"], want)
+        if len(default) > 1:
+            self.assertNotEqual(sorted(m["selected"]), sorted(m["default"]))
         # 控制台接口（/api/work/<id>/models）读到同一份选择（非 R18 作品 → normal 链）
         _old = M.cfg_of
         M.cfg_of = lambda w: {"r18": False}
@@ -143,7 +146,7 @@ class TestStateView(_Base):
         finally:
             M.cfg_of = _old
         self.assertTrue(wm.get("ok"), wm)
-        self.assertEqual(wm["selected"], ids[:2])
+        self.assertEqual(wm["selected"], want)
         self.assertTrue(wm["head"])
 
 
