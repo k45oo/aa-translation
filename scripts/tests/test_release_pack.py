@@ -83,5 +83,74 @@ class TestSetAsideOutDir(unittest.TestCase):
         self.assertFalse(bad, "产物目录只能挪开（第 %s 行仍在直接删）—— 直接删会重演数据丢失事故" % bad)
 
 
+class TestLiveDataRoot(unittest.TestCase):
+    """「活数据根」判定的正反例。
+
+    2026-10-10 修正的动机：**上一次打出的包**自己就带非空 `aaManga/`（示例作品）+ 示例
+    `work_meta.json`，旧判据把每个旧包都当活数据 → 同一个 `--out` 永远拒绝重打
+    （挪开机制永远轮不上）。反过来，被人真跑过的包必须仍被拒。
+    """
+
+    def setUp(self):
+        self.m = _load()
+        self.tmp = tempfile.mkdtemp(prefix="release_live_")
+        self.ex = self.m.EXAMPLE["dir"]
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _pkg(self, name="pkg", marker=True, example_dirs=("aa", "汉化", "work", "raw"),
+             meta=True, other_work=None):
+        """造一个"上一次打出的包"目录。"""
+        d = os.path.join(self.tmp, name)
+        os.makedirs(os.path.join(d, "aaManga", self.ex), exist_ok=True)
+        for sub in example_dirs:
+            os.makedirs(os.path.join(d, "aaManga", self.ex, sub), exist_ok=True)
+        if other_work:
+            os.makedirs(os.path.join(d, "aaManga", other_work), exist_ok=True)
+        if meta:
+            os.makedirs(os.path.join(d, "aa_web_app", "data"), exist_ok=True)
+            open(os.path.join(d, "aa_web_app", "data", "work_meta.json"), "w",
+                 encoding="utf-8").write("{}")
+        if marker:
+            open(os.path.join(d, ".release_package"), "w", encoding="utf-8").write("{}")
+        return d
+
+    def test_上一次的包不算活数据(self):
+        """回归：旧包必须允许重打（交给 _set_aside_out_dir 挪开，不删）。"""
+        self.assertFalse(self.m._looks_like_live_data_root(self._pkg()), "旧包应可重打")
+
+    def test_示例作品被真翻过就算活数据(self):
+        d = self._pkg()
+        open(os.path.join(d, "aaManga", self.ex, "汉化", "entry_1_汉化.txt"), "w",
+             encoding="utf-8").write("译文")
+        self.assertTrue(self.m._looks_like_live_data_root(d))
+
+    def test_示例作品有校对ckpt就算活数据(self):
+        d = self._pkg()
+        open(os.path.join(d, "aaManga", self.ex, "work", "entry_1.txt.ckpt.json"), "w",
+             encoding="utf-8").write("{}")
+        self.assertTrue(self.m._looks_like_live_data_root(d))
+
+    def test_包目录里多出别的作品就算活数据(self):
+        self.assertTrue(self.m._looks_like_live_data_root(self._pkg(other_work="某人的作品")))
+
+    def test_env填过key就算活数据(self):
+        d = self._pkg()
+        open(os.path.join(d, ".env"), "w", encoding="utf-8").write("DEEPSEEK_API_KEY=sk-xxx\n")
+        self.assertTrue(self.m._looks_like_live_data_root(d))
+
+    def test_env只有空模板不算(self):
+        d = self._pkg()
+        open(os.path.join(d, ".env"), "w", encoding="utf-8").write("# 注释\nDEEPSEEK_API_KEY=\n")
+        self.assertFalse(self.m._looks_like_live_data_root(d))
+
+    def test_无标记目录保持旧行为(self):
+        d = os.path.join(self.tmp, "plain")
+        os.makedirs(os.path.join(d, "aaManga", "作品"), exist_ok=True)
+        self.assertTrue(self.m._looks_like_live_data_root(d), "没有包标记还带作品 → 认活")
+        self.assertFalse(self.m._looks_like_live_data_root(os.path.join(self.tmp, "空")))
+
+
 if __name__ == "__main__":
     unittest.main()

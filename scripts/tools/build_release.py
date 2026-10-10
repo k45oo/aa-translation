@@ -621,19 +621,47 @@ def gates(stage):
 def _looks_like_live_data_root(d):
     r"""产物目录里是不是带着**运行中的数据**（有人把 exe 放在里面跑过）。
 
-    事故背景：测试实例直接跑在 `导出/<包>/` 里（数据根 = 包目录）。重建时 `shutil.rmtree(out_dir)`
-    在删除途中遇到被占用的目录报错 —— 但**已经删掉的文件不会回来**：`.env`、`aaManga/`、
-    `aa_web_app/data/`、数据根 registry 全没了（靠备份才恢复）。所以删之前先认人。
+    事故背景：测试实例直接跑在 `导出/<包>/` 里（数据根 = 包目录）。重建会删掉整棵目录树，
+    所以删（更准确说：挪开）之前先认人。
+
+    2026-10-10 修正：**上一次打出的包本身**就带非空 `aaManga/`（示例作品）+ 示例
+    `work_meta.json`，旧判据会把每个旧包都判成"活数据根" → 同一个 `--out` 永远拒绝重打，
+    `_set_aside_out_dir()` 的挪开机制永远轮不上。现按「包标记 + 是否只有示例作品 + 有没有
+    真实翻译产物」区分：**老包 → 不算活数据（交给挪开机制）**，被人真用过 → 仍拒绝。
     """
     if not os.path.isdir(d):
         return False
-    if os.path.isfile(os.path.join(d, ".env")):
-        return True                                    # 用户填过 key/端口
-    for sub in ("aaManga", "交付HTML", "揭示板", "导出"):
+    marker = os.path.isfile(os.path.join(d, ".release_package"))
+
+    env = os.path.join(d, ".env")
+    if os.path.isfile(env):
+        try:
+            txt = open(env, encoding="utf-8", errors="ignore").read()
+        except OSError:
+            return True
+        if re.search(r"^\s*[A-Za-z0-9_]+\s*=\s*\S", txt, re.M):
+            return True                                # 用户填过 key/端口
+        if not marker:
+            return True                                # 有 .env 又不是包目录 → 认活
+
+    am = os.path.join(d, "aaManga")
+    if os.path.isdir(am):
+        subs = [n for n in os.listdir(am) if os.path.isdir(os.path.join(am, n))]
+        if not marker:
+            return True if (subs or any(os.scandir(am))) else False
+        if [n for n in subs if n != EXAMPLE["dir"]]:
+            return True                                # 包目录里冒出别的作品 = 真数据
+        ex = os.path.join(am, EXAMPLE["dir"])          # 包自带的示例作品
+        for sub, pat in (("汉化", r"_汉化\.txt$"), ("work", r"\.ckpt\.json$")):
+            p = os.path.join(ex, sub)
+            if os.path.isdir(p) and any(re.search(pat, n) for n in os.listdir(p)):
+                return True                            # 真被翻过/校对过 → 认活
+
+    for sub in ("交付HTML", "揭示板", "导出"):
         p = os.path.join(d, sub)
         if os.path.isdir(p) and any(os.scandir(p)):
-            return True                                # 有作品/交付物
-    if os.path.isfile(os.path.join(d, "aa_web_app", "data", "work_meta.json")):
+            return True                                # 有交付物/揭示板/导出包
+    if not marker and os.path.isfile(os.path.join(d, "aa_web_app", "data", "work_meta.json")):
         return True                                    # 有作品元数据
     return False
 
