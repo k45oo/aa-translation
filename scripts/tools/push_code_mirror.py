@@ -264,13 +264,18 @@ def _clear_tree(dst):
 
 
 def _export_commit(sha, out_dir):
-    """把某条提交里白名单路径的内容导出到 out_dir（该提交里不存在的路径自动跳过）。"""
+    """把某条提交里白名单路径的内容导出到 out_dir（该提交里不存在的路径自动跳过）。
+
+    ⚠️ 给 git 的路径一律转正斜杠：`WIKI_GLOB_DIR` 是 `os.path.join` 出来的，在 Windows 上是
+    `doc\\aa作品相关` → 当 `-e <sha>:doc\\aa作品相关` 传过去直接 rc=128（整棵 wiki 素材静默丢掉）。
+    """
     import tarfile
     paths = []
     for p in list(INCLUDE_DIRS) + list(INCLUDE_FILES) + [WIKI_GLOB_DIR]:
-        if subprocess.run(["git", "-C", REPO, "cat-file", "-e", f"{sha}:{p}"],
+        gp = p.replace(os.sep, "/")
+        if subprocess.run(["git", "-C", REPO, "cat-file", "-e", f"{sha}:{gp}"],
                           capture_output=True).returncode == 0:
-            paths.append(p)
+            paths.append(gp)
     if not paths:
         return 0
     r = subprocess.run(["git", "-C", REPO, "archive", "--format=tar", sha, "--"] + paths,
@@ -279,7 +284,9 @@ def _export_commit(sha, out_dir):
         raise SystemExit("git archive %s 失败: %s" % (sha, r.stderr.decode("utf-8", "ignore")[:200]))
     with tarfile.open(fileobj=io.BytesIO(r.stdout), mode="r:") as tf:
         for m in tf.getmembers():
-            name = m.name.replace("\\", "/").lstrip("./")
+            name = m.name.replace("\\", "/")
+            if name.startswith("./"):            # ⚠️ 别用 lstrip("./")：那会把 .codex/ 的点的也切掉
+                name = name[2:]
             if not m.isfile() or name.startswith("/") or ".." in name.split("/"):
                 continue
             out = os.path.join(out_dir, name)
