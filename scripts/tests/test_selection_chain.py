@@ -4,6 +4,8 @@
 
 运行：python -m unittest discover -s scripts/tests   （需 .venv python）
 """
+import contextlib
+import io
 import os
 import sys
 import unittest
@@ -253,6 +255,12 @@ class TestTranslateTextAutoRetry(unittest.TestCase):
         import aa_backend
         self.AB = aa_backend
         self.logs = []
+        # 链钉成「三条被 mock 的通道」：本类只 mock 这三个后端，若不钉就会读本机 .env 的
+        # `AA_SEL_CHAIN`（用户配了 opencode_go 等 → 真机网络调用混进断言，2026-10-10 实测这两例跑红）
+        self._chain = os.environ.get("AA_SEL_CHAIN")
+        os.environ["AA_SEL_CHAIN"] = ("deepseek|deepseek-flash,"
+                                      "deepinfra|deepseek-ai/DeepSeek-V4-Flash-0731,"
+                                      "runinfra|glm-5-3-flash")
         self._saved = (SEL._log_sel, SEL._build_prompt, SEL._allow_kana)
         SEL._log_sel = lambda rec: self.logs.append(rec)
         SEL._build_prompt = lambda work, base: SEL._SYSTEM + SEL._ART_GUARD
@@ -260,6 +268,10 @@ class TestTranslateTextAutoRetry(unittest.TestCase):
 
     def tearDown(self):
         SEL._log_sel, SEL._build_prompt, SEL._allow_kana = self._saved
+        if self._chain is None:
+            os.environ.pop("AA_SEL_CHAIN", None)
+        else:
+            os.environ["AA_SEL_CHAIN"] = self._chain
 
     def test_auto_force_retry_after_echo(self):
         seq = []
@@ -397,6 +409,31 @@ class TestSelChainConfig(unittest.TestCase):
         order = [c[2] for c in SEL._sel_candidates(avoid=names[0])]
         self.assertEqual(len(order), 3)
         self.assertEqual(order[-1], names[0], "avoid 的通道排到最后")
+
+    def test_付费链上每个后端都有划词调用函数(self):
+        """设置页划词链的候选 = `selection_catalog()`（付费链条目 ∪ 划词默认链）——
+        这些后端在 `_call_fn` 里**都必须有登记**。漏一个 = `_sel_candidates` 静默跳过它，
+        症状是「配的链首从没被用过、每次都落第二候选」（2026-10-10 opencode_go 就这么漏的）。
+        """
+        import aa_config as AC
+        items, _d = AC.selection_catalog()
+        known = {it["backend"] for it in items if SEL._call_fn(it["backend"])}
+        miss = sorted({it["backend"] for it in items} - known)
+        self.assertEqual(miss, [], "这些后端可选进划词链但没有调用函数（候选会被静默跳过）: %s" % miss)
+
+    def test_未支持后端在stderr告警(self):
+        os.environ["AA_SEL_CHAIN"] = "nosuch|m"
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            self.assertEqual(SEL._sel_candidates(), [])
+        self.assertIn("nosuch", buf.getvalue())
+
+    def test_全是不支持后端时报错清楚(self):
+        os.environ["AA_SEL_CHAIN"] = "nosuch|m"
+        with mock.patch.object(SEL, "_log_sel", lambda rec: None):
+            with self.assertRaises(RuntimeError) as cm:
+                SEL._do_translate(SEL._SYSTEM, JP_SENT)
+        self.assertIn("没有可用的后端", str(cm.exception))
 
     def test_配置的链真的被_do_translate_用(self):
         import aa_backend as AB
