@@ -133,11 +133,17 @@ def _backend_default_model(b):
 
 
 def _call_fn(b):
-    """后端名 → 划词用的文本调用函数（None = 未支持的后端）。"""
+    """后端名 → 划词用的文本调用函数（None = 未支持的后端）。
+
+    ⚠️ 设置页「划词链」的候选来自 `aa_config.selection_catalog()`（两条付费链条目 ∪ 划词默认链）——
+    **付费链上有的后端这里都要有**，缺一个就会在 `_sel_candidates` 里被静默跳过（用户看到的是
+    「永远在用第二候选」，2026-10-10 就是 opencode_go 缺这一行：链首明明配了它，实际每次落 mimo）。
+    """
     import aa_backend as AB
     return {
         "deepseek": AB.call_deepseek, "deepinfra": AB.call_deepinfra,
         "runinfra": AB.call_runinfra, "mimo": AB.call_mimo,
+        "opencode_go": AB.call_opencode_go,
         "commandcode": AB.call_commandcode, "siliconflow": AB.call_siliconflow,
         "dashscope": AB.call_dashscope, "minimax": AB.call_minimax,
         "openrouter": AB.call_openrouter,
@@ -147,8 +153,8 @@ def _call_fn(b):
 def _invoke(fn, system, text, model):
     """调用一个候选后端。
 
-    优先带 `retries=`（2026-09-20 超时收敛引入，只有 call_deepseek / call_deepinfra / call_runinfra 有）；
-    其它后端函数没有该参数 → TypeError（消息含 retries）时回退为不带调用。
+    优先带 `retries=`（2026-09-20 超时收敛引入，2026-10-10 opencode_go 也补上该参数）；
+    仍没有该参数的后端函数 → TypeError（消息含 retries）时回退为不带调用。
     """
     try:
         return fn(system, text, max_tokens=2048, timeout=_CALL_TIMEOUT,
@@ -160,13 +166,22 @@ def _invoke(fn, system, text, model):
 
 
 def _sel_candidates(avoid=None):
-    """候选列表 `[(call_fn, model, 展示名)]`（按 sel_chain() 顺序；avoid 项排到最后）。"""
-    cands = []
+    """候选列表 `[(call_fn, model, 展示名)]`（按 sel_chain() 顺序；avoid 项排到最后）。
+
+    链里出现**未支持的后端名**（`_call_fn` 给不出）→ 打 stderr 警告（否则静默少一个候选，
+    症状是「配了链首却每次走第二候选」，2026-10-10 opencode_go 就这么漏的）。
+    """
+    cands, unknown = [], []
     for b, m in sel_chain():
         fn = _call_fn(b)
         if not fn:
+            unknown.append(b)
             continue
         cands.append((fn, m, "%s/%s" % (b, m or _backend_default_model(b))))
+    if unknown:
+        print("[selection] 划词链里有不支持的后端 %s → 已跳过（候选: %s）"
+              % (",".join(unknown), ", ".join(c[2] for c in cands) or "无"),
+              file=sys.stderr, flush=True)
     if avoid:
         cands = [c for c in cands if c[2] != avoid] + [c for c in cands if c[2] == avoid]
     return cands
@@ -395,6 +410,8 @@ def _do_translate(system, text, force=False, avoid=None, allow=()):
     try:
         # 候选链 = AA_SEL_CHAIN（设置页可配）> 默认三通道；模型随链（model=None = 后端默认）
         cands = _sel_candidates(avoid)
+        if not cands:
+            raise RuntimeError("划词链里没有可用的后端（检查设置页「划词」区块的 AA_SEL_CHAIN）")
         base_sys = (system + _FORCE_HINT) if force else system
         sys_ng = base_sys.replace(_ART_GUARD, "") if _ART_GUARD in base_sys else None
         first_echo = None

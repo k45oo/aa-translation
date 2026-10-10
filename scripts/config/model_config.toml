@@ -46,7 +46,8 @@ proxy = "http://127.0.0.1:10808"   # 本地代理（v2rayN）；env AA_PROXY 覆
 #   ⚠️ 已知: 链上选择/预估/校对链模型表按**后端名**索引 → 同后端两条时 ① test_model_choice
 #   1 例断言失败(选择集出现 ['deepinfra','deepinfra']) ② refine 链模型表 {后端:模型} 折叠取后者。
 r18_backends = [
-  {backend="deepseek", model="deepseek-flash"},                    # 链首(2026-09-13 用户指定): 官网 V4.1-Flash 综合95.1/16.5s; 关思考=reasoning:{effort:none}; cache=true → 章内 pin 目标
+  {backend="opencode_go", model="deepseek-v4.1-flash"},              # 链首(2026-10-10 用户指定): opencode **Go 门** /zen/go/v1, $10/月订阅含用量(折算 $0.15/$0.60); 关思考=reasoning_effort:none(实测 rtok=0); 同 session 同前缀命中 1280/1340=95.5% → cache=true; R18 实测放行
+  {backend="deepseek", model="deepseek-flash"},                    # 次位(2026-09-13~2026-10-10 曾为 r18 链首): 官网 V4.1-Flash 综合95.1/16.5s; 关思考=reasoning:{effort:none}; cache=true
   {backend="deepinfra", model="deepseek-ai/DeepSeek-V4.1-Flash"},  # 2026-09-21 更新(原 DeepSeek-V4-Flash-0731): 折后 $0.06/$0.18 最便宜, 552B MoE 多模态
   {backend="deepinfra", model="deepseek-ai/DeepSeek-V4-Flash-0731"},  # 2026-09-23 新增(用户指定): 同端点第二条, $0.06/$0.18
   # 2026-09-13 摘除 siliconflow: 实测 HTTP 402 Payment Required(余额耗尽), 白烧重试; 充值后可手动加回
@@ -59,7 +60,8 @@ r18_backends = [
 #   根因: 这些行 text 段 confidence=0.4 < 0.65 阈值, 未走 mixed 段级, 整行(含art)进主块发模型。
 #   长块稳模型(glm-5-3-flash/qwen3-8-27b/deepinfra-GLM) case10 满分, 替换 ornith/deepseek-v4-flash。
 normal_backends = [
-  {backend="mimo", model="mimo-v2.6-flash"},                       # 链首(2026-09-22 用户指定): 小米官网 V2.6-Flash 裸测95.1/16.0s/$0.21每M; 关思考=thinking:{type:disabled}(call_mimo 内置, 实测 reasoning_tokens=0); r18=false→R18章不会选它
+  {backend="opencode_go", model="deepseek-v4.1-flash"},             # 链首(2026-10-10 用户指定, 取代 mimo): opencode **Go 门** /zen/go/v1, $10/月订阅含用量(折算 $0.15/$0.60: ¥1.08/¥4.32); 关思考=reasoning_effort:none(实测 rtok=0, 上游偶拒则自适应改 thinking:{type:disabled}); 同 session 同前缀命中 1280/1340=95.5% → 也是章内 pin 目标; 端点/会话逃生口 AA_OCGO_URL / AA_OCGO_SESSION
+  {backend="mimo", model="mimo-v2.6-flash"},                       # 次位(2026-09-22~2026-10-10 曾为链首): 小米官网 V2.6-Flash 裸测95.1/16.0s/$0.21每M; 关思考=thinking:{type:disabled}(call_mimo 内置, 实测 reasoning_tokens=0); r18=false→R18章不会选它
   {backend="deepseek", model="deepseek-flash"},                    # 次位(2026-09-22 让位 mimo; 2026-09-13~2026-09-22 曾为链首): 官网 V4.1-Flash 综合95.9/16.4s; 关思考=reasoning:{effort:none}; cache=true
   {backend="deepinfra", model="deepseek-ai/DeepSeek-V4.1-Flash"},  # 2026-09-21 更新(原 DeepSeek-V4-Flash-0731): 折后 $0.06/$0.18 最便宜
   {backend="deepinfra", model="deepseek-ai/DeepSeek-V4-Flash-0731"},  # 2026-09-23 新增(用户指定): 同端点第二条, $0.06/$0.18(见 r18 链上方 2026-09-23 注)
@@ -176,6 +178,24 @@ temperature = 0.4
 r18 = true   # ✅ OpenAI 兼容, 无额外内容审查(deepseek-v4-flash 有 reasoning, 须 reasoning_effort=none)
 
 
+# ---- opencode **Go 门**（2026-10-10 用户指定，两条链首）----
+# 与 Zen 门（/zen/v1，按量 $0.30/$1.20）是**两个门**：Go = $10/月订阅含用量（折算 $0.15/$0.60，见 [pricing.rates]），
+#   端点必须带 `x-opencode-session`（不带 → 400 MissingSessionID；session 由 aa_backend.zen_session() 给，
+#   翻译层每章 set_zen_session()，逃生口 AA_OCGO_SESSION）；自带浏览器 UA 才能过（缺 UA → 403）。
+# 实测（语句见 doc/翻译模型对比.md 2026-10-10 段）: 关思考 reasoning_effort:"none" 有效（上游偶拒 400 时
+#   函数内自适应改 thinking:{type:disabled}）；同 session 同前缀 1280/1340=95.5% 命中；R18 台词正常译出。
+# 套餐用量查询（零成本）: GET https://opencode.ai/zen/go/v1/usage → rolling/weekly/monthly 剩余百分比。
+[backend.opencode_go]
+url = "https://opencode.ai/zen/go/v1/chat/completions"
+model = "deepseek-v4.1-flash"
+key_env = "OPENCODE_GO_API_KEY"
+temperature = 0.4
+r18 = true   # ✅ 实测露骨 R18 台词 HTTP 200 正常译出（无 content_filter / 拒答）
+cache = true # **会命中前缀缓存**（2026-10-10 实测同 session 同前缀 1280/1340=95.5%，3 连发全命中）
+             # → 作为链首同时成为「章内 pin」目标与 COMMON_PREFIX 拼接对象。
+             # ⚠️ Zen 门（/zen/v1）是另一套计费/路由，未标 cache（免费链不受 pin 影响）。
+
+
 # ---- 视觉分类候选（vision_classify.py）----
 # 按序 round-robin 分配主力; 失败 fallback 下一个
 # 字段: name(展示名) / url / key_env(.env里的key名) / model(API模型名) / fmt(chat|responses) / r18
@@ -268,4 +288,6 @@ windows = ["09:00-12:00", "14:00-18:00"]
 "*|glm-5-3-flash" = { hit = 0.23, miss = 0.8, src = "智谱官网 GLM-5.3-Flash；网关(runinfra)实际价未查证" }
 "*|deepseek-ai/DeepSeek-V4.1-Flash" = { hit = 0.013, miss = 0.43, out = 1.30, src = "deepinfra 折后价(列表 $0.20/$0.60, discount 0.3 → $0.06/$0.18, cache_read $0.0018; 汇率 7.2) 2026-09-21 实测 metadata" }
 "*|deepseek-ai/DeepSeek-V4-Flash-0731" = { hit = 0.11, miss = 0.43, out = 1.30, src = "deepinfra 现价 $0.06/$0.18, cache_read $0.015(汇率 7.2) 2026-09-21 实测" }
+"opencode_go|deepseek-v4.1-flash" = { hit = 0.022, miss = 1.08, out = 4.32, src = "opencode **Go 门** 订阅折算价(2026-10-10, models.dev: $0.15 in/$0.60 out/cache_read $0.003 per M, 汇率 7.2); **实付 = $10/月订阅费, 不按量计费** —— 此价仅用于报表折算「消耗了多少套餐价值」, 非额外账单" }
+"*|deepseek-v4.1-flash" = { hit = 0.022, miss = 1.08, out = 4.32, src = "同 opencode Go 门折算价（Zen 门按量价 $0.30/$1.20 更贵, 未单列）" }
 "siliconflow|*" = { hit = 0, miss = 0, out = 0, src = "限免(免费)" }

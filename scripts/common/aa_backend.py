@@ -11,7 +11,7 @@
 - minimax / mimo / runinfra / openrouter / ollama(已停用) 见 config
 
 所有配置项优先级: 环境变量(AA_*) > model_config.toml > 代码默认值。
-key 从 .env 读（<hermes>\\.env 与 <hermes>\\profiles\\translation\\.env）。
+key 从仓库根 .env 读（唯一来源；真实环境变量优先，2026-10-10 起无 hermes 兜底）。
 """
 import json, os, time, urllib.request, urllib.error, socket, threading
 
@@ -153,13 +153,14 @@ DI_MODEL = os.environ.get("AA_DI_MODEL") or _model("deepinfra", "deepseek-ai/Dee
 
 
 def _env_file_paths():
-    """key 读取的 .env 候选路径（仓库根 .env 优先 → hermes 翻译档案 → hermes 主，兜底只读）。"""
+    """key 读取的 .env 候选路径（**只有仓库根 .env**，2026-10-10 起无 hermes 兜底）。"""
     return aa_env.read_paths()
 
 
 def _read_env_key(name, paths=None):
-    # 2026-10-08 阶段 1: 统一走 aa_env（真实 env → 仓库根 .env → hermes 兜底），
+    # 2026-10-08 阶段 1: 统一走 aa_env（真实 env → 仓库根 .env），
     # 与 aa_translate.get_key / aa_config._env_key_exists 同一实现，不再各写一份。
+    # 2026-10-10: hermes 档案兜底路径废除 → 只剩仓库根 .env 一个文件来源。
     if paths is None:
         return aa_env.read_key(name)
     return aa_env.read_key(name, paths)
@@ -169,7 +170,7 @@ def _sf_key():
     k = _read_env_key("SILICONFLOW_API_KEY", _env_file_paths())
     if k:
         return k
-    raise RuntimeError("no SILICONFLOW_API_KEY in translation/.env or .env")
+    raise RuntimeError("no SILICONFLOW_API_KEY in 仓库根 .env")
 
 
 def _sf_free_key():
@@ -184,17 +185,17 @@ def _or_key():
     k = _read_env_key("OPENROUTER_API_KEY", _env_file_paths())
     if k:
         return k
-    raise RuntimeError("no OPENROUTER_API_KEY in translation/.env or .env")
+    raise RuntimeError("no OPENROUTER_API_KEY in 仓库根 .env")
 
 
 
 
 def _mm_key():
-    """MiniMax key 在翻译档案 env，兜底 <hermes>\\.env"""
+    """MiniMax key 从仓库根 .env 读（唯一来源）。"""
     k = _read_env_key("MINIMAX_CN_API_KEY", _env_file_paths())
     if k:
         return k
-    raise RuntimeError("no MINIMAX_CN_API_KEY in translation/.env or .env")
+    raise RuntimeError("no MINIMAX_CN_API_KEY in 仓库根 .env")
 
 
 def _mimo_key():
@@ -211,42 +212,42 @@ def _mimo_key():
         k = _read_env_key(n, paths)
         if k:
             return k
-    raise RuntimeError(f"no {name} in translation/.env or .env")
+    raise RuntimeError(f"no {name} in 仓库根 .env")
 
 
 def _ri_key():
     k = _read_env_key("RUNINFRA_API_KEY", _env_file_paths())
     if k:
         return k
-    raise RuntimeError("no RUNINFRA_API_KEY in translation/.env or .env")
+    raise RuntimeError("no RUNINFRA_API_KEY in 仓库根 .env")
 
 
 def _dashscope_key():
     k = _read_env_key("QWEN_API_KEY", _env_file_paths())
     if k:
         return k
-    raise RuntimeError("no QWEN_API_KEY in translation/.env or .env")
+    raise RuntimeError("no QWEN_API_KEY in 仓库根 .env")
 
 
 def _cc_key():
     k = _read_env_key("COMMANDCODE_API_KEY", _env_file_paths())
     if k:
         return k
-    raise RuntimeError("no COMMANDCODE_API_KEY in translation/.env or .env")
+    raise RuntimeError("no COMMANDCODE_API_KEY in 仓库根 .env")
 
 
 def _deepseek_key():
     k = _read_env_key("DEEPSEEK_API_KEY", _env_file_paths())
     if k:
         return k
-    raise RuntimeError("no DEEPSEEK_API_KEY in translation/.env or .env")
+    raise RuntimeError("no DEEPSEEK_API_KEY in 仓库根 .env")
 
 
 def _deepinfra_key():
     k = _read_env_key("DEEPINFRA_API_KEY", _env_file_paths())
     if k:
         return k
-    raise RuntimeError("no DEEPINFRA_API_KEY in translation/.env or .env")
+    raise RuntimeError("no DEEPINFRA_API_KEY in 仓库根 .env")
 
 
 def backend():
@@ -375,6 +376,10 @@ def _call_named(b, system, body, model=None, max_tokens=16384, timeout=180):
         return call_deepseek(system, body, max_tokens=max_tokens, timeout=timeout, model=model)
     if b == "deepinfra":
         return call_deepinfra(system, body, max_tokens=max_tokens, timeout=timeout, model=model)
+    if b == "opencode_go":
+        return call_opencode_go(system, body, max_tokens=max_tokens, timeout=timeout, model=model)
+    if b == "opencode_zen":
+        return call_opencode_zen(system, body, max_tokens=max_tokens, timeout=timeout, model=model)
     raise RuntimeError(f"未知后端: {b!r}")
 
 
@@ -417,31 +422,32 @@ def _degrade_reason(e):
 # 2026-09-15: commandcode free key 通道**移除**(用户要求)——COMMANDCODE_FREE_API_KEY 与主 key
 #   在免费模型上共用同一日配额(LongCat 100/天 两侧同时 429 同一条消息), 双通道无增益;
 #   _cc_free_key() 一并删除, commandcode 免费模型只剩主 key 通道。
-# 2026-09-05: 免费目录轮换更新(探针实测 temp/probe_free_models_20260905.py):
-#   + meituan/longcat-2.0:free(commandcode, 9-11s 全对 art 好, 双key过)
-#   + ling-3.0-flash-fin-free / nemotron-3-ultra-free(50s慢) / nemotron-3.5-lightning-free(opencode zen)
-#   - minimax/minimax-m3-free 退役(commandcode 403 "The free MiniMax M3 and M2.7 models have been retired")
-#   - hy3-free 从官网免费列表/zen 目录消失
-#   保留 mimo-v2.5-free/big-pickle(429 FreeUsageLimitError=配额限流非失效, 免费链退避轮换处理)
-#   保留 poolside/laguna-s-2.1-free(间歇 503 overloaded_error, 免费链自动轮换)
+# 2026-10-10 免费目录轮换（探针实测 temp/probe_free_models_20260905.py 口径 + 全平台逐个验）:
+#   ⚠️ **opencode 免费档整体失效**（12 条全删）——外部客户端（含本项目）已用不了:
+#      · zen 门: 403 FreeTierError「OpenCode's free tier can only be used from within OpenCode」
+#        （mimo-v2.6-flash-free / ling-3.1-flash-free / nemotron-3.5-lightning-free / step-5-preview-free /
+#          jev-1.13-free / big-pickle / nemotron-3-ultra-free 全 403；mimo-v2.5-free 410 ModelDeprecated；
+#          ling-3.0-flash-fin-free / space-bunny-free 400；muse-spark-1.2/1.3-contributor-free 403 RegionError）
+#      · go 门（带 x-opencode-session）: 同一批 400 server_error（只有 longcat-2.5-preview-free 偶发 200，不稳）
+#      ⇒ `OPENCODE_FREE_ZEN_API_KEY` 与 `_zen_key()/_zen_free_key()` 保留代码但不进链（opencode 若放开外部免费档可加回）。
+#   commandcode 免费池（实拉 /provider/v1/models 87 个模型里的 free 名单 + 逐个探针）:
+#      + inclusionai/ling-3.1-flash:free（6/6 行、art 列位 0 坏、13.2s）
+#      + stealth/glyph-cluster:free（6/6 行、art 列位 0 坏、16.3s）
+#      - meituan/longcat-2.0:free（403「The free LongCat 2.0 tier has been retired → now a paid model」）
+#      - inclusionai/ling-3.0-flash-sante:free（404「This model is unavailable for free」）
+#      · poolside/laguna-s-2.1-free 保留（429/503 间歇上游过载，免费链退避轮换处理）
+#   推理型免费模型必须带 per-model 预算（第 4 元素）：ling-3.1-flash / glyph-cluster 实测 32768
+#     （链默认 16384 会被思考烧光 → 空 content 被当失败轮换）。
+#   siliconflow GLM-4-9B 双通道（FREE + 主 key）**移除**：2026-10-10 实测两 key 均 HTTP 402
+#     「account balance is insufficient」——充值后可加回两行（限免模型仍是最快无过滤的免费项）。
+#   ⇒ 免费链 14 → **3 条，且全在 commandcode 单平台**（跨平台分散/配额独立的好处暂时没了；
+#      平台级故障时只剩退避重试）。想补平台需另找免费源（OpenRouter :free 等）。
+#   R18 补测（2026-10-10, 三行露骨台词）: stealth/glyph-cluster:free **直接拒翻**（命中拒绝语关键词 →
+#     按漏译跳过不崩章）; ling-3.1-flash:free 当场 429。免费档 R18 明显弱于旧链（GLM-4-9B/laguna 曾过 ~70%）。
 FREE_MODELS = [
-    ("THUDM/GLM-4-9B-0414", "siliconflow", "FREE"),       # 最快+无过滤, free key 通道
-    ("THUDM/GLM-4-9B-0414", "siliconflow", None),          # 同模型主 key 通道(免费链+1)
-    ("mimo-v2.5-free", "opencode_zen", None),              # 同模型主 key 通道(免费链+3)
-    ("big-pickle", "opencode_zen", None),                  # 同模型主 key 通道(免费链+5)
-    ("ling-3.0-flash-fin-free", "opencode_zen", None),     # 2026-09-05: 1.6s 快+稳 art好
-    ("nemotron-3.5-lightning-free", "opencode_zen", None), # 2026-09-05: 3.0s 全对 art好(历史200s超时已不复现)
-    ("mimo-v2.5-free", "opencode_zen", "FREE"),              # opencode 免费, 快+稳
-    ("big-pickle", "opencode_zen", "FREE"),                  # opencode 免费, 偶发连接失败重试即过
-    ("ling-3.0-flash-fin-free", "opencode_zen", "FREE"),     # opencode 免费, 快+稳
-    ("nemotron-3.5-lightning-free", "opencode_zen", "FREE"), # opencode 免费, 全对
-    ("nemotron-3-ultra-free", "opencode_zen", "FREE"),       # opencode 免费, 慢(50s)兜底
-    ("meituan/longcat-2.0:free", "commandcode", None),       # commandcode 免费, 9-11s 全对 art好(日 100 次配额)
-    ("poolside/laguna-s-2.1-free", "commandcode", None),   # commandcode 免费, 快(间歇 503 上游过载)
-    # 2026-09-15 新增: commandcode 免费推理模型(基准 9 项全 100, 含 R18/art 列位/30 行困难块)。
-    #   推理关不掉且吃预算——16384 下 30 行块空响应, 故带 per-model 预算 32768(≥此值才稳);
-    #   慢(4~60s/块, 抖动大) → 只放链尾兜底位, 不抢前位流量。
-    ("inclusionai/ling-3.0-flash-sante:free", "commandcode", None, 32768),
+    ("inclusionai/ling-3.1-flash:free", "commandcode", None, 32768),   # 2026-10-10 新: 6/6 行 art 列位 0 坏 13.2s
+    ("stealth/glyph-cluster:free", "commandcode", None, 32768),        # 2026-10-10 新: 6/6 行 art 列位 0 坏 16.3s
+    ("poolside/laguna-s-2.1-free", "commandcode", None),               # 保留: 间歇 429/503(上游过载), 免费链自动轮换
 ]
 FREE_MAX_BACKOFF = int(os.environ.get("AA_FREE_MAX_BACKOFF", "300"))  # 退避封顶 5min
 FREE_BASE_BACKOFF = int(os.environ.get("AA_FREE_BASE_BACKOFF", "10")) # 退避起步 10s
@@ -450,78 +456,187 @@ FREE_MAX_ROUNDS = int(os.environ.get("AA_FREE_MAX_ROUNDS", "5"))  # 2026-09-01: 
 
 
 def _zen_key():
-    """opencode zen 免费模型 key(OPENCODE_GO_API_KEY)。"""
+    """opencode 主 key（`OPENCODE_GO_API_KEY`）——Go 门订阅/ Zen 门按量都用它。
+
+    2026-10-10 起它同时是付费链首（`[backend.opencode_go]`）的 key；免费档已对第三方客户端关闭。
+    """
     k = _read_env_key("OPENCODE_GO_API_KEY", _env_file_paths()) or _read_env_key("OPENCODE_GO_API_KEY")
     if k:
         return k
     raise RuntimeError("no OPENCODE_GO_API_KEY")
 
 def _zen_free_key():
-    """opencode zen 免费模型专用 key(OPENCODE_FREE_ZEN_API_KEY, 独立配额/限流)。
-    2026-08-31 新增; translation/.env 优先, 未设回退主 key。"""
+    """opencode 免费档专用 key(`OPENCODE_FREE_ZEN_API_KEY`, 独立配额/限流)。
+
+    2026-08-31 新增; 读仓库根 .env, 未设回退主 key。
+    ⚠️ 2026-10-10: opencode 免费档已变成 OpenCode 客户端专属（第三方一律 403 FreeTierError），
+    该 key 目前**无使用者**（FREE_MODELS 已无 opencode 条目）；函数保留以便日后放开时直接加回。
+    """
     k = _read_env_key("OPENCODE_FREE_ZEN_API_KEY", _env_file_paths())
     if k:
         return k
     return _zen_key()  # 未设则回退主 key
 
 
-def call_opencode_zen(system, body, max_tokens=16384, timeout=180, temperature=0.4, model=None, key=None):
-    """走 opencode zen 端点 /zen/v1/chat/completions（OpenAI 兼容，free 模型仅此端点可用）。
+# ---------------------------------------------------------------- opencode zen 系（2026-10-10 重构）
+# 两个门（探针实测见 doc/翻译模型对比.md 2026-10-10 段）：
+#   Zen 门 `/zen/v1/chat/completions`  按量付费（$0.30 in / $1.20 out per M）——**免费模型只在此门**；
+#   Go  门 `/zen/go/v1/chat/completions` $10/月订阅含用量（折算 $0.15/$0.60）——**必须** `x-opencode-session`
+#          （不带 → 400 MissingSessionID）；同 session + 同前缀实测命中 1280/1340 = 95.5%。
+# 两门共用同一 key（.env 里 OPENCODE_GO_API_KEY / OPENCODE_ZEN_API_KEY 实测同值）；
+# 关思考：Go 门 `reasoning_effort="none"` 与 `thinking:{type:disabled}` 都有效（reasoning_tokens=0）。
 
-    2026-08-27: opencode 免费模型测试(6 个)选出的可用者: mimo-v2.5-free / hy3-free /
-    big-pickle(快 2-3s, 质量好, R18 无过滤)。free 模型必须 reasoning_effort=none
-    (否则推理吃光输出), 必须浏览器 UA。go 网关(/zen/go/v1)不认 free 模型名 401。
-    2026-09-05: hy3-free 从官网免费列表消失; 新增 ling-3.0-flash-fin-free(1.6s 快+稳 art好) /
-    nemotron-3.5-lightning-free(3.0s) / nemotron-3-ultra-free(50s 慢兜底)。
+_ZEN_SESSION = {"id": None}     # 翻译层每章 set_zen_session() 覆盖（单键赋值，GIL 下原子，够用）
+_ZEN_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+           "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+
+
+def set_zen_session(sid):
+    """设置 Go 门的 `x-opencode-session`（翻译层在章边界调用；None/空 = 清空回默认）。
+
+    官方口径（docs/go#where-can-i-use-it）：一段会话一个稳定 id → 路由亲和 + 前缀缓存。
+    """
+    _ZEN_SESSION["id"] = (str(sid).strip() or None) if sid else None
+
+
+def zen_session():
+    """Go 门实际发出的 session id。
+
+    优先级：env `AA_OCGO_SESSION` > `set_zen_session()`（每章一个）> env `AA_TASK_ID` > `"aa-translation"`。
+    非 ASCII 一律换成 `-`：HTTP 头只能 latin-1，带中文会直接 UnicodeEncodeError（实测踩过）。
+    """
+    sid = (os.environ.get("AA_OCGO_SESSION") or _ZEN_SESSION.get("id")
+           or (("aa-task-" + os.environ["AA_TASK_ID"]) if os.environ.get("AA_TASK_ID")
+               else "aa-translation"))
+    # 只留 ASCII 字母数字与 _.:-（`str.isalnum()` 对中文也返回 True，不能用它过滤）
+    sid = "".join(c if ("a" <= c <= "z" or "A" <= c <= "Z" or c.isdigit() or c in "_.:-") else "-"
+                  for c in str(sid))
+    return sid[:64] or "aa-translation"
+
+
+def _zen_chat(system, body, url, key, backend, model_default, model=None, temperature=0.4,
+              max_tokens=16384, timeout=180, need_session=False, retries=3, tag=None):
+    """opencode zen 系端点通用调用（Zen / Go 两门共用；Go 门额外带 `x-opencode-session`）。
+
+    关思考：首选 `reasoning_effort="none"`（两门实测有效）；但上游池里偶有实例对该字段直接
+    400（`none reasoning effort is not supported by deepseek-v4.1-flash model`）→ **自适应重试**
+    改发 `thinking:{"type":"disabled"}`（同样实测 reasoning_tokens=0）。不能把 400 抛给调用方：
+    400 不在 `_degrade_reason()` 的可降级集合里，会让整次调用硬失败而不是换端点。
+
+    retries: 网络/服务端类失败自身重试次数（默认 3）。**自适应换法那一跳不占预算**
+    （`tries = max(tries, attempt + 1)`）——否则 retries=1 时（划词/短请求的收敛口径）
+    400 的自适应重试会被提前掐掉，等于白关思考。`timeout` 是**单次**请求超时。
     """
     import urllib.request, urllib.error, json as _json
-    url = "https://opencode.ai/zen/v1/chat/completions"
-    payload = {
-        "model": model or "mimo-v2.5-free",
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": body}],
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-        "reasoning_effort": "none",
-    }
-    data = _json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={
-        "Authorization": "Bearer " + (_zen_free_key() if key == "FREE" else (_zen_key() if key is None else key)),
+    headers = {
+        "Authorization": "Bearer " + key,
         "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36",
-    })
+        "User-Agent": _ZEN_UA,
+    }
+    if need_session:
+        headers["x-opencode-session"] = zen_session()
+
+    def _payload(extra):
+        p = {
+            "model": model or model_default,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": body}],
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        p.update(extra)
+        return p
+
     last_err = None
-    for attempt in range(3):
+    extra = {"reasoning_effort": "none"}
+    tries = max(1, int(retries or 1))
+    attempt = 0
+    while attempt < tries:
+        attempt += 1
         try:
+            data = _json.dumps(_payload(extra), ensure_ascii=False).encode("utf-8")
+            req = urllib.request.Request(url, data=data, headers=headers)
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 resp = _json.load(r)
             msg = resp["choices"][0]["message"].get("content", "")
             fr = (resp.get("choices") or [{}])[0].get("finish_reason") or ""
-
             u = resp.get("usage") or {}
             if fr == "length":
-                raise RuntimeError("siliconflow output truncated (finish_reason=length): %d tokens" % (u.get("output_tokens") if (u := resp.get("usage") or {}) else 0))
+                raise RuntimeError("%s output truncated (finish_reason=length): %d tokens"
+                                   % (backend, u.get("completion_tokens") or 0))
             if not msg:
-                raise RuntimeError("zen 空响应: " + _json.dumps(resp, ensure_ascii=False)[:200])
-            # 2026-08-27: usage 补记——opencode_zen 免费模型(mimo-v2.5-free/hy3-free/big-pickle)
-            #   原无 _log_usage, 消耗完全漏统计。读 resp.usage(OpenAI 兼容) 或退化 0。
+                raise RuntimeError("%s 空响应: %s" % (backend, _json.dumps(resp, ensure_ascii=False)[:200]))
             try:
-                u = resp.get("usage") or {}
                 _log_usage(u.get("prompt_tokens") or u.get("input_tokens") or 0,
-                           u.get("completion_tokens") or 0,
-                           u=u, model=model or "mimo-v2.5-free", backend="opencode_zen")
+                           u.get("completion_tokens") or 0, u=u,
+                           model=model or model_default, backend=backend, tag=tag)
             except Exception:
                 pass
             return msg
+        except urllib.error.HTTPError as e:
+            detail = ""
+            try:
+                detail = e.read().decode("utf-8", "replace")
+            except Exception:
+                pass
+            if e.code == 400 and "reasoning" in detail and "reasoning_effort" in extra:
+                print("[%s] reasoning_effort=none 被上游拒(400) → 改 thinking:{type:disabled} 重试"
+                      % backend, flush=True)
+                extra = {"thinking": {"type": "disabled"}}
+                tries = max(tries, attempt + 1)      # 自适应换法不吃重试预算
+                continue
+            last_err = RuntimeError("HTTP %s %s" % (e.code, detail[:200]))
         except Exception as e:
             last_err = e
-        time.sleep(2 * (attempt + 1))
-    raise RuntimeError(f"opencode zen failed after retries: {last_err}")
+        if attempt < tries:
+            time.sleep(2 * attempt)              # 只在「还有下一次」时退避（末次失败白等 2s，划词会白等）
+    raise RuntimeError("%s failed after retries: %s" % (backend, last_err))
+
+
+def call_opencode_zen(system, body, max_tokens=16384, timeout=180, temperature=0.4, model=None, key=None,
+                      retries=3, tag=None):
+    """Zen 门 `/zen/v1/chat/completions`（按量；免费模型**只在此门**可用，Go 门不认 free 模型名）。
+
+    2026-08-27: opencode 免费模型测试(6 个)选出的可用者: mimo-v2.5-free / hy3-free /
+    big-pickle(快 2-3s, 质量好, R18 无过滤)。free 模型必须 reasoning_effort=none
+    (否则推理吃光输出), 必须浏览器 UA。2026-10-10 复测: 免费档在**非 OpenCode 客户端**里
+    会 403 FreeTierError（`big-pickle` 实测），免费链是否仍可用需另测。
+    2026-09-05: hy3-free 从官网免费列表消失; 新增 ling-3.0-flash-fin-free(1.6s 快+稳 art好) /
+    nemotron-3.5-lightning-free(3.0s) / nemotron-3.6-ultra-free(50s 慢兜底)。
+    key: None=主 key / "FREE"=免费专用 key / 其他字面值=直接用。
+    """
+    url = os.environ.get("AA_OCZEN_URL") or _url(
+        "opencode_zen", "https://opencode.ai/zen/v1/chat/completions")
+    k = _zen_free_key() if key == "FREE" else (_zen_key() if key is None else key)
+    return _zen_chat(system, body, url, k, "opencode_zen", "mimo-v2.5-free", model=model,
+                     temperature=temperature, max_tokens=max_tokens, timeout=timeout,
+                     retries=retries, tag=tag)
+
+
+def call_opencode_go(system, body, max_tokens=16384, timeout=180, temperature=0.4, model=None, key=None,
+                     retries=3, tag=None):
+    """Go 门 `/zen/go/v1/chat/completions`（$10/月订阅含用量）——**必须** `x-opencode-session`。
+
+    2026-10-10 实测: 不带该头 = 400 MissingSessionID；带稳定 session 后同前缀缓存命中
+    1280/1340 = 95.5%；关思考两法皆有效；R18 台词正常译出（无过滤）。
+    key: 取 `[backend.opencode_go].key_env`（默认 OPENCODE_GO_API_KEY），取不到回退主 key 名。
+    端点/env 逃生口: `AA_OCGO_URL`、`AA_OCGO_SESSION`（session 覆盖）。
+    retries: 自身重试次数（默认 3，与 call_deepseek/deepinfra 同口径）；划词等短请求传 1
+    （`selection._invoke` 统一传 `AA_SEL_RETRY`，失败要快、好换下一候选）。
+    """
+    url = os.environ.get("AA_OCGO_URL") or _url(
+        "opencode_go", "https://opencode.ai/zen/go/v1/chat/completions")
+    key_env = _backend_cfg("opencode_go").get("key_env") or "OPENCODE_GO_API_KEY"
+    k = key or _read_env_key(key_env, _env_file_paths()) or _zen_key()
+    mdl = model or _model("opencode_go", "deepseek-v4.1-flash")
+    return _zen_chat(system, body, url, k, "opencode_go", "deepseek-v4.1-flash", model=mdl,
+                     temperature=temperature, max_tokens=max_tokens, timeout=timeout,
+                     need_session=True, retries=retries, tag=tag)
 
 
 def _gmi_key():
-    """GMI Cloud key(GMI_API_KEY, translation/.env)。"""
+    """GMI Cloud key(GMI_API_KEY, 仓库根 .env)。"""
     k = _read_env_key("GMI_API_KEY", _env_file_paths()) or _read_env_key("GMI_API_KEY")
     if k:
         return k
@@ -926,7 +1041,7 @@ def call_runinfra(system, body, max_tokens=16384, timeout=120, temperature=0.4, 
 def call_mimo(system, body, max_tokens=16384, timeout=120, temperature=0.1, model=None, tag=None):
     """走小米 MiMo /v1/chat/completions（OpenAI 兼容）。
     思考走 reasoning_content 字段(content 干净)，带 thinking disabled 提速(实测 v2.5 1.9s/pro 2.6s)。
-    key 读翻译档案 env（变量名 = [backend.mimo].key_env，2026-09-29 起 = XIAOMI_API_KEY/token plan；
+    key 读仓库根 .env（变量名 = [backend.mimo].key_env，2026-09-29 起 = XIAOMI_API_KEY/token plan；
     AA_MIMO_KEY_ENV 可改名前，旧 XIAOMI_MIMO_API_KEY 作兜底）。
     tag: usage 记录用的 tag（refine_aa 校对传 "refine"；None → env AA_USAGE_TAG/配置默认）。"""
     payload = {
@@ -966,7 +1081,7 @@ def call_mimo(system, body, max_tokens=16384, timeout=120, temperature=0.1, mode
 def call_minimax(system, body, max_tokens=16384, timeout=120, temperature=0.1, model=None):
     """走 MiniMax 国内 OpenAI 兼容端点 /v1/chat/completions。
     M3: thinking disabled 生效(实测 1.3s 质量好)；M2.7: 思考关不掉且混在 content，
-    统一剥离 <think>...</think> 块(对 M3 无副作用)。key 读翻译档案 env。"""
+    统一剥离 <think>...</think> 块(对 M3 无副作用)。key 读仓库根 .env。"""
     import re
     payload = {
         "model": model or MM_MODEL,
