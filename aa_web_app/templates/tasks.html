@@ -39,7 +39,7 @@
 const $ = (id) => document.getElementById(id);
 const STATUS_C = {queued:'muted', scheduled:'warn', starting:'warn', running:'warn', stopping:'warn', stalled:'bad',
                   done:'good', stopped:'muted', failed:'bad', crashed:'bad', cancelled:'muted'};
-const TYPE_CN = {translate:'翻译', download:'下载', proofread:'校对', pokemon:'宝可梦专属链', wiki:'wiki 同步'};
+const TYPE_CN = {translate:'翻译', download:'下载', proofread:'校对', pokemon:'宝可梦专属链', wiki:'wiki 同步', board:'揭示板下载'};
 let poll = null;
 const openLogs = new Set();   // 记住已展开日志的 task_id
 

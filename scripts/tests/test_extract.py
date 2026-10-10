@@ -26,6 +26,8 @@ SAMPLES = [
      "魔法戦姫サマーカラーとスケベ体育教師やる夫/aa/entry_84463.txt", False),
     ("yaruonichijou", "白头与染灰魔女/raw/61940_白頭と極点の魔女_第1話.html",
      "白头与染灰魔女/aa/61940_白頭と極点の魔女_第1話.txt", False),
+    ("inzainewtown_fc2", "ポケの子_fc2/raw/entry_31014.html",
+     "ポケの子_fc2/aa/entry_31014.txt", False),
 ]
 
 

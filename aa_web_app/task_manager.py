@@ -106,9 +106,12 @@ STALL_MAX_RESTARTS = int(os.environ.get("AA_TASK_STALL_MAX_RESTARTS", "3"))
 # 章节级并行免费模式强制串行(translate_runner:261-262), 章内块级并行才是免费榨额度点。
 MAX_CHAPTER_WORKERS_FREE = int(os.environ.get("AA_CHAPTER_WORKERS_FREE", "10"))
 RC_STOPPED = 41                    # runner 约定：用户停止的退出码
-TYPES = ("translate", "download", "proofread", "pokemon", "wiki")
+TYPES = ("translate", "download", "proofread", "pokemon", "wiki", "board")
 # 框架预留扩展(2026-09-07 +proofread: 独立校对=refine_aa; 2026-09-22 +pokemon: 宝可梦专属链;
-# 2026-10-06 +wiki: 作品官方设定 wiki 本地化/连载同步 gen_work_wiki.py --update, 零模型成本)
+# 2026-10-06 +wiki: 作品官方设定 wiki 本地化/连载同步 gen_work_wiki.py --update, 零模型成本;
+# 2026-10-10 +board: 揭示板 dat 下载/更新 board_runner.py, 零 token)
+# board 任务的 work 是**伪 id** `board:<板id>`（非 registry 作品，不下发 registry 检查；
+# 同板串行 = 该站禁并发/防重复爬索引；揭示板目录名放 params["dir"]）
 
 _LOCK = threading.RLock()          # 进程内串行化
 _watch_procs = {}                  # task_id -> Popen（本进程启动的子进程）
@@ -232,7 +235,30 @@ def scheduler_lock_path():
     return os.path.join(TASKS_DIR, ".scheduler.lock")
 
 
-def _legacy_lock(work):
+def _is_board_task(work, ttype=None):
+    """揭示板任务判定：work = 伪 id `board:<板id>`（非 registry 作品）。"""
+    return ttype == "board" or str(work or "").startswith("board:")
+
+
+def board_log_path():
+    """揭示板任务的 runner 日志（不挂作品目录；与作品任务互不覆盖）。
+
+    注意 `_start_task` 会再拼一层 `runner_log.txt` → 实际落 `揭示板/runner_log.txt`。
+    """
+    return os.path.join(_DATA, "揭示板", "runner_log.txt")
+
+
+def _work_dir_of(work, ttype=None):
+    """任务日志/锁所在目录：普通作品 = registry work_dir；揭示板 = 揭示板/。"""
+    if _is_board_task(work, ttype):
+        return os.path.dirname(board_log_path())
+    import registry
+    return registry.get(work)["work_dir"]
+
+
+def _legacy_lock(work, ttype=None):
+    if _is_board_task(work, ttype):
+        return ""                      # 揭示板任务无作品目录，不维护旧式锁
     import registry
     return os.path.join(registry.get(work)["work_dir"], ".runner.lock")
 
@@ -327,6 +353,24 @@ def _build_command(ttype, work, params):
                "--work", work]
         cmd.append("--all" if params.get("mode") == "all" else "--update")
         return cmd
+    if ttype == "board":
+        # 2026-10-10: 揭示板 dat 下载/更新（零 token；work = 伪 id `board:<板id>`，
+        # 揭示板目录/关键词/作者/范围都在 params）
+        cmd = py_prefix(["-u"]) + [os.path.join(_SCRIPTS, "runner", "board_runner.py"),
+               "--board", str(params.get("board") or "FOX")]
+        for key, flag in (("host", "--host"), ("match", "--match"), ("author", "--author"),
+                          ("dir", "--dir"), ("title", "--title"), ("work_id", "--work"),
+                          ("label", "--label")):
+            if params.get(key):
+                cmd += [flag, str(params[key])]
+        for key, flag in (("kako_from", "--kako-from"), ("kako_to", "--kako-to")):
+            if params.get(key) not in (None, ""):
+                cmd += [flag, str(params[key])]
+        for key, flag in (("scan_kako", "--scan-kako"), ("no_kako", "--no-kako"),
+                          ("force", "--force"), ("dry_run", "--dry-run")):
+            if params.get(key):
+                cmd.append(flag)
+        return cmd
     raise ValueError(f"未知任务类型: {ttype}")
 
 
@@ -360,11 +404,13 @@ def enqueue(ttype, work, params=None, _stall_retry_of=None):
     if ttype == "wiki" and not wiki_configured(work):
         return {"ok": False,
                 "error": f"作品 {work} 未配置官方设定 wiki（scripts/config/work_wikis.json 缺该作品块）"}
-    try:
-        import registry
-        registry.get(work)
-    except Exception as e:
-        return {"ok": False, "error": f"未知作品 {work}: {e}"}
+    if ttype != "board":
+        # 揭示板任务的 work 是伪 id（board:<板id>），不是 registry 作品 → 跳过校验
+        try:
+            import registry
+            registry.get(work)
+        except Exception as e:
+            return {"ok": False, "error": f"未知作品 {work}: {e}"}
     os.makedirs(TASKS_DIR, exist_ok=True)
     sched = parse_schedule_at(params.get("schedule_at"))
     if sched is not None:
@@ -382,8 +428,8 @@ def enqueue(ttype, work, params=None, _stall_retry_of=None):
                 return {"ok": False,
                         "error": f"作品 {work} 已有任务 {t['task_id']}（{t['status']}），同作品串行"}
         # 兼容期：旧 .runner.lock（外部旧入口/旧脚本）存活即拒绝
-        lf = _legacy_lock(work)
-        old_pid = _pid_of(lf)
+        lf = _legacy_lock(work, ttype)
+        old_pid = _pid_of(lf) if lf else 0
         if old_pid and _pid_alive(old_pid):
             return {"ok": False, "error": f"作品 {work} 有旧式任务在跑 (pid {old_pid})，请等待完成"}
         tid = "t" + time.strftime("%Y%m%d-%H%M%S") + "-" + ("%04x" % (int(time.time() * 1000) % 0xFFFF))
@@ -650,12 +696,12 @@ def get_task(tid, log_tail=0):
 
 
 def _log_tail(t, n=20):
-    import registry
     # 2026-08-30: registry.get 抛 SystemExit（作品被删/改名）→ WORKS.get 容错
-    cfg = registry.WORKS.get(t.get("work") or "")
-    if not cfg:
+    # 2026-10-10: 揭示板任务（伪 id board:<板id>）日志在 揭示板/board_runner_log.txt
+    try:
+        lp = os.path.join(_work_dir_of(t.get("work"), t.get("type")), "runner_log.txt")
+    except Exception:
         return ""
-    lp = os.path.join(cfg.get("work_dir") or "", "runner_log.txt")
     if not os.path.exists(lp):
         return ""
     try:
@@ -805,7 +851,9 @@ def _finalize(t, rc):
 
 def _clear_legacy_lock(t):
     try:
-        lf = _legacy_lock(t["work"])
+        lf = _legacy_lock(t["work"], t.get("type"))
+        if not lf:
+            return
         pid = _pid_of(lf)
         if not pid or pid == t.get("pid") or not _pid_alive(pid):
             os.remove(lf)
@@ -863,7 +911,7 @@ def _start_task(t):
     # 不注入——避免误解)。付费任务不注入, 保持各自默认。仅 translate 类型。
     if t["type"] == "translate" and env.get("AA_FREE_MODE") == "1" and "AA_FREE_WORKERS" not in env:
         env["AA_FREE_WORKERS"] = str(MAX_CHAPTER_WORKERS_FREE)
-    lp = os.path.join(registry.get(work)["work_dir"], "runner_log.txt")
+    lp = os.path.join(_work_dir_of(work, t["type"]), "runner_log.txt")
     os.makedirs(os.path.dirname(lp), exist_ok=True)
     logf = open(lp, "w", encoding="utf-8", errors="replace")
     # 2026-08-31 重启不中断: runner 用 CREATE_NO_WINDOW|CREATE_NEW_PROCESS_GROUP 启动
@@ -884,8 +932,10 @@ def _start_task(t):
     _save_task(t)
     # 兼容期：维护旧 .runner.lock（外部旧脚本能感知）
     try:
-        with open(_legacy_lock(work), "w") as f:
-            f.write(str(p.pid))
+        _lk = _legacy_lock(work, t["type"])
+        if _lk:
+            with open(_lk, "w") as f:
+                f.write(str(p.pid))
     except OSError:
         pass
     _watch_procs[tid] = p
@@ -1061,7 +1111,7 @@ def scheduler_tick():
         busy_works = {t["work"] for t in running}
         if head["work"] in busy_works:
             return started
-        pid = _pid_of(_legacy_lock(head["work"]))
+        pid = _pid_of(_legacy_lock(head["work"], head.get("type")) or "")
         if pid and _pid_alive(pid) and pid not in {t.get("pid") for t in running}:
             return started    # 外部旧任务占用，严格 FIFO 等下轮
         q2.remove(head["task_id"])
