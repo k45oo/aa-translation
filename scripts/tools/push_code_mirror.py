@@ -2,20 +2,27 @@
 r"""生成「脱敏代码镜像」并推送到裸仓库（默认 `origin`，即 `../aa-translation`）。
 
 用途：把本仓库的**代码与文档**（不含作品数据、手写数据资产、抓来的网页等）打成
-一个**全新历史单提交**的快照，脱敏后 force-push 到镜像仓库。镜像里没有数据，
+一个**全新历史**的快照，脱敏后 force-push 到镜像仓库。镜像里没有数据，
 所以它天然免疫「历史里删不掉的数据对象」与「旧提交里的本机路径」。
 
+**2026-10-10 起默认走「历史重放」**：不再是一条合成的单提交快照，而是把工作库最近的 N 条提交
+**逐条重放**成脱敏提交（`--history N`，默认 20）——真实提交说明、真实作者与提交时间、每条提交的树
+= 该时点的脱敏内容。同一个本地提交 + 同一份脱敏规则 → 两处镜像重放出的 sha 相同（仍可交叉核对）。
+`--history 0` 回到旧行为（单提交快照，提交时间固定为当天 00:00，说明由 `mirror_message()` 生成）。
+
 用法（从仓库根运行）：
-    python scripts/tools/push_code_mirror.py --check     # 只构建 + 跑门禁，不推（rc=2 = 有残留/超限）
-    python scripts/tools/push_code_mirror.py             # 构建 + 门禁 + 单提交 + force push
+    python scripts/tools/push_code_mirror.py --check     # 只构建 + 跑门禁 + 与镜像比 blob（rc=2 落后）
+    python scripts/tools/push_code_mirror.py             # 历史重放 + 门禁 + 单提交/多提交 + force push
+    python scripts/tools/push_code_mirror.py --history 5 # 只重放最近 5 条
     python scripts/tools/push_code_mirror.py --remote <url|path> --branch main --keep
         --keep    保留构建目录（排查用）；默认删
         --dry-run 构建 + 门禁 + 本地提交，但不 push
 
 快照内容 = 下面的 INCLUDE 白名单 − EXCLUDE 规则；wiki 目录只取「生成物 + 手改源」（不含 `_raw/`）。
-门禁（命中即 rc=2 拒推）：未脱敏路径 / 用户名 / 密钥形状 / 体积上限；`.py` 额外要求 py_compile 全过。
-提交说明由 `mirror_message()` 依**快照内容 + 当天日期 + 工作库近期提交标题**生成（刻意不含远端信息：
-同一份内容在同一天于两处镜像推出同一个 sha，便于交叉核对）。
+门禁（命中即 rc=2 拒推）：未脱敏路径 / 用户名 / 密钥形状 / 体积上限；`.py` 额外要求进程内编译全过；
+重放模式下**每条提交**都要过门禁，提交说明同样脱敏 + 过残留检查。
+历史重放还有一道自检：镜像 tip 的树必须与「最后一条被重放的提交」的脱敏快照逐文件相同，否则拒推。
+镜像内容 = **已提交**内容：工作区里未提交的改动不进镜像（只打印一行提示）。
 """
 import argparse
 import io
@@ -55,10 +62,12 @@ EXCLUDE_TEXT_PAT = [re.compile(p) for p in (
     r"\.py[co]$",
     r"^scripts/benchmark/report/",              # 评测结果（主仓 .gitignore 也忽略 = 生成物）
     r"(^|/)\.bak_", r"_raw/", r"\.bak$", r"\.tmp$", r"\.log$", r"\.log\.\d+$", r"\.pyc$",
+    r"(^|/)AGENTS\.md$",          # 用户指定（2026-10-10）：AGENTS.md 不进图库/镜像（含 aa_web_app/AGENTS.md）
     r"SemiBold\.ttf$",            # 只用 Regular（aa_font.py）；SemiBold 24MB 不进镜像
     r"(^|/)\.DS_Store$", r"\.db$", r"\.ydb$", r"\.png$", r"\.jpg$", r"\.jpeg$",
 )]
 MAX_MB = 100.0
+HISTORY_DEFAULT = 20          # 历史重放默认条数（最近 N 条本地提交逐条重放成脱敏提交）
 
 # 镜像 README（写进快照根；源仓库的 README 不参与快照）
 ONLINE_README = """# AA 翻译 —— やる夫系 AA 漫画汉化管线
@@ -167,25 +176,28 @@ def _excluded(rel):
     return any(p.search(rel) for p in EXCLUDE_TEXT_PAT)
 
 
-def build(dst):
-    """按白名单拷贝 + 脱敏；返回 (文件数, 逐目录统计)。"""
+def _collect(src_root):
+    """按白名单列出要进快照的文件 `[(绝对路径, 相对路径)]`。
+
+    `src_root` = 仓库根（工作区快照）或某提交的导出目录（历史重放），两者共用同一套规则。
+    """
     copies = []
     for d in INCLUDE_DIRS:
-        src = os.path.join(REPO, d)
+        src = os.path.join(src_root, d)
         if not os.path.isdir(src):
             continue
         for dirpath, dirnames, filenames in os.walk(src):
             dirnames[:] = [x for x in dirnames if x not in EXCLUDE_NAMES]
             for fn in filenames:
                 p = os.path.join(dirpath, fn)
-                rel = os.path.relpath(p, REPO)
+                rel = os.path.relpath(p, src_root)
                 if not _excluded(rel):
                     copies.append((p, rel))
     for f in INCLUDE_FILES:
-        p = os.path.join(REPO, f)
+        p = os.path.join(src_root, f)
         if os.path.isfile(p):
             copies.append((p, f))
-    wiki_root = os.path.join(REPO, WIKI_GLOB_DIR)
+    wiki_root = os.path.join(src_root, WIKI_GLOB_DIR)
     if os.path.isdir(wiki_root):
         for name in sorted(os.listdir(wiki_root)):
             d = os.path.join(wiki_root, name)
@@ -195,12 +207,17 @@ def build(dst):
                 dirnames[:] = [x for x in dirnames if x != "_raw"]
                 for fn in filenames:
                     p = os.path.join(dirpath, fn)
-                    rel = os.path.relpath(p, REPO)
+                    rel = os.path.relpath(p, src_root)
                     ext = os.path.splitext(fn)[1].lower()
                     if ext in WIKI_KEEP_EXTRA or fn == "index.html" or _excluded(rel):
                         if not _excluded(rel):
                             copies.append((p, rel))
+    return copies
 
+
+def _write_snapshot(dst, src_root):
+    """把 `src_root` 的白名单内容脱敏写进 dst（+ 生成 README）。返回 (文件数, 逐目录统计)。"""
+    copies = _collect(src_root)
     per_dir, scrub_ext = {}, {".md", ".txt", ".json", ".toml", ".bat", ".py", ".js", ".css",
                               ".html", ".gitattributes", ".gitignore", "NOEXT"}
     for src, rel in copies:
@@ -216,6 +233,198 @@ def build(dst):
     io.open(os.path.join(dst, "README.md"), "w", encoding="utf-8", newline="\n").write(ONLINE_README)
     per_dir["README.md(生成)"] = 1
     return len(copies) + 1, per_dir
+
+
+def build(dst):
+    """按白名单拷贝 + 脱敏（工作区快照）；返回 (文件数, 逐目录统计)。"""
+    return _write_snapshot(dst, REPO)
+
+
+# ---------------------------------------------------------------------------
+# 历史重放（2026-10-10 用户指定）：镜像不再是「单提交快照」，而是把工作库最近的提交
+# **逐条重放**成脱敏提交（真实提交说明 + 真实作者时间/提交时间）。两条铁律：
+#   ① 每条提交的树 = 该提交时点的工作区白名单内容（脱敏后），不是 diff；
+#   ② 提交说明同样过脱敏 + 残留门禁（说明里可能带本机路径）。
+# 同一个提交 + 同一份脱敏规则 → 两处镜像重放出的 sha 相同（仍可交叉核对）。
+# ---------------------------------------------------------------------------
+
+def _clear_tree(dst):
+    """清空快照目录（保留 .git）——重放到下一条提交前调用。"""
+    for name in os.listdir(dst):
+        if name == ".git":
+            continue
+        p = os.path.join(dst, name)
+        if os.path.isdir(p):
+            shutil.rmtree(p, ignore_errors=True)
+        else:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+
+def _export_commit(sha, out_dir):
+    """把某条提交里白名单路径的内容导出到 out_dir（该提交里不存在的路径自动跳过）。"""
+    import tarfile
+    paths = []
+    for p in list(INCLUDE_DIRS) + list(INCLUDE_FILES) + [WIKI_GLOB_DIR]:
+        if subprocess.run(["git", "-C", REPO, "cat-file", "-e", f"{sha}:{p}"],
+                          capture_output=True).returncode == 0:
+            paths.append(p)
+    if not paths:
+        return 0
+    r = subprocess.run(["git", "-C", REPO, "archive", "--format=tar", sha, "--"] + paths,
+                       capture_output=True)
+    if r.returncode:
+        raise SystemExit("git archive %s 失败: %s" % (sha, r.stderr.decode("utf-8", "ignore")[:200]))
+    with tarfile.open(fileobj=io.BytesIO(r.stdout), mode="r:") as tf:
+        for m in tf.getmembers():
+            name = m.name.replace("\\", "/").lstrip("./")
+            if not m.isfile() or name.startswith("/") or ".." in name.split("/"):
+                continue
+            out = os.path.join(out_dir, name)
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+            f = tf.extractfile(m)
+            if f is None:
+                continue
+            with open(out, "wb") as w:
+                shutil.copyfileobj(f, w)
+    return len(paths)
+
+
+def commit_list(n):
+    """最近 n 条本地提交（**按拓扑序旧 → 新**）。含 sha/说明/作者/真实时间，供历史重放用。
+
+    用 `--topo-order`（而非默认的提交时间倒序）：拆提交会带来「子提交的时间早于父提交」的
+    真实情况（把一次批量的改动按文件 mtime 拆开），按时间排会把父子交错打乱。
+    """
+    fmt = "%H%x1f%an%x1f%ae%x1f%aI%x1f%cI%x1f%s%x1f%b%x1e"
+    r = subprocess.run(["git", "-C", REPO, "log", f"-{int(n)}", "--no-merges", "--topo-order",
+                        f"--format={fmt}"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode:
+        raise SystemExit("读本地提交失败: " + (r.stderr or "")[:200])
+    out = []
+    for rec in r.stdout.split("\x1e"):
+        rec = rec.strip("\n")
+        if not rec.strip():
+            continue
+        parts = rec.split("\x1f")
+        if len(parts) < 7:
+            continue
+        out.append({"sha": parts[0].strip(), "author": parts[1].strip() or "AA翻译镜像",
+                    "email": parts[2].strip() or "mirror@localhost",
+                    "author_date": parts[3].strip(), "commit_date": parts[4].strip() or parts[3].strip(),
+                    "subject": parts[5].strip(), "body": parts[6].strip("\n")})
+    return list(reversed(out))
+
+
+def _scrub_message(msg):
+    """提交说明过脱敏 + 残留门禁（说明里常出现本机路径，不能直接搬过去）。"""
+    txt = scrub_mod.scrub(msg)
+    bad = [m.group(0) for pat in scrub_mod.leftover_patterns() for m in pat.finditer(txt)]
+    if bad:
+        raise SystemExit("提交说明里有未脱敏内容，拒绝推送: " + ", ".join(sorted(set(bad))[:5]))
+    return txt
+
+
+def _included_path(rel):
+    """某路径是否会进快照（用于判断「未提交改动会不会影响镜像内容」）。"""
+    rel = rel.replace(os.sep, "/")
+    if _excluded(rel):
+        return False
+    if rel in INCLUDE_FILES:
+        return True
+    if any(rel == d or rel.startswith(d + "/") for d in INCLUDE_DIRS):
+        return True
+    wroot = WIKI_GLOB_DIR.replace(os.sep, "/") + "/"
+    if rel.startswith(wroot):
+        parts = rel.split("/")
+        if len(parts) >= 3 and parts[2].endswith("wiki"):
+            return os.path.splitext(rel)[1].lower() in WIKI_KEEP_EXTRA or rel.endswith("/index.html")
+    return False
+
+
+def dirty_mirrored():
+    """工作区里**会进快照**的未提交改动（AGENTS.md 这类不在白名单的改动不算）。"""
+    r = subprocess.run(["git", "-C", REPO, "status", "--porcelain", "-z"], capture_output=True)
+    txt = r.stdout.decode("utf-8", "replace")
+    bad = []
+    for ent in [x for x in txt.split("\0") if x.strip()]:
+        path = ent[3:].strip()
+        if path and _included_path(path):
+            bad.append(path)
+    return bad
+
+
+def push_history(dst, remote, branch, n, max_mb, dry_run=False):
+    """把最近 n 条本地提交逐条重放成脱敏提交并 force-push。返回 (ok, 说明)。"""
+    commits = commit_list(n)
+    if not commits:
+        raise SystemExit("没有可重放的提交（检查 --history）")
+    print(f"历史重放：最近 {len(commits)} 条提交（真实提交说明 + 真实时间）")
+    subprocess.run(["git", "init", "-q", "-b", branch], cwd=dst, check=True)
+    for c in commits:
+        ex = tempfile.mkdtemp(prefix="aa_mirror_ex_")
+        try:
+            _export_commit(c["sha"], ex)
+            _clear_tree(dst)
+            nfiles, _per = _write_snapshot(dst, ex)
+        finally:
+            shutil.rmtree(ex, ignore_errors=True)
+        errors, _warns, _total = gates(dst, max_mb)
+        if errors:
+            print(f"\n❌ 门禁失败（提交 {c['sha'][:7]} {c['subject'][:40]}）:", file=sys.stderr)
+            for e in errors[:10]:
+                print("   " + e, file=sys.stderr)
+            return False, c["sha"]
+        subprocess.run(["git", "add", "-A"], cwd=dst, check=True)
+        msg = _scrub_message(((c["subject"] + "\n\n" + c["body"]).strip() + "\n"))
+        env = dict(os.environ, GIT_AUTHOR_DATE=c["author_date"], GIT_COMMITTER_DATE=c["commit_date"])
+        subprocess.run(["git", "-c", f"user.name={c['author']}", "-c", f"user.email={c['email']}",
+                        "commit", "-q", "--allow-empty", "-F", "-"], cwd=dst, check=True, env=env,
+                       input=msg.encode("utf-8"))
+        idx = subprocess.run(["git", "ls-files"], cwd=dst, capture_output=True, text=True).stdout
+        n_idx = len([x for x in idx.splitlines() if x.strip()])
+        head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=dst,
+                              capture_output=True, text=True).stdout.strip()
+        warn = "" if n_idx == nfiles else f"  ⚠️ 构建 {nfiles} / 进快照 {n_idx}"
+        print(f"   {head}  {c['commit_date'][:19]}  {c['subject'][:52]}{warn}")
+    head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=dst,
+                          capture_output=True, text=True).stdout.strip()
+    # 一致性自检：镜像 tip 的树必须 == 「最后一条被重放的提交」的脱敏快照（防导出/顺序出错）
+    ex2 = tempfile.mkdtemp(prefix="aa_mirror_chk_src_")
+    chk = tempfile.mkdtemp(prefix="aa_mirror_chk_")
+    try:
+        _export_commit(commits[-1]["sha"], ex2)
+        _write_snapshot(chk, ex2)
+        want = local_tree(chk, "aa-mirror-chk")
+    finally:
+        shutil.rmtree(ex2, ignore_errors=True)
+        shutil.rmtree(chk, ignore_errors=True)
+    have = commit_tree(dst, "HEAD")
+    diff = sorted(set(want) ^ set(have)) + [k for k in sorted(set(want) & set(have)) if want[k] != have[k]]
+    if diff:
+        print("❌ 镜像 tip 与「最后一条重放提交」的快照不一致（%d 处），拒绝推送:" % len(diff),
+              file=sys.stderr)
+        for k in diff[:10]:
+            print("   " + k, file=sys.stderr)
+        return False, head
+    print(f"✅ 一致性自检：tip 与 {commits[-1]['sha'][:7]} 的脱敏快照逐文件相同（{len(want)} 文件）")
+    if dry_run:
+        print(f"\n--dry-run：未推送（本地已重放 {len(commits)} 条，HEAD={head}）")
+        return True, head
+    r = subprocess.run(["git", "push", "--force", remote, f"{branch}:{branch}"], cwd=dst,
+                       capture_output=True, text=True, env=dict(os.environ, GIT_TERMINAL_PROMPT="0"))
+    print(r.stdout.strip() or r.stderr.strip())
+    if r.returncode:
+        print("❌ push 失败", file=sys.stderr)
+        return False, head
+    if os.path.isdir(os.path.join(remote, "refs")):        # 本地裸仓库：顺手把 HEAD 指到该分支
+        subprocess.run(["git", "symbolic-ref", "HEAD", f"refs/heads/{branch}"], cwd=remote)
+        print(f"镜像仓库 HEAD → refs/heads/{branch}")
+    print(f"\n✅ 已推送 {len(commits)} 条提交（HEAD={head}）→ {remote} ({branch})")
+    return True, head
 
 
 def gates(dst, max_mb):
@@ -311,6 +520,18 @@ def local_tree(dst, branch):
     for line in r.stdout.splitlines():
         meta, path = line.split("\t", 1)
         out[path.strip()] = meta.split()[1]
+    return out
+
+
+def commit_tree(dst, rev="HEAD"):
+    """取某提交的 {路径: blob sha}（镜像一致性自检用）。"""
+    r = subprocess.run(["git", "-C", dst, "ls-tree", "-r", "--format=%(objectname) %(path)", rev],
+                       capture_output=True, text=True)
+    out = {}
+    for line in r.stdout.splitlines():
+        if " " in line:
+            sha, path = line.split(" ", 1)
+            out[path.strip()] = sha
     return out
 
 
@@ -410,7 +631,10 @@ def main():
     ap.add_argument("--max-mb", type=float, default=MAX_MB)
     ap.add_argument("--check", action="store_true", help="只构建 + 门禁，不提交不推")
     ap.add_argument("--dry-run", action="store_true", help="构建 + 提交，但不 push")
-    ap.add_argument("--keep", action="store_true", help="保留构建目录")
+    ap.add_argument("--keep", action="store_true", help="保留构建目录（排查用）")
+    ap.add_argument("--history", type=int, default=HISTORY_DEFAULT,
+                    help=f"历史重放：把最近 N 条本地提交逐条重放成脱敏提交（默认 {HISTORY_DEFAULT}，"
+                         f"真实提交说明 + 真实时间）；0 = 旧行为（单提交快照，时间固定为当天 00:00）")
     args = ap.parse_args()
 
     remote = _resolve_remote(args.remote)
@@ -445,6 +669,17 @@ def main():
             return 0
 
         subprocess.run(["git", "init", "-q", "-b", args.branch], cwd=dst, check=True)
+        if args.history:
+            # 镜像内容 = **已提交**内容（历史重放），因此工作区里未提交的改动不进镜像；
+            # 只提示一句，不阻塞（并行会话改一半的脚本不该拦住同步）。
+            dirty = dirty_mirrored()
+            if dirty:
+                print("ℹ️ 工作区有未提交的「会进快照」的改动（不进本次镜像）："
+                      + ", ".join(dirty[:6]) + ("…" if len(dirty) > 6 else ""))
+            ok, _head = push_history(dst, remote, args.branch, args.history, args.max_mb,
+                                     dry_run=args.dry_run)
+            return 0 if ok else 3
+        # ---- 旧路径（--history 0）：单提交快照，时间固定为当天 00:00 ----
         subprocess.run(["git", "add", "-A"], cwd=dst, check=True)
         stamp = time.strftime("%Y-%m-%d")
         # 作者/提交时间固定 → 同一份内容在同一日期下 commit sha 恒定（两处镜像可交叉核对）
