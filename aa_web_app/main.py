@@ -3605,7 +3605,9 @@ def api_work_models(work: str, type: str = "translate"):
     零 API：只读 `model_config.toml` 的链定义 + 单价表。
     query: type=translate（主翻译链 normal/r18，按作品 r18）| proofread（`[refine_aa].backends`）
     返回 {ok, type, r18, chain:[{backend,model,label,cache,r18,fallback_only,available,rate}],
-          default:[后端名], head:"主力端点（章内 pin 目标）"}
+          selected:[条目 id]（**当前生效勾选集** = 设置页保存的 AA_CHAIN / AA_REFINE_BACKEND
+          与本作品链的交集；未设 = 整条链的默认集）, default:[条目 id], custom:bool,
+          head:"主力端点（= 生效链第一个可缓存端点，与实际跑的头一个端点同口径）"}
     """
     try:
         AC = _aa_config()
@@ -3615,20 +3617,36 @@ def api_work_models(work: str, type: str = "translate"):
             r18 = False
         if type == "proofread":
             chain, default = AC.refine_catalog(r18)
+            _env_name = "AA_REFINE_BACKEND"
         else:
             chain, default = AC.chain_catalog(r18)
+            _env_name = "AA_CHAIN"
+        # 生效勾选集（2026-10-10）：设置页保存的选择 = 控制台多选的默认勾选，两页不再各说各话。
+        # 用户选择的条目可能不在本作品的链上（如给 R18 作品选了不接 R18 的 mimo）→ 交集为空时回默认集。
+        sel = AC.chain_selection(_env_name, chain, default)
+        ids = {it["id"] for it in chain}
+        picked = [x for x in sel["selected"] if x in ids] if sel["custom"] else []
+        selected = picked or list(default)
+        custom = bool(picked)
+        # 生效链 = TOML 链序 ∩ 勾选集（与 aa_config.backend_chain 同序；未自定义 = 整条链）
+        eff = [it for it in chain if it["id"] in selected] if custom else list(chain)
+        if not eff:
+            eff = list(chain)
         head = ""
-        for it in chain:                      # default/head 都按**条目 id**（2026-10-08 阶段 2）
-            if it["id"] in default and it.get("cache"):
+        for it in eff:                        # 主力 = 生效链第一个可缓存端点（章内 pin 目标）
+            if it["available"] and not it.get("fallback_only") and it.get("cache"):
                 head = it["label"]
                 break
         if not head:
-            for it in chain:
-                if it["id"] in default:
+            for it in eff:
+                if it["available"] and not it.get("fallback_only"):
                     head = it["label"]
                     break
+        if not head and eff:
+            head = eff[0]["label"]
         return {"ok": True, "type": "proofread" if type == "proofread" else "translate",
-                "r18": r18, "chain": chain, "default": default, "head": head}
+                "r18": r18, "chain": chain, "selected": selected, "default": default,
+                "custom": custom, "head": head}
     except Exception as e:
         return {"ok": False, "error": "%s: %s" % (e.__class__.__name__, e)}
 

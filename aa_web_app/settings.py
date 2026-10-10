@@ -48,10 +48,11 @@ def env_info():
 
 
 def _key_source(name):
-    """该 key 当前值来自哪一层：env（真实环境变量）/ .env（仓库根）/ hermes（只读兜底）/ 空。
+    """该 key 当前值来自哪一层：env（真实环境变量）/ .env（仓库根）/ 空。
 
     注意：aa_config import 时已把 .env 灌进 os.environ，所以「在 os.environ 里」不足以判定
     来源 —— 先比 .env 文件里的值：不同 → 真实 env 赢；相同/文件里有 → .env。
+    （2026-10-10 起 hermes 兜底路径已废除，不再有第三层。）
     """
     try:
         file_val = (aa_env.load() or {}).get(name)
@@ -64,12 +65,6 @@ def _key_source(name):
         return ".env"
     if env_val:
         return "env"
-    for p in aa_env.fallback_paths():
-        try:
-            if os.path.exists(p) and aa_env._parse(aa_env._read_text(p)).get(name):
-                return "hermes"
-        except Exception:
-            continue
     return ""
 
 
@@ -130,9 +125,15 @@ def _key_names_ordered():
                 add(ke, "视觉 %s" % (it.get("name") or grp))
                 if ke not in used:
                     used.append(ke)
-    # ④ 免费池用到的 key（opencode zen 自由额度）
+    # ④ opencode zen 的两个 key（免费池 + zen 主 key）
+    #    2026-10-10 用户要求：`OPENCODE_ZEN_API_KEY` **恒列出**（哪怕还没填，也要能在设置页填/测）；
+    #    `OPENCODE_FREE_ZEN_API_KEY` 维持原样（已配置才列）。
     for ke, tag in (("OPENCODE_FREE_ZEN_API_KEY", "免费模型池"),):
         if aa_env.read_key(ke) and ke not in used:
+            add(ke, tag)
+            used.append(ke)
+    for ke, tag in (("OPENCODE_ZEN_API_KEY", "opencode zen"),):
+        if ke not in used:
             add(ke, tag)
             used.append(ke)
 
@@ -150,29 +151,9 @@ def keys_view():
     return out
 
 
-def _sel_to_ids(selectors, entries, default_ids):
-    """env 里的选择项（条目 id 或旧后端名）→ 条目 id 列表；未设 → default_ids。"""
-    sels = [s.strip() for s in (selectors or []) if s and s.strip()]
-    if not sels:
-        return list(default_ids), False
-    ids, by_backend = [], {}
-    for it in entries:
-        by_backend.setdefault(it["backend"], []).append(it["id"])
-    for s in sels:
-        if s in by_backend:
-            for eid in by_backend[s]:
-                if eid not in ids:
-                    ids.append(eid)
-        elif s in [it["id"] for it in entries]:
-            if s not in ids:
-                ids.append(s)
-    return (ids or list(default_ids)), bool(ids)
-
-
 def _chain_sel(env_name, entries, default_ids):
-    raw = aa_env.get(env_name, "") or ""
-    ids, custom = _sel_to_ids(raw.split(","), entries, default_ids)
-    return {"selected": ids, "default": list(default_ids), "custom": custom, "raw": raw}
+    """env 里当前生效的勾选集（口径见 `aa_config.chain_selection`，两处共用一份实现）。"""
+    return _ac().chain_selection(env_name, entries, default_ids)
 
 
 def models_view():
@@ -358,8 +339,11 @@ def test_key(name):
     """「测试连接」：用该 key 发一次最小请求（成本≈0），回可用/失败原因。"""
     if not name:
         return {"ok": False, "error": "未指定 key 名"}
-    if not aa_env.read_key(name):
+    val = aa_env.read_key(name)
+    if not val:
         return {"ok": False, "error": "未配置（先填一个值再测）", "kind": "empty"}
+    if name in _ZEN_KEYS:                      # opencode zen 系：TOML 里没有端点，直连 zen 探针
+        return _test_zen_key(name, val)
     targets = _test_targets(name)
     if not targets:
         return {"ok": False, "error": "该 key 未绑定任何可测后端（TOML 里没有 key_env=%s 的端点）" % name,
@@ -376,6 +360,39 @@ def test_key(name):
     return {"ok": False, "backend": last[0] if last else "",
             "error": _classify_err(last[1]) if last else "无候选",
             "kind": "call_failed"}
+
+
+# opencode zen 系 key（TOML 里没有 key_env 指向它们的端点，单独走 zen 探针）
+_ZEN_KEYS = {"OPENCODE_ZEN_API_KEY", "OPENCODE_FREE_ZEN_API_KEY", "OPENCODE_GO_API_KEY"}
+
+
+def _test_zen_key(name, val):
+    """用给定 key 打一次「它现实里真能用的门」。
+
+    2026-10-10 实测：opencode **免费档已对非 OpenCode 客户端关闭**（zen 门对 9 个免费模型一律
+    403 `FreeTierError: …free tier can only be used from within OpenCode`；老的 `mimo-v2.5-free`
+    410 `ModelDeprecated`）→ 拿免费模型当探针会把一把好 key 测成红的。
+    现在这把 key 现实用途 = **Go 门订阅**（`/zen/go/v1` + `x-opencode-session`）→ 先探 Go 门
+    （`deepseek-v4.1-flash`）；Go 门不认（按量 Zen key）再退回 Zen 门同模型。
+
+    走的都是 `call_opencode_*`，并**显式传 key**——测的就是「这个变量里的值」，不走优先级回退。
+    """
+    import aa_backend as AB
+    errs = []
+    for gate, fn in (("Go 门", lambda: AB.call_opencode_go(
+                        "你是测试探针。", "只回复 OK 两个字母。",
+                        max_tokens=8, timeout=30, model="deepseek-v4.1-flash", key=val)),
+                     ("Zen 门", lambda: AB.call_opencode_zen(
+                        "你是测试探针。", "只回复 OK 两个字母。",
+                        max_tokens=8, timeout=30, model="deepseek-v4.1-flash", key=val))):
+        try:
+            txt = fn()
+            return {"ok": True, "backend": "opencode_go" if gate == "Go 门" else "opencode_zen",
+                    "model": "deepseek-v4.1-flash", "gate": gate, "reply": (txt or "").strip()[:40]}
+        except Exception as e:
+            errs.append("%s: %s" % (gate, _classify_err(e)))
+    return {"ok": False, "backend": "opencode_go", "model": "deepseek-v4.1-flash",
+            "error": " / ".join(errs), "kind": "call_failed"}
 
 
 def _probe_http(url, proxy=None, timeout=8):

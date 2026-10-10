@@ -189,6 +189,7 @@ function aaModelPicker(opts) {
   const chks = () => [...box.querySelectorAll('input.mchk')];
 
   function render(j) {
+    const on = j.selected || j.default || [];      // 默认勾选 = 设置页保存的链（2026-10-10）
     const rows = (j.chain || []).map(function (it) {
       const r = it.rate || {};
       const pr = (r.miss != null && r.out != null)
@@ -201,7 +202,7 @@ function aaModelPicker(opts) {
       if (!it.available) tags.push('缺key');
       return '<label class="mchk-row' + (it.available ? '' : ' muted') + '" title="' + escapeHtml(it.label) + '">' +
         '<input type="checkbox" class="mchk" data-name="' + escapeHtml(it.id || it.backend) + '"' +
-        (j.default.indexOf(it.id || it.backend) >= 0 ? ' checked' : '') +
+        (on.indexOf(it.id || it.backend) >= 0 ? ' checked' : '') +
         (it.available ? '' : ' disabled') + '> ' +
         '<b>' + escapeHtml(it.model || it.backend) + '</b>' +
         ' <span class="muted small">' + escapeHtml(it.backend) + ' · ' + pr +
@@ -210,9 +211,11 @@ function aaModelPicker(opts) {
     const scope = (opts.type === 'proofread') ? '校对阶段' : '翻译+校对阶段';
     box.innerHTML = '<div class="muted small">本任务候选模型（付费链，多选；' + scope + '都用它；不勾 = 用整条链）：' +
       '主力 <b>' + escapeHtml(j.head || '?') + '</b>' +
-      (j.r18 ? ' · <span class="bad">R18 作品 → r18 链</span>' : '') + '</div>' +
+      (j.r18 ? ' · <span class="bad">R18 作品 → r18 链</span>' : '') +
+      (j.custom ? '' : ' · <span class="muted">未自定义 → 勾选 = 整条链</span>') + '</div>' +
       '<div class="mchk-list">' + rows + '</div>' +
-      '<div class="muted small">取消勾选 = 从候选链里摘掉（剩下的仍按链序降级）；全勾回默认。</div>';
+      '<div class="muted small">默认勾选 = <a href="/settings">设置页</a>保存的链（改动可在此单任务覆盖）；' +
+      '取消勾选 = 从候选链里摘掉（剩下的仍按链序降级）；全勾回默认。</div>';
     chks().forEach(function (c) {
       c.onchange = function () {
         const n = names();

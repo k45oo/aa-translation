@@ -27,6 +27,25 @@ _TRACKED = ("AA_ENV", "AA_CHAIN", "AA_REFINE_BACKEND", "AA_SEL_CHAIN", "AA_SEL_E
             "AA_PROXY", "AA_USE_PROXY", "SOME_TEST_KEY", "AA_TEST_DUMMY_KEY")
 
 
+def _toml_key_envs():
+    """TOML 里声明过的 key 名（`[backend.*].key_env` ∪ `[vision].*[].key_env`）。
+
+    2026-10-10 起仓库根 .env 是 key 的唯一文件来源，`chain_catalog` 的「可用性」判定（默认集）
+    直接看这些 key 有没有值 —— 夹具得自己给一份，否则默认集为空、页面状态用例全挂。
+    """
+    names = set()
+    cfg = AC.load() or {}
+    for c in (cfg.get("backend", {}) or {}).values():
+        if c and c.get("key_env"):
+            names.add(c["key_env"])
+    for items in (cfg.get("vision", {}) or {}).values():
+        if isinstance(items, list):
+            for it in items:
+                if it and it.get("key_env"):
+                    names.add(it["key_env"])
+    return sorted(names)
+
+
 class _Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="aa_settings_")
@@ -36,6 +55,10 @@ class _Base(unittest.TestCase):
             os.environ.pop(k, None)
         os.environ["AA_ENV_PATH"] = self.env_file
         self._old["AA_ENV_PATH"] = None
+        # 临时 .env 里预置全部项目 key 的占位值（值假、不联网）→ 「哪些端点可用」与操作者真 .env 无关
+        with open(self.env_file, "w", encoding="utf-8") as f:
+            for name in _toml_key_envs():
+                f.write("%s=test-dummy-key\n" % name)
         aa_env.load(force=True)
         AC.reload()
 
@@ -102,6 +125,26 @@ class TestStateView(_Base):
         ids = [e["id"] for e in j["models"]["translate"]["entries"]]
         self.assertEqual(len(ids), len(set(ids)))
         self.assertTrue(all("|" in i for i in ids))
+
+    def test_保存的选择回显为勾选集(self):
+        """设置页保存的链 → 状态接口 selected（页面勾选状态）+ 控制台多选同源（2026-10-10）。"""
+        ids = [e["id"] for e in self._state()["models"]["translate"]["entries"]]
+        if len(ids) < 2:
+            self.skipTest("可用端点不足两个")
+        self._post({"section": "models", "translate": ids[:2]})
+        m = self._state()["models"]["translate"]
+        self.assertEqual(m["selected"], ids[:2])
+        self.assertNotEqual(sorted(m["selected"]), sorted(m["default"]))
+        # 控制台接口（/api/work/<id>/models）读到同一份选择（非 R18 作品 → normal 链）
+        _old = M.cfg_of
+        M.cfg_of = lambda w: {"r18": False}
+        try:
+            wm = M.api_work_models("w")
+        finally:
+            M.cfg_of = _old
+        self.assertTrue(wm.get("ok"), wm)
+        self.assertEqual(wm["selected"], ids[:2])
+        self.assertTrue(wm["head"])
 
 
 class TestSaveKeys(_Base):

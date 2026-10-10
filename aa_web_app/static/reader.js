@@ -918,6 +918,9 @@
       }
       if (hint) hint.textContent = m === 'src' ? '原文' : (m === 'refine' ? '精译' : '汉化');
     }
+    // 切模式时同步按钮高亮/提示（2026-10-10 修：样式此前只在 ready 时设一次 →
+    // 点「原文」正文切了、按钮仍亮着「汉化」）
+    WIN.onMode(applyModeUi);
     // 汉/精 toggle：tr↔refine 切换；原文模式下点它回汉化
     function toggleRefine() {
       const cur = WIN.mode;
