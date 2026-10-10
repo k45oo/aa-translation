@@ -1,12 +1,12 @@
 {
  "generated_at": null,
  "stats": {
-  "total": 314,
+  "total": 319,
   "legacy": 108,
-  "core": 74,
-  "tool": 60,
+  "core": 75,
+  "tool": 61,
   "deprecated_candidate": 3,
-  "test": 69,
+  "test": 72,
   "hardcoded": 30,
   "top_consts": 49,
   "dup_function_counts": {
@@ -138,6 +138,7 @@
    ],
    "refs": {
     "imports": [
+     "aa_art_kana",
      "aa_backend",
      "aa_config",
      "aa_env",
@@ -168,6 +169,7 @@
     "referenced_by": [
      "benchmark.eval_translation",
      "common._flat_loader",
+     "common.aa_art_kana",
      "common.aa_tm",
      "common.gen_glossary",
      "common.pokemon_fixed",
@@ -234,6 +236,7 @@
      "legacy.translate_yaruobook",
      "runner.refine_runner",
      "runner.translate_runner",
+     "tests.test_art_kana",
      "tests.test_art_veto",
      "tests.test_backup_prune",
      "tests.test_fix_lead_kanji",
@@ -244,6 +247,7 @@
      "tests.test_pipeline",
      "tests.test_pokemon_fixed",
      "tests.test_pre_terms",
+     "tests.test_refine_art_gate",
      "tests.test_refine_line_guard",
      "tests.test_refine_rebuild_guard",
      "tests.test_stability",
@@ -495,6 +499,49 @@
    "has_main_guard": false,
    "docstring": "模型 API 层薄壳（2026-08-18 去重后）——唯一权威实现是 scripts/aa_translate.py。"
   },
+  "scripts/common/aa_art_kana.py": {
+   "path": "scripts/common/aa_art_kana.py",
+   "grade": "core",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [
+    "AA_ART_KANA",
+    "AA_ART_KANA_KANJI_RATIO",
+    "AA_ART_KANA_KEEP_RATIO",
+    "AA_ART_KANA_MIN_OBS",
+    "AA_ART_KANA_OVERRIDE_OBS",
+    "AA_ART_KANA_OVERRIDE_RATIO",
+    "AA_ART_KANA_RATIO"
+   ],
+   "refs": {
+    "imports": [
+     "aa_translate",
+     "io",
+     "json",
+     "os",
+     "re"
+    ],
+    "subprocess": [],
+    "referenced_by": [
+     "aa_translate",
+     "tests.test_art_kana",
+     "tools.calibrate_art_kana",
+     "tools.line_classify_v2"
+    ],
+    "webapp": [],
+    "docs": [
+     "AGENTS.md",
+     "doc/接口文档.md",
+     "doc/方案归档/段级艺术判据_2026-10-10.md"
+    ]
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": false,
+   "docstring": "艺术假名表（按**作品语料**标定，零 API）——判「这串假名是画还是台词」的单一权威。"
+  },
   "scripts/common/aa_backend.py": {
    "path": "scripts/common/aa_backend.py",
    "grade": "core",
@@ -518,6 +565,9 @@
     "AA_MIMO_MODEL",
     "AA_MIMO_URL",
     "AA_MM_MODEL",
+    "AA_OCGO_SESSION",
+    "AA_OCGO_URL",
+    "AA_OCZEN_URL",
     "AA_OLLAMA_MODEL",
     "AA_OLLAMA_URL",
     "AA_OR_MODEL",
@@ -560,6 +610,7 @@
      "runner.refine_runner",
      "tests.test_chapter_summaries",
      "tests.test_endpoint_pin",
+     "tests.test_opencode_go",
      "tests.test_refine_fallback",
      "tests.test_refine_incremental",
      "tests.test_refine_parallel",
@@ -693,11 +744,13 @@
      "tests.test_aa_env",
      "tests.test_endpoint_pin",
      "tests.test_model_choice",
+     "tests.test_opencode_go",
      "tests.test_prompt_prefix",
      "tests.test_refine_fallback",
      "tests.test_refine_incremental",
      "tests.test_selection_chain",
      "tests.test_settings_page",
+     "tests.test_stability",
      "tests.test_usage_cost",
      "tools.aa_search",
      "tools.gen_pokemon_aa_wiki",
@@ -2399,6 +2452,7 @@
    "cli": "argv-manual",
    "argparse": [],
    "env_vars": [
+    "AA_REFINE_ART_GATE",
     "AA_REFINE_BACKEND",
     "AA_REFINE_BATCH",
     "AA_REFINE_CALL_RETRY",
@@ -2442,6 +2496,7 @@
     "referenced_by": [
      "legacy.batch_fill_missed",
      "tests.test_pre_terms",
+     "tests.test_refine_art_gate",
      "tests.test_refine_batch_guard",
      "tests.test_refine_fallback",
      "tests.test_refine_incremental",
@@ -2461,6 +2516,7 @@
      "doc/方案归档/宝可梦固定内容直出方案_2026-10-08.md",
      "doc/方案归档/工作台设置页与配置文件方案_2026-10-08.md",
      "doc/方案归档/校对提速方案_2026-09-15.md",
+     "doc/方案归档/段级艺术判据_2026-10-10.md",
      "doc/方案归档/说话人标记护栏收紧方案_2026-10-03.md",
      "scripts/README.md"
     ]
@@ -2640,6 +2696,7 @@
     "subprocess": [],
     "referenced_by": [
      "benchmark.eval_translation",
+     "common.aa_art_kana",
      "common.aa_tm",
      "common.gen_glossary",
      "common.pokemon_fixed",
@@ -2705,6 +2762,7 @@
      "legacy.translate_saki",
      "legacy.translate_yaruobook",
      "runner.refine_runner",
+     "tests.test_art_kana",
      "tests.test_art_veto",
      "tests.test_backup_prune",
      "tests.test_fix_lead_kanji",
@@ -2715,6 +2773,7 @@
      "tests.test_pipeline",
      "tests.test_pokemon_fixed",
      "tests.test_pre_terms",
+     "tests.test_refine_art_gate",
      "tests.test_refine_line_guard",
      "tests.test_refine_rebuild_guard",
      "tests.test_stability",
@@ -7003,6 +7062,7 @@
      "tests.test_interface_docs",
      "tests.test_line_meta",
      "tests.test_model_choice",
+     "tests.test_opencode_go",
      "tests.test_pipeline",
      "tests.test_pre_terms",
      "tests.test_prompt_prefix",
@@ -7216,6 +7276,40 @@
    "dup_functions": [],
    "has_main_guard": true,
    "docstring": "L4 测试：aa_web_app.logic 纯逻辑（保存校验 / 备份轮转 / 术语应用 / glossary 读写）。"
+  },
+  "scripts/tests/test_art_kana.py": {
+   "path": "scripts/tests/test_art_kana.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_art_kana",
+     "aa_translate",
+     "io",
+     "json",
+     "os",
+     "shutil",
+     "sys",
+     "tempfile",
+     "unittest"
+    ],
+    "subprocess": [
+     "test_art_kana.py"
+    ],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": [
+     "AGENTS.md"
+    ]
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "段级艺术判据（P1-1，2026-10-10）：按作品语料标定的艺术假名表 + Rule A/B 回归测试。"
   },
   "scripts/tests/test_art_veto.py": {
    "path": "scripts/tests/test_art_veto.py",
@@ -7898,6 +7992,38 @@
    "has_main_guard": true,
    "docstring": "工作台「付费链模型多选」+ 预估随选择变（2026-09-22）。"
   },
+  "scripts/tests/test_opencode_go.py": {
+   "path": "scripts/tests/test_opencode_go.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [
+    "AA_OCGO_SESSION"
+   ],
+   "refs": {
+    "imports": [
+     "_work_guard",
+     "aa_backend",
+     "aa_config",
+     "io",
+     "json",
+     "os",
+     "sys",
+     "unittest",
+     "urllib"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "opencode Go 门接入（2026-10-10）单测：session 头、_call_named 分发、关思考自适应、TOML 链首。"
+  },
   "scripts/tests/test_pager_wiring.py": {
    "path": "scripts/tests/test_pager_wiring.py",
    "grade": "test",
@@ -8089,6 +8215,38 @@
    "dup_functions": [],
    "has_main_guard": true,
    "docstring": "P3 quality_gate registry id 映射测试（2026-08-18 Phase 5）。"
+  },
+  "scripts/tests/test_refine_art_gate.py": {
+   "path": "scripts/tests/test_refine_art_gate.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_translate",
+     "io",
+     "json",
+     "os",
+     "refine_aa",
+     "shutil",
+     "sys",
+     "tempfile",
+     "unittest"
+    ],
+    "subprocess": [
+     "test_refine_art_gate.py"
+    ],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "refine 行级艺术闸门（2026-10-10）回归测试。"
   },
   "scripts/tests/test_refine_batch_guard.py": {
    "path": "scripts/tests/test_refine_batch_guard.py",
@@ -8654,11 +8812,11 @@
    "argparse": [],
    "env_vars": [
     "AA_ENV",
-    "AA_ENV_PATH",
-    "OPENCODE_GO_API_KEY"
+    "AA_ENV_PATH"
    ],
    "refs": {
     "imports": [
+     "aa_config",
      "aa_env",
      "aa_translate",
      "json",
@@ -9560,6 +9718,53 @@
    "dup_functions": [],
    "has_main_guard": true,
    "docstring": "把工作台打包成 **单文件 exe**（PyInstaller）→ `scripts/tools/dist/AA工作台.exe`。"
+  },
+  "scripts/tools/calibrate_art_kana.py": {
+   "path": "scripts/tools/calibrate_art_kana.py",
+   "grade": "tool",
+   "cli": [
+    "--all",
+    "--dir",
+    "--report",
+    "--top",
+    "--work"
+   ],
+   "argparse": [
+    "--all",
+    "--dir",
+    "--report",
+    "--top",
+    "--work"
+   ],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_art_kana",
+     "argparse",
+     "glob",
+     "gzip",
+     "io",
+     "json",
+     "os",
+     "registry",
+     "sys",
+     "time"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": [
+     "AGENTS.md",
+     "doc/接口文档.md",
+     "doc/方案归档/段级艺术判据_2026-10-10.md"
+    ]
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "艺术假名表标定 CLI（零 API）——实现见 scripts/common/aa_art_kana.py。"
   },
   "scripts/tools/check_imports.py": {
    "path": "scripts/tools/check_imports.py",
@@ -10536,6 +10741,7 @@
    "env_vars": [],
    "refs": {
     "imports": [
+     "aa_art_kana",
      "aa_common",
      "importlib",
      "inspect",
@@ -11707,6 +11913,7 @@
      "tools.aa_to_cbz",
      "tools.aa_to_images",
      "tools.ab_refine_verify",
+     "tools.calibrate_art_kana",
      "tools.check_registry",
      "tools.compress_text_pkg",
      "tools.fix_missed_lines",

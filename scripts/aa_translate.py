@@ -1614,14 +1614,11 @@ def _rule_dialogue_run_ok(run):
       实测第101~103話: 抠段 534 → **559**（丢 17 段全是 art 碎片、增 42 段多为片假名词），
       两起事故行均回退整行协议（整行路径有 art 描边守恒校验，安全）。
     """
-    if len(run) < 2 or disp_width(run) < 4:
+    if not run or len(run) < 2 or disp_width(run) < 4:
         return False
-    if any(c not in ART_HIRA and c not in ART_KATA and c not in _SMALL_KANA
-           for c in run if KANA_RE.match(c)):
-        return True
-    if len(_KANJI_RE.findall(run)) >= 2 and not re.search(r"(.)\1", run):
-        return True
-    return False
+    # 2026-10-10 P1-1: 判据统一委托 aa_art_kana.seg_is_art（写死表 ∪ 按语料标定表），
+    # 与选段层/校对层同一个函数——本作用 ア/イ/キ/ト/フ/ニ 当笔画，写死表把它们全当台词证据。
+    return not seg_is_art(run)
 
 
 def _rule_seg_copy_fail(orig_seg, cand, names=None):
@@ -1672,6 +1669,70 @@ def _confident_text_segs(segs):
     """conf>=0.65 的 text 段下标（v3 meta 仅低置信段带 confidence 字段，缺省视为高）。"""
     return [si for si, sg in enumerate(segs)
             if sg['kind'] == 'text' and sg.get('confidence', 1.0) >= 0.65]
+
+# ---------------------------------------------------------------------------
+# 2026-10-10 P1-1: 段级艺术判据 —— 统一到「按作品语料标定的艺术假名表」(common/aa_art_kana.py)
+#   · seg_is_art          → Rule A：段内无可译内容（艺术笔画碎片）→ 本地照抄、不进模型
+#   · art_keep_violation  → Rule B：表内艺术假名在译文里丢失 → 该段回滚照抄/重试
+#   表按**作品语料**标定（tools/calibrate_art_kana.py，零 API；`--all` 出内置基线表），
+#   缺表时自动退回写死的 ART_HIRA/ART_KATA/ART_KANJI；开关 AA_ART_KANA_* 可调/可关。
+#   为什么**现场重算**而不读 meta：meta 由生成端产出（可能是两周前的旧文件），判据换代后旧
+#   meta 不会自动更新 → 只有现场算才让修复立刻生效（bulk-pipeline-changes §一.2 的缓存时效）。
+# ---------------------------------------------------------------------------
+def _ak_mod():
+    try:
+        import aa_art_kana as _m
+        return _m
+    except Exception:
+        return None
+
+
+def art_kana_tab():
+    """本作品的艺术假名比表（缺表 → {}，判据退回写死表）。"""
+    m = _ak_mod()
+    if m is None:
+        return {}
+    try:
+        return m.ratios(work=WORK_ID or "", work_dir=WORK_DIR or "")
+    except Exception:
+        return {}
+
+
+def seg_is_art(text):
+    """该文本片段是否「没有可译内容」（艺术笔画碎片）——Rule A（选段层）。"""
+    m = _ak_mod()
+    if m is None or not text:
+        return False
+    try:
+        return m.seg_is_art(text, art_kana_tab())
+    except Exception:
+        return False
+
+
+def art_keep_violation(src_seg, cand):
+    """译文是否丢掉了源段里的艺术假名（→ 该段回滚照抄）——Rule B。返回原因串或 ''。"""
+    m = _ak_mod()
+    if m is None or not src_seg or not cand:
+        return ""
+    try:
+        return m.art_keep_violation(src_seg, cand, art_kana_tab())
+    except Exception:
+        return ""
+
+
+def _sendable_text_segs(line, segs):
+    """该行**该送模型**的 text 段下标（conf>=0.65 ∩ 非艺术片段）——单一权威（2026-10-10）。
+
+    「要不要把这段发进模型」的决策点全部走这里（选段 / 拼回校验 / fix_width 段级 / 行级分流），
+    否则修一处漏一处（bulk-pipeline-changes §一.3）。
+    """
+    out = []
+    for si in _confident_text_segs(segs):
+        sg = segs[si]
+        if seg_is_art(line[sg['start']:sg['end']]):
+            continue
+        out.append(si)
+    return out
 
 
 def pad_segment(translated, seg_width):
@@ -1875,7 +1936,7 @@ def _mixed_assemble(line, segs, trans, keep, pending_segs=()):
     for si in keep:
         sg = segs[si]
         t2[si] = line[sg['start']:sg['end']]
-    for si in _confident_text_segs(segs):
+    for si in _sendable_text_segs(line, segs):
         if si not in t2 or si in pending_segs:
             return None
     cand = rebuild_mixed_line(line, segs, t2)
@@ -1893,6 +1954,12 @@ def _mixed_seg_verdict(t, orig_seg, is_rule, rule_names, min_ratio, flag_ratio):
     retry = 判失败重试（reason 进 AA_MIXED_DEBUG，hint 是本轮提示词）。"""
     if t is None:
         return 'retry', 'model_miss', MIXED_COPY_HINT
+    # 2026-10-10 P1-1 Rule B：源段里的艺术假名在译文里丢失 = 把笔画译成了中文 → 回滚/重试
+    _vio = art_keep_violation(orig_seg, t)
+    if _vio:
+        if _mixed_seg_evidence(orig_seg):
+            return 'retry', 'art_keep', MIXED_COPY_HINT
+        return 'keep', 'art_keep', ''
     if is_rule and _rule_seg_copy_fail(orig_seg, t, rule_names):
         return 'retry', 'rule_copy', MIXED_COPY_HINT
     if is_rule:
@@ -2001,7 +2068,7 @@ def translate_lines_mixed(flagged_segs, work_r18=None, low_r18=False, base=None)
         jobs, hint = [], ''
         for num, st in pending.items():
             segs, line = st["segs"], st["line"]
-            todo = st["todo"] if st["todo"] is not None else _confident_text_segs(segs)
+            todo = st["todo"] if st["todo"] is not None else _sendable_text_segs(line, segs)
             todo = [si for si in todo if si not in st["trans"] and si not in st["keep"]]
             st["todo"] = todo
             jobs.extend((num, si, _pt(line[segs[si]['start']:segs[si]['end']], base)) for si in todo)
@@ -2045,6 +2112,8 @@ def translate_lines_mixed(flagged_segs, work_r18=None, low_r18=False, base=None)
                     trans[si] = res[(num, si)]
                 elif verdict == 'keep':
                     keep[si] = True
+                    if why == 'art_keep':      # Rule B 回滚可见（人工可查）
+                        leftovers.append((num, si, 'art_keep', False, orig_seg))
                 elif verdict == 'flag':
                     trans[si] = res[(num, si)]
                     flags.append((si, orig_seg))
@@ -2154,7 +2223,7 @@ def fix_width_mixed_lines(rows_by_file, work_r18=None, low_r18=False):
     for fname, rows in rows_by_file.items():
         for idx, src, tr, segs in rows:
             # 只重译 conf>=0.65 的 text 段（低置信/art 段原样保留）
-            tsi = _confident_text_segs(segs)
+            tsi = _sendable_text_segs(src, segs)
             if not tsi:
                 failed.append((fname, idx, src, tr, segs))
                 continue
@@ -2372,7 +2441,8 @@ def process_chapter(path, cfg=None):
     if mixed_segments_enabled() and meta is not None:
         seg_meta = load_meta_segments_0based(meta_dir, base)
         if seg_meta is not None:
-            mixed_segs = {idx: segs for idx, segs in seg_meta.items() if _confident_text_segs(segs)}
+            mixed_segs = {idx: segs for idx, segs in seg_meta.items()
+                          if _sendable_text_segs(lines[idx], segs)}
     # 2026-09-15 P2-a: meta 置信度不足(整章 text 段 0.4)的 mixed 行 → 规则抠台词段补进段级协议。
     # 只补 kind=mixed（纯 text 行没有 art 可省）；校验不过由 translate_lines_mixed 回退整行。
     rule_added = set()   # 2026-09-15: 规则抠段接管的行（校验失败必须回退整行，不能静默落人工）
@@ -2386,7 +2456,7 @@ def process_chapter(path, cfg=None):
             if _kind != "mixed":
                 continue
             _segs = mixed_rule_segments(_l)
-            if _segs and _confident_text_segs(_segs):
+            if _segs and _sendable_text_segs(_l, _segs):
                 mixed_segs[_idx] = _segs
                 rule_added.add(_idx)
                 _added += 1
