@@ -312,10 +312,12 @@
           // 2026-09-03: 译文显示 1s 后才允许点外部关闭（防译文刚出被误关）
           closeAt = Date.now() + 1000;
           // 通道/耗时（用于反查超时；echo 时标黄）
+          // 2026-10-10: 显示**完整**通道名（backend/model）——同模型名可挂在多个后端上
+          // （opencode_go 与 deepseek 官网都是 deepseek-v4.1-flash），只显示模型分不出实际走了哪条
           const meta = b.querySelector('.sel-pop-meta');
           if (meta) {
             const bits = [];
-            if (j.via) bits.push(String(j.via).split('/').pop());
+            if (j.via) { bits.push(String(j.via)); meta.title = '本次通道: ' + j.via; }
             if (j.elapsed != null) bits.push(j.elapsed + 's');
             if (j.auto_retry) bits.push('已自动换通道重试');
             meta.textContent = bits.join(' · ');
