@@ -47,7 +47,9 @@ class TestCommonPrefix(unittest.TestCase):
 
     @repo_only("断言生成者后端表里 cache=true 的端点")
     def test_current_cache_backend(self):
-        self.assertEqual(P.current_cache_backend(False), "mimo")          # auto: 链上第一个会缓存的(2026-09-22 起 normal 链首=mimo)
+        # auto: 链上第一个会缓存的端点（2026-10-10 起 normal/r18 链首 = opencode_go，cache=true）
+        self.assertEqual(P.current_cache_backend(False), "opencode_go")
+        self.assertEqual(P.current_cache_backend(True), "opencode_go")
         os.environ["AA_BACKEND"] = "deepinfra"
         self.assertIsNone(P.current_cache_backend(False))                # 显式网关 → 不拼
         os.environ["AA_BACKEND"] = "deepseek"

@@ -305,6 +305,19 @@ def segment_line(row, treat_hankaku_as_text=False):
     return segs
 
 
+def _art_kana_seg_is_art(text):
+    """2026-10-10 P1-1: 段级艺术判据 —— 与生产链同一个函数（common/aa_art_kana.seg_is_art）。
+
+    表按作品语料标定（`tools/calibrate_art_kana.py`）；本工具 main() 里会显式把当前作品
+    的表路径喂给 `aa_art_kana.set_table_path`，否则退回内置基线与写死表。
+    """
+    try:
+        import aa_art_kana as AK
+        return AK.seg_is_art(text)
+    except Exception:
+        return False
+
+
 def _demote_non_dialogue_text_segs(segs, row):
     """text 段内无决定性台词证据 → 降为 art（2026-10-10 P1；见 segment_line 注释）。
 
@@ -314,8 +327,11 @@ def _demote_non_dialogue_text_segs(segs, row):
     out = []
     for sg in segs:
         k = sg['kind']
-        if k == 'text' and _max_real_dialogue_run(row[sg['start']:sg['end']]) == 0:
-            k = 'art'
+        if k == 'text':
+            _t = row[sg['start']:sg['end']]
+            # 2026-10-10 P1-1: 除"无真实台词 run"外，再与生产同一判据(艺术假名表)对齐
+            if _max_real_dialogue_run(_t) == 0 or _art_kana_seg_is_art(_t):
+                k = 'art'
         sg = dict(sg, kind=k)
         if out and out[-1]['kind'] == k:
             out[-1]['end'] = sg['end']
@@ -654,6 +670,14 @@ def main():
     # --missing: 只补缺失的 meta（已有 json 不动）——批量补刷用，避免重写全量文件
     missing_only = '--missing' in args
     cfg = registry.get(work)
+    # 2026-10-10 P1-1: 艺术假名表（按作品语料标定）——生成端与运行时同一张表
+    try:
+        import aa_art_kana as _AK
+        _tbl = os.path.join(cfg['work_dir'], 'art_kana_%s.json' % work)
+        if os.path.exists(_tbl):
+            _AK.set_table_path(_tbl)
+    except Exception:
+        pass
     site = importlib.import_module('sites.' + cfg['site'])
     raw_dir, work_dir = cfg['raw_dir'], cfg['work_dir']
     meta_dir = os.path.join(work_dir, 'line_meta_v2')
