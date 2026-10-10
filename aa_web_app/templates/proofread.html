@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}{{ cfg.title }} · 校对 · AA 汉化矫正工作台{% endblock %}
+{% block content %}
+<p><a href="/work/{{ work }}">← {{ cfg.title }}</a></p>
+<h1>校对任务 <span class="muted small mono">({{ work }})</span></h1>
+<p class="muted small">选已译章节 → 启动 → 后台跑 refine_aa（段级重建+术语注入，逐章会用模型，烧 token+长耗时）；本页轮询状态/进度，实时日志去「翻译任务」菜单页看。</p>
+
+<div class="actions">
+  <button id="select-all" class="btn small" title="选中全部已译章（跨页，不受当前页限制）">全选已译</button>
+  <button id="select-none" class="btn small" title="取消全部勾选（跨页）">全不选</button>
+  <span class="muted small" style="margin-left:6px">本页：</span>
+  <button id="p-tr" class="btn small ghost" title="只勾选当前页的已译章">已译全选</button>
+  <button id="p-none" class="btn small ghost" title="取消当前页所有勾选">全不选</button>
+  <span id="sel-count" class="muted small"></span>
+  <button id="start-btn" class="btn">启动校对</button>
+</div>
+<div id="est-box" class="est-box small">预估消耗：未选章节</div>
+<div id="model-box" class="model-box small"></div>
+
+<h2>任务状态</h2>
+<div id="task-box">
+  <p class="muted">无任务。</p>
+</div>
+
+<h2>章节（{{ chapters | selectattr('translated') | list | length }}）<span class="muted small">仅已译章可校对</span></h2>
+<div id="chapters-pager" class="pager-row"></div>
+<table class="grid" id="chapters-tbl">
+  <thead>
+    <tr><th>选</th><th>章节</th><th>状态</th></tr>
+  </thead>
+  <tbody>
+  {% for c in chapters %}
+    {% if c.translated %}
+    <tr data-tr="1">
+      <td><input type="checkbox" class="chk" data-eid="{{ c.src_file }}"></td>
+      <td>{{ c.title }}</td>
+      <td><span class="good">已译</span></td>
+    </tr>
+    {% endif %}
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const workId = {{ work | tojson }};
+const $ = (id) => document.getElementById(id);
+const chks = [...document.querySelectorAll('.chk')];
+const chkEid = (el) => (el.dataset.eid.match(/\d+/) || [''])[0];
+let est = null;   // 消耗预估控制器（见下方 aaEstimateBox；updateCount 里刷新）
+
+function updateCount() {
+  const n = chks.filter(c => c.checked).length;
+  $('sel-count').textContent = '已选 ' + n + ' / ' + chks.length + ' 章（全选跨页：分页只影响显示，勾选一直保留）';
+  if (est) est.refresh();
+}
+// 分页（每页 10/50/100，2026-09-13）：只隐藏行，勾选状态跨页保留
+const pager = aaPager({rows: '#chapters-tbl tbody tr', controls: '#chapters-pager', key: 'proofread:' + workId});
+// 本页全选/全不选（2026-09-13）：只作用于当前页可见行（本页全是已译章）
+function pageChks() {
+  const vis = pager && pager.visible ? pager.visible() : [];
+  return chks.filter(c => vis.indexOf(c.closest('tr')) >= 0);
+}
+$('p-tr').onclick = () => { pageChks().forEach(c => { c.checked = true; }); updateCount(); };
+$('p-none').onclick = () => { pageChks().forEach(c => { c.checked = false; }); updateCount(); };
+$('select-all').onclick = () => { chks.forEach(c => c.checked = true); updateCount(); };
+$('select-none').onclick = () => { chks.forEach(c => c.checked = false); updateCount(); };
+chks.forEach(c => c.onchange = updateCount);
+
+// 消耗预估（2026-09-21）：勾选变化 → 去抖刷新（/api/work/<id>/estimate?type=proofread）
+// 校对跳过判定走 refine_ckpt 指纹（已校对且原文/译文未变的章 = 零调用，不计入）
+// 校对链模型多选（2026-09-22）：勾选 → 金额按勾选的主力端点算；提交时写 AA_REFINE_BACKEND
+const mp = aaModelPicker({
+  box: '#model-box', work: workId, type: 'proofread',
+  onChange: () => { if (est) est.refresh(); },
+});
+est = aaEstimateBox({
+  box: '#est-box', work: workId, type: 'proofread',
+  eids: () => chks.filter(c => c.checked).map(chkEid).filter(Boolean),
+  models: () => (mp ? mp.names() : []),
+});
+updateCount();
+
+function toast(msg, ok) {
+  const t = document.createElement('div');
+  t.className = 'toast' + (ok === false ? ' err' : '');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 5000);
+}
+
+// 任务状态轮询(与 translate.html 同款, 复用 /api/work/{work}/translate/status 读最近任务)
+let pollTimer = null;
+async function refreshStatus(initial = false) {
+  try {
+    const r = await fetch('/api/work/' + workId + '/translate/status');
+    const j = await r.json();
+    if (!j || j.status === 'idle' || !j.status) {
+      $('task-box').innerHTML = '<p class="muted">无任务。</p>';
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      return;
+    }
+    const color = j.status === 'done' ? 'good' : (j.status === 'running' || j.status === 'starting' ? 'warn' : 'bad');
+    $('task-box').innerHTML = '<p>状态：<span class="' + color + '"><b>' + j.status + '</b></span>' +
+      (j.type ? ' · 类型：<code>' + j.type + '</code>' : '') +
+      (j.chapters ? ' · 章节：<code>' + j.chapters + '</code>' : '') +
+      (j.phase ? ' · 阶段：' + j.phase + (j.chapter_total ? ' ' + (j.chapter_idx||0) + '/' + j.chapter_total : '') : '') +
+      (j.started ? ' · 开始：' + j.started : '') +
+      (j.finished ? ' · 结束：' + j.finished : '') +
+      (typeof j.rc === 'number' ? ' · rc=' + j.rc : '') + '</p>';
+    if (j.status === 'done' || j.status === 'failed' || j.status === 'crashed') {
+      if (pollTimer && !initial) { clearInterval(pollTimer); pollTimer = null; }
+    }
+  } catch (e) { /* 服务器暂不可达 */ }
+}
+
+$('start-btn').onclick = async () => {
+  const eids = chks.filter(c => c.checked).map(chkEid).filter(Boolean);
+  if (!eids.length) { toast('请先勾选要校对的章节', false); return; }
+  $('start-btn').disabled = true;
+  try {
+    const r = await fetch('/api/work/' + workId + '/proofread', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({eids, models: (mp ? mp.names() : [])}),
+    });
+    const j = await r.json();
+    if (!j.ok) { toast('启动失败: ' + (j.error || JSON.stringify(j)), false); return; }
+    toast(j.msg + ' ✓', true);
+    if (pollTimer) clearInterval(pollTimer);
+    refreshStatus(true);
+    pollTimer = setInterval(() => refreshStatus(), 5000);
+  } finally {
+    $('start-btn').disabled = false;
+  }
+};
+
+refreshStatus(true);
+</script>
+{% endblock %}

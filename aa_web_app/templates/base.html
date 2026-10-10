@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}AA 汉化矫正工作台{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css?v=20261008a">
+{% block head %}{% endblock %}
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">AA 汉化矫正工作台</div>
+  <nav class="topnav">
+    <a href="/" {% if active == 'works' %}class="on"{% endif %}>作品</a>
+    <a href="/tasks" {% if active == 'tasks' %}class="on"{% endif %}>翻译任务</a>
+    <a href="/manga" {% if active == 'manga' %}class="on"{% endif %}>图片漫画</a>
+    <a href="/board" {% if active == 'board' %}class="on"{% endif %}>揭示板</a>
+    <a href="/glossary" {% if active == 'glossary' %}class="on"{% endif %}>术语表</a>
+    <a href="/settings" {% if active == 'settings' %}class="on"{% endif %}>设置</a>
+  </nav>
+  <button id="hot-reload" class="hot-reload" title="重新加载 registry/代码（新增作品或改代码后点击，无需重启服务）">⟳ 重新加载</button>
+</header>
+<main class="container{% block container_class %}{% endblock %}">
+{% block content %}{% endblock %}
+</main>
+<div id="toast" class="toast"></div>
+<script src="/static/app.js?v=20261008a"></script>
+<script src="/static/work_pack.js?v=20261001a"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
