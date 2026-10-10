@@ -1,0 +1,29 @@
+# 行尾规范:文本文件统一 LF(.bat 例外,cmd 兼容需 CRLF)
+# 2026-09-07 全仓统一:git 自动规范化,新写入的 CRLF 在 add 时转回 LF
+* text=auto
+
+*.py    text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+*.toml  text eol=lf
+*.txt   text eol=lf
+*.js    text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.htm   text eol=lf
+*.gitignore text eol=lf
+
+# .bat 必须 CRLF:cmd.exe 对 LF 的 bat 个别场景会出错。
+# 用 -text 让 git 完全不转换(工作树 CRLF 原样入库),避免 eol=crlf 的
+# smudge/clean 在此 git 版本下把工作树/库弄成不一致的 dirty 态。
+*.bat   -text
+
+# 二进制明确不转
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ttf   binary
+*.db    binary
+*.ydb   binary
+*.log   binary

@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block container_class %} wide{% endblock %}
+{% block title %}{% if name %}{{ name }} 阅读 · {% endif %}图片漫画 · AA 汉化矫正工作台{% endblock %}
+{% block head %}
+<style>
+.manga-wrap { display: flex; gap: 16px; align-items: flex-start; }
+.manga-nav { width: 240px; flex-shrink: 0; position: sticky; top: 52px; max-height: calc(100vh - 74px);
+             overflow-y: auto; background: #2c2c3a; border-radius: 6px; padding: 12px 10px; }
+.manga-nav .toc-label { display: block; color: #888; font-size: 12px; margin: 0 0 8px 4px; }
+.manga-nav a { display: block; width: 100%; text-align: left; background: #3f3f55; color: #cdd6ff;
+              border: 1px solid #55557a; border-radius: 4px; padding: 5px 9px; font-size: 12.5px;
+              text-decoration: none; margin: 3px 0; box-sizing: border-box; }
+.manga-nav a:hover { background: #4f4f6a; }
+.manga-nav a.active { background: #8a5a3a; color: #fff; border-color: #a87a52; font-weight: bold; }
+.manga-main { flex: 1; min-width: 0; }
+.manga-pager { display: flex; justify-content: space-between; margin: 10px 0; }
+.manga-pager .btn { text-decoration: none; display: inline-block; }
+.manga-ch-ind { text-align: center; color: #999; font-size: 12.5px; padding-top: 8px; }
+.manga-imgs { text-align: center; }
+.manga-imgs img { max-width: 100%; display: block; margin: 0 auto; }
+.manga-list td { padding: 8px 12px; }
+</style>
+{% endblock %}
+{% block content %}
+{% if name %}
+<p><a href="/manga">← 图片漫画列表</a></p>
+<div class="manga-wrap">
+  <nav class="manga-nav">
+    <span class="toc-label">目录：{{ name }}（{{ total }} 章）</span>
+    {% for c in chapters %}
+    <a href="/manga/{{ name | urlencode }}?ch={{ c | urlencode }}" class="{{ 'active' if c == cur }}">{{ loop.index }}. {{ c }}</a>
+    {% endfor %}
+  </nav>
+  <div class="manga-main">
+    <h2>{{ cur }} <span class="muted small mono">{{ imgs | length }} 页</span></h2>
+    <div class="manga-pager">
+      {% if cur_idx > 0 %}<a class="btn" href="/manga/{{ name | urlencode }}?ch={{ chapters[cur_idx - 1] | urlencode }}">&larr; 上一章</a>
+      {% else %}<span></span>{% endif %}
+      {% if cur_idx < total - 1 %}<a class="btn" href="/manga/{{ name | urlencode }}?ch={{ chapters[cur_idx + 1] | urlencode }}">下一章 &rarr;</a>
+      {% else %}<span></span>{% endif %}
+    </div>
+    <div class="manga-imgs" id="manga-imgs">
+      {% for im in imgs %}<img loading="lazy" src="/manga-img/{{ name | urlencode }}/{{ cur | urlencode }}/{{ im | urlencode }}" alt="{{ im }}">{% endfor %}
+    </div>
+    <div class="manga-pager">
+      {% if cur_idx > 0 %}<a class="btn" href="/manga/{{ name | urlencode }}?ch={{ chapters[cur_idx - 1] | urlencode }}">&larr; 上一章</a>
+      {% else %}<span></span>{% endif %}
+      {% if cur_idx < total - 1 %}<a class="btn" href="/manga/{{ name | urlencode }}?ch={{ chapters[cur_idx + 1] | urlencode }}">下一章 &rarr;</a>
+      {% else %}<span></span>{% endif %}
+    </div>
+    <div class="manga-ch-ind">{{ cur_idx + 1 }} / {{ total }} 章</div>
+  </div>
+</div>
+{% else %}
+<h1>图片漫画（仅阅览）</h1>
+<p class="muted">数据源：main.py 的 IMAGE_MANGA 注册表（章节目录 + 图片文件）。</p>
+<table class="grid">
+  <thead><tr><th>漫画</th><th>章节</th><th>上次阅读</th><th></th></tr></thead>
+  <tbody>
+  {% for m in items %}
+    <tr>
+      <td class="strong">{{ m.name }}</td>
+      <td class="num">{{ m.chapters }}</td>
+      <td class="small">{{ m.last or '—' }}{% if m.error %}<span class="bad">（{{ m.error }}）</span>{% endif %}</td>
+      <td><a class="btn small" href="/manga/{{ m.name | urlencode }}">阅读</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+{% if name %}
+<script>
+const MANGA = {
+  name: {{ name | tojson }},
+  cur: {{ cur | tojson }}
+};
+function saveMangaProgress() {
+  fetch('/api/manga/' + encodeURIComponent(MANGA.name) + '/progress', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chapter: MANGA.cur, image: 0 })
+  });
+}
+saveMangaProgress();   // 打开即记录（含从侧边栏/键盘进入）
+document.querySelectorAll('.manga-nav a, .manga-pager a').forEach(a =>
+  a.addEventListener('click', saveMangaProgress));
+document.addEventListener('keydown', e => {
+  const idx = {{ cur_idx }};
+  if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+    if (idx + 1 < {{ total }}) location.href = '/manga/' + encodeURIComponent(MANGA.name) + '?ch=' + encodeURIComponent({{ chapters[cur_idx + 1] | tojson }});
+  } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+    if (idx > 0) location.href = '/manga/' + encodeURIComponent(MANGA.name) + '?ch=' + encodeURIComponent({{ chapters[cur_idx - 1] | tojson }});
+  }
+});
+</script>
+{% endif %}
+{% endblock %}

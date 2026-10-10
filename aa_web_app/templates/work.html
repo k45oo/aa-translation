@@ -1,0 +1,588 @@
+{% extends "base.html" %}
+{% block title %}{{ cfg.title }} · AA 汉化矫正工作台{% endblock %}
+{% block content %}
+<p><a href="/">← 作品列表</a></p>
+<h1>{{ cfg.title }} <span class="muted small mono">({{ work }})</span></h1>
+<div class="actions">
+  {% if resume.get('fname') %}
+  <a class="btn" href="/work/{{ work }}/read?f={{ resume.fname | urlencode }}&line={{ resume.line }}">续读：{{ resume_title or resume.fname }}</a>
+  {% endif %}
+  <a class="btn" href="/work/{{ work }}/read">阅读本作品（单章渲染，不卡）</a>
+  {% if cand_n > 0 %}
+  <a class="btn highlight" href="/work/{{ work }}/read?cand=1">候选确认 ({{ cand_n }})</a>
+  {% endif %}
+  <button id="gen-cands" class="btn" data-work="{{ work }}" title="全章遍历提取术语候选（AI，耗时数分钟~十几分钟）">生成术语候选…</button>
+  <button id="regen" class="btn {{ 'regen-dirty' if unsynced }}" data-work="{{ work }}"
+    {% if unsynced %}title="{{ unsynced }} 条人工修改未同步到交付 HTML"{% endif %}>重新生成合集 HTML{% if unsynced %}（{{ unsynced }} 条待同步）{% endif %}</button>
+  <a class="btn" href="/work/{{ work }}/translate">翻译任务…</a>
+  {% if wiki_ready %}
+  <button id="sync-wiki" class="btn" title="重抓本作品官方设定 wiki（零模型成本）→ 增量翻译新增行 → 重建对照页；连载更新后点它保持一致">同步 wiki</button>
+  {% endif %}
+  <a class="btn" href="/work/{{ work }}/proofread" title="单独校对: 选已译章 → 跑 refine_aa(段级重建+术语注入, 独立任务)">校对任务</a>
+  <button id="glossary-preview" class="btn">应用术语表替换…</button>
+  <input id="search-q" type="search" placeholder="跨章节搜索（残留排查 / 术语统一）">
+  <button id="search-btn" class="btn">搜索</button>
+  <button id="open-folder" class="btn" title="在资源管理器中打开作品目录（aa/汉化/raw/work，含 override 等）">打开作品文件夹</button>
+  <button id="export-work" class="btn" title="把本作品打成一个 rar 包（含原文/汉化/交付合集/work 人工资产；不含 work 过程文件、日志记录与备份）">导出作品</button>
+</div>
+<p class="muted small">生成命令：<code>{{ generator }}</code>（纯本地，零 token）
+{% if work == 'baitou' %}；注意：白头的生成器会同时重写汉化 txt（应用术语表，非术语行不受影响）{% endif %}</p>
+<div id="search-results"></div>
+
+<h2>作品术语表 <span class="muted small">（<code>work/glossary_{{ work }}.json</code>，仅本作品生效；全局对会串作品勿写入）</span></h2>
+<div class="actions">
+  <button class="btn" id="wg-load">加载</button>
+  <span class="muted small" id="wg-status">点击加载该作品专属术语表（替换对 + 白名单）</span>
+</div>
+<div id="wg-box" class="hidden">
+  <h3>替换对（<span id="wg-cnt-glossary">0</span>）<span class="muted small">「应用术语表替换」= 全局对 + 本作品对，同词以作品为准；来源 auto=生成器/manual=人工</span></h3>
+  <table class="grid editable" id="tbl-wg-glossary">
+    <thead><tr><th>日文</th><th>中文</th><th>来源</th><th>cat</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <button class="btn tiny" id="add-wg-glossary">+ 新增替换对</button>
+  <h3>known_names 白名单（<span id="wg-cnt-known">0</span>）<span class="muted small">并入该作品的残留校验</span></h3>
+  <table class="grid editable" id="tbl-wg-known">
+    <thead><tr><th>名称</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <button class="btn tiny" id="add-wg-known">+ 新增白名单项</button>
+  <div class="actions">
+    <button class="btn" id="wg-save"
+      title="增量保存：表格里的行做新增/更新，点「删」的行才真删除；表格里没有的既有条目一律保留（不会清表）">保存作品术语表</button>
+    <span class="muted small">增量保存（表外既有条目保留，删行才会删条目）</span>
+    <span class="muted" id="wg-msg"></span>
+  </div>
+</div>
+
+<h2>可反哺全局的条目 <span class="muted small">（本作品表 manual − 全局差集；写入 roles.json / glossary.json / known_names，不自动同步）</span></h2>
+<div class="actions">
+  <button class="btn" id="rp-load" title="纯本地扫描，零 token：列出本作品已确认、而全局术语表/角色表里还没有的条目">检查可反哺项</button>
+  <span class="muted small" id="rp-status">按「跨作品同名优先」排序；短词(≤3 字)默认不勾、需人工判断（专名短词写入时自动包 re: 词边界）</span>
+</div>
+<div id="rp-box" class="hidden">
+  <div class="actions">
+    <button class="btn tiny" id="rp-sel-cross">全选跨作品项</button>
+    <button class="btn tiny" id="rp-sel-none">全不选</button>
+    <button class="btn tiny primary" id="rp-apply">反哺选中项…</button>
+    <span class="muted small" id="rp-msg"></span>
+  </div>
+  <table class="grid" id="tbl-rp">
+    <thead><tr><th></th><th>日文</th><th>本作品译名</th><th>类型</th><th>跨作品</th><th>嵌入率</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<h2>章节（{{ stats.agg.chapters }}）</h2>
+<div id="chapters-pager" class="pager-row"></div>
+<table class="grid" id="chapters-tbl">
+  <thead>
+    <tr><th>章节</th><th></th></tr>
+  </thead>
+  <tbody>
+  {% for c in stats.chapters %}
+    <tr>
+      <td class="strong">
+        <a href="/work/{{ work }}/read?f={{ c.file | urlencode }}">{{ c.title or c.file }}</a>
+        {% if c.r18_hit == 'yes' %}<span class="r-badge" title="R18 章（命中 {{ c.r18_hits }} 次）">R</span>
+        {% elif c.r18_hit == 'suspect' %}<span class="r-badge suspect" title="疑似 R18 章（命中 {{ c.r18_hits }} 次）">R?</span>{% endif %}
+        {% if c.file == resume.get('fname') %}<span class="good" title="上次读到">★</span>{% endif %}
+        {% if c.note %}<span class="warn small">（{{ c.note }}）</span>{% endif %}
+      </td>
+      <td><a class="btn small" href="/work/{{ work }}/read?f={{ c.file | urlencode }}">阅读</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<div id="glossary-modal" class="modal hidden">
+  <div class="modal-box">
+    <h3>应用术语表替换预览</h3>
+    <div id="glossary-modal-groups" class="gl-groups"></div>
+    <div id="glossary-modal-body">加载中…</div>
+    <div class="actions">
+      <button id="glossary-recalc" class="btn ghost">重新计算受影响行</button>
+      <button id="glossary-apply" class="btn">确认应用（先自动备份）</button>
+      <button id="glossary-cancel" class="btn ghost">取消</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const workId = {{ work | tojson }};
+const workTitle = {{ (cfg.title or work) | tojson }};
+// 导出作品（弹窗实现在 static/work_pack.js，与作品列表「更多」菜单共用）
+document.getElementById('export-work').addEventListener('click', () => aaExportDialog(workId, workTitle));
+// 章节表分页（每页 10/50/100，2026-09-13）——只隐藏行，不影响链接/续读星标
+aaPager({rows: '#chapters-tbl tbody tr', controls: '#chapters-pager', key: 'work:' + workId});
+document.getElementById('regen').addEventListener('click', async (e) => {
+  const b = e.target; b.disabled = true;
+  const r = await fetch('/api/work/' + workId + '/regenerate', {method: 'POST'});
+  const j = await r.json();
+  toast(j.ok ? '已重新生成 ✓' : '生成失败:\n' + j.output, j.ok);
+  b.disabled = false;
+  setTimeout(() => location.reload(), 800);
+});
+// 同步本作品官方设定 wiki（2026-10-06）：入队 wiki 任务 = 重抓原站 + 增量翻译新增行 + 重建
+const syncWikiBtn = document.getElementById('sync-wiki');
+if (syncWikiBtn) {
+  syncWikiBtn.addEventListener('click', async () => {
+    syncWikiBtn.disabled = true;
+    try {
+      const r = await fetch('/api/work/' + workId + '/sync-wiki', {method: 'POST'});
+      const j = await r.json();
+      toast(j.ok ? ('已入队: ' + j.msg + '\n进度见「任务」页') : ('失败: ' + (j.error || j.detail || '')), j.ok);
+    } catch (e) {
+      toast('失败: ' + e, false);
+    } finally {
+      syncWikiBtn.disabled = false;
+    }
+  });
+}
+
+function doSearch() {
+  const q = document.getElementById('search-q').value.trim();
+  const box = document.getElementById('search-results');
+  if (!q) { box.innerHTML = ''; return; }
+  fetch('/api/work/' + workId + '/search?q=' + encodeURIComponent(q)).then(r => r.json()).then(j => {
+    if (!j.hits.length) { box.innerHTML = '<p class="muted">无命中</p>'; return; }
+    box.innerHTML = '<h3>命中 ' + j.total + ' 处</h3><ul class="hits">' + j.hits.map(h =>
+      '<li><a href="/work/' + workId + '/read?f=' + encodeURIComponent(h.file) + '&line=' + (h.line) + '">' +
+      h.file + ' 第' + h.line + '行</a> ' +
+      '<span class="mono small">' + escapeHtml(h.tr) + '</span></li>').join('') + '</ul>';
+  });
+}
+document.getElementById('search-btn').addEventListener('click', doSearch);
+document.getElementById('search-q').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+// ---- 生成术语候选（2026-09-06 grilling ②：后台全章提取 + 轮询进度） ----
+const genBtn = document.getElementById('gen-cands');
+if (genBtn) {
+  const POLL_MS = 3000;
+  let pollTimer = null;
+  // 进度条（按钮后动态插一行）
+  let barWrap = null;
+  function genBar() {
+    if (!barWrap) {
+      barWrap = document.createElement('div');
+      barWrap.className = 'gencand-barwrap';
+      barWrap.innerHTML = '<div class="gencand-bar"><div class="gencand-fill"></div></div><span class="gencand-txt muted small"></span>';
+      genBtn.parentNode.insertBefore(barWrap, genBtn.nextSibling);
+    }
+    return barWrap;
+  }
+  function genBarRemove() {
+    if (barWrap) { barWrap.remove(); barWrap = null; }
+  }
+  function genPoll() {
+    fetch('/api/work/' + workId + '/gen-candidates/status').then(r => r.json()).then(j => {
+      if (!j.ok || j.state === 'idle') { genBtn.disabled = false; genBtn.textContent = '生成术语候选…'; genBarRemove(); return; }
+      if (j.state === 'running') {
+        const secs = Math.round((Date.now() - (j.ts ? j.ts * 1000 : Date.now())) / 1000);
+        const p = j.progress;
+        const bw = genBar();
+        const fill = bw.querySelector('.gencand-fill');
+        const txt = bw.querySelector('.gencand-txt');
+        if (p && p.total > 0) {
+          const pct = Math.min(100, Math.round(p.cur / p.total * 100));
+          fill.style.width = pct + '%';
+          txt.textContent = `AI 提取批 ${p.cur} / ${p.total} · 已提取 ${p.count} 条候选（${secs}s）`;
+          genBtn.textContent = `提取中… ${pct}%`;
+        } else if (j.tail && /台词文件/.test(j.tail)) {
+          // 台词文件补生成阶段（发生在提取前, 共 N 批行未出现）
+          const mn = j.tail.match(/台词文件: entry_\d+_台词\.txt 已生成\((\d+)\)/g);
+          const lastN = mn && mn.length ? parseInt(mn[mn.length - 1].match(/\((\d+)\)/)[1], 10) : 0;
+          fill.style.width = '3%';
+          txt.textContent = `正在生成台词文件…（已生成 ${lastN} 章，${secs}s）`;
+          genBtn.textContent = '准备语料中…';
+        } else {
+          fill.style.width = '1%';
+          txt.textContent = `准备中…（${secs}s）`;
+          genBtn.textContent = '提取中…';
+        }
+        pollTimer = setTimeout(genPoll, POLL_MS);
+      } else { // done/error
+        genBtn.disabled = false;
+        genBtn.textContent = j.state === 'done' ? '生成完成 ✓ 刷新查看候选' : '生成失败';
+        genBarRemove();
+        toast(j.state === 'done' ? '候选提取完成，请刷新页面查看「候选确认」' : '候选提取失败:\n' + (j.tail || '').slice(-300), j.state === 'done');
+        setTimeout(() => location.reload(), 1500);
+      }
+    }).catch(() => { genBtn.disabled = false; genBtn.textContent = '生成术语候选…'; genBarRemove(); });
+  }
+  genBtn.addEventListener('click', async () => {
+    genBtn.disabled = true;
+    genBtn.textContent = '启动中…';
+    try {
+      const r = await fetch('/api/work/' + workId + '/gen-candidates', { method: 'POST' });
+      const j = await r.json();
+      if (!j.ok) { toast(j.error || '启动失败', false); genBtn.disabled = false; genBtn.textContent = '生成术语候选…'; return; }
+      genBtn.textContent = '启动中…';
+      genBar();
+      genBar().querySelector('.gencand-txt').textContent = '任务已入队，等待启动…';
+      pollTimer = setTimeout(genPoll, POLL_MS);
+    } catch (e) { toast('启动失败: ' + e, false); genBtn.disabled = false; genBtn.textContent = '生成术语候选…'; genBarRemove(); }
+  });
+  // 2026-09-06: 页面加载时若已有运行中任务 → 自动恢复轮询显示进度(刷新不丢进度)
+  fetch('/api/work/' + workId + '/gen-candidates/status').then(r => r.json()).then(j => {
+    if (j.ok && j.state === 'running') {
+      genBtn.disabled = true;
+      genBtn.textContent = '提取中…';
+      genBar();
+      pollTimer = setTimeout(genPoll, POLL_MS);
+    }
+  }).catch(() => {});
+}
+
+// ---- 打开作品文件夹（服务端 startfile，本工具纯本地无鉴权） ----
+const ofBtn = document.getElementById('open-folder');
+if (ofBtn) {
+  ofBtn.addEventListener('click', () => {
+    fetch('/api/open-folder/' + encodeURIComponent(workId), { method: 'POST' })
+      .then(r => r.json())
+      .then(j => {
+        if (!j.ok) throw new Error(j.detail || '打开失败');
+      })
+      .catch(e => alert('打开失败: ' + e.message));
+  });
+}
+
+// ---- 作品术语表（替换对 + 白名单，加载/增删改/保存） ----
+// 2026-09-19 增量保存：保存只提交表格里的条目（upsert）+ 登记过的删除项，
+// 表外既有条目保留 → 没加载就点保存也不会清表（旧整表覆盖曾把 チンポ 全部术语写空）。
+const wg = { glossary: [], known: [], deleted: [], deletedNames: [], loaded: false };
+const wgBox = document.getElementById('wg-box');
+function wgRender() {
+  const tgl = document.getElementById('tbl-wg-glossary').querySelector('tbody');
+  tgl.innerHTML = '';
+  wg.glossary.forEach((p, i) => {
+    // 2026-09-06: cat 三类(角色/专名/正则)。auto 角色 zh==jp(未确认) 显示「疑似角色 + 确认译名」
+    const isUnconfirmedRole = p['来源'] === 'auto' && p.cat === '角色' && p.zh === p.jp && p.role_cn && p.role_cn !== p.jp;
+    const roleHint = isUnconfirmedRole
+      ? ` <span class="gl-rolehint">疑似角色: ${escapeHtml(p.role_cn)}${p.role_works && p.role_works.length ? '（' + escapeHtml(p.role_works.join('、')) + '）' : ''}</span>`
+      : '';
+    const confirmBtn = isUnconfirmedRole
+      ? ` <button class="btn tiny" data-confirm="${i}" title="用 ${escapeHtml(p.role_cn)} 作为译名">确认译名</button>`
+      : '';
+    const isRegex = (p.jp || '').startsWith('re:');
+    const tr = document.createElement('tr');
+    // data-orig = 加载时的 jp：保存时若被改名，旧 jp 登记为删除（增量语义下否则会新旧并存）
+    tr.innerHTML = `<td><input data-i="${i}" data-k="jp" data-orig="${escapeHtml(p.jp || '')}" value="${escapeHtml(p.jp || '')}" ${isRegex ? 'style="color:#b06"' : ''}></td>
+      <td><input data-i="${i}" data-k="zh" value="${escapeHtml(p.zh || '')}"></td>
+      <td><span class="muted small">${escapeHtml(p['来源'] || 'manual')}</span>${roleHint}${confirmBtn}</td>
+      <td><select data-i="${i}" data-k="cat">
+        ${['角色', '专名', '正则'].map(c => `<option value="${c}" ${(p.cat || '专名') === c ? 'selected' : ''}>${c}</option>`).join('')}
+      </select></td>
+      <td><button class="btn tiny ghost" data-i="${i}">删</button></td>`;
+    tgl.appendChild(tr);
+  });
+  document.getElementById('wg-cnt-glossary').textContent = wg.glossary.length;
+  const tkn = document.getElementById('tbl-wg-known').querySelector('tbody');
+  tkn.innerHTML = '';
+  wg.known.forEach((n, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><input data-i="${i}" data-orig="${escapeHtml(n)}" value="${escapeHtml(n)}"></td>
+      <td><button class="btn tiny ghost" data-i="${i}">删</button></td>`;
+    tkn.appendChild(tr);
+  });
+  document.getElementById('wg-cnt-known').textContent = wg.known.length;
+}
+// 加载（silent=true 时不动状态行，供保存后刷新用）；加载即重置待删登记
+async function wgLoad(silent) {
+  const st = document.getElementById('wg-status');
+  if (!silent) st.textContent = '加载中…';
+  const r = await fetch('/api/glossary/' + encodeURIComponent(workId));
+  const j = await r.json();
+  wg.glossary = (j.glossary || []).map(p => Array.isArray(p)
+    ? { jp: p[0] || '', zh: p[1] || '', cat: '', '来源': 'manual' }
+    : { jp: p.jp || '', zh: p.zh || '', cat: p.cat || '', '来源': p['来源'] || 'manual',
+        role_cn: p.role_cn, role_works: p.role_works });
+  wg.known = (j.known_names || []).slice();
+  wg.deleted = [];
+  wg.deletedNames = [];
+  wg.loaded = true;
+  wgBox.classList.remove('hidden');
+  wgRender();
+  if (!silent) st.textContent = `已加载：${wg.glossary.length} 对 / ${wg.known.length} 白名单`;
+}
+document.getElementById('wg-load').addEventListener('click', async () => {
+  const st = document.getElementById('wg-status');
+  try { await wgLoad(); } catch (e) { st.textContent = '加载失败: ' + e; }
+});
+document.getElementById('tbl-wg-glossary').querySelector('tbody').addEventListener('input', e => {
+  const t = e.target.dataset;
+  if (t.i === undefined) return;
+  wg.glossary[+t.i][t.k] = e.target.value;
+});
+document.getElementById('tbl-wg-glossary').querySelector('tbody').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const ci = b.dataset.confirm;
+  if (ci !== undefined) {
+    // 2026-09-01: 确认译名——zh 用 role_cn, 来源改 manual(人工确认); 2026-09-06 cat 三类
+    const p = wg.glossary[+ci];
+    if (p && p.role_cn) {
+      p.zh = p.role_cn;
+      p['来源'] = 'manual';
+      p.cat = p.cat || '角色';
+      wgRender();
+    }
+    return;
+  }
+  const row = wg.glossary[+b.dataset.i];
+  if (row && row.jp) wg.deleted.push(row.jp);      // 增量保存：删行必须登记，否则表外条目不会删
+  wg.glossary.splice(+b.dataset.i, 1);
+  wgRender();
+});
+document.getElementById('tbl-wg-known').querySelector('tbody').addEventListener('input', e => {
+  const i = e.target.dataset.i;
+  if (i === undefined) return;
+  wg.known[+i] = e.target.value;
+});
+document.getElementById('tbl-wg-known').querySelector('tbody').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const v = wg.known[+b.dataset.i];
+  if (v) wg.deletedNames.push(v);                  // 同上：白名单删除也要登记
+  wg.known.splice(+b.dataset.i, 1);
+  wgRender();
+});
+document.getElementById('add-wg-glossary').addEventListener('click', () => { wg.glossary.push({ jp: '', zh: '', cat: '专名', '来源': 'manual' }); wgRender(); });
+document.getElementById('add-wg-known').addEventListener('click', () => { wg.known.push(''); wgRender(); });
+// 保存 = 增量：提交表格行 + 登记过的删除（含被改名的旧 jp），表外既有条目由服务端保留
+document.getElementById('wg-save').addEventListener('click', async () => {
+  const btn = document.getElementById('wg-save');
+  const msg = document.getElementById('wg-msg');
+  if (!wg.loaded && !confirm('尚未加载该作品的现有术语表。\n\n保存是增量的：表格里的行会新增/更新，未列出的既有条目一律保留（不会清表）。\n要继续保存吗？')) return;
+  btn.disabled = true;
+  msg.textContent = '保存中…';
+  const deleted = wg.deleted.slice();
+  document.querySelectorAll('#tbl-wg-glossary tbody input[data-k="jp"]').forEach(inp => {
+    if (inp.dataset.orig && inp.dataset.orig !== inp.value) deleted.push(inp.dataset.orig);
+  });
+  const deletedNames = wg.deletedNames.slice();
+  document.querySelectorAll('#tbl-wg-known tbody input').forEach(inp => {
+    if (inp.dataset.orig && inp.dataset.orig !== inp.value) deletedNames.push(inp.dataset.orig);
+  });
+  try {
+    const r = await fetch('/api/glossary/' + encodeURIComponent(workId), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ glossary: wg.glossary, known_names: wg.known,
+                             deleted: deleted, deleted_names: deletedNames, mode: 'merge' })
+    });
+    const j = await r.json();
+    if (!j.ok) {
+      msg.textContent = '保存失败: ' + JSON.stringify(j);
+    } else {
+      await wgLoad(true);   // 以服务端为准刷新表格（并清空待删登记）
+      msg.textContent = `已增量保存：新增 ${j.added} / 更新 ${j.updated} / 删除 ${j.removed}，`
+        + `表内共 ${j.total} 对 / ${j.names_total} 白名单 ✓`;
+    }
+  } catch (e) { msg.textContent = '保存失败: ' + e; }
+  btn.disabled = false;
+});
+
+// ---- 应用术语表替换（分组自选 + 加载动画 + 防重复点击） ----
+const modal = document.getElementById('glossary-modal');
+let selectedPairs = [];   // 当前勾选的 [日,中] 列表
+const groupsBox = document.getElementById('glossary-modal-groups');
+const body = document.getElementById('glossary-modal-body');
+// 收集当前勾选的术语对
+function collectCheckedPairs() {
+  const gdata = JSON.parse(groupsBox.dataset.groups || '[]');
+  const sel = [];
+  groupsBox.querySelectorAll('.gl-pair-chk:checked').forEach(ck => {
+    const gi = +ck.dataset.gi, pi = +ck.dataset.pi;
+    if (gdata[gi] && gdata[gi][pi]) sel.push(gdata[gi][pi]);
+  });
+  return sel;
+}
+// 拉取受影响行预览（pairsQuery 为空 = 全部对）
+async function loadPreview(pairsQuery) {
+  body.innerHTML = '加载中…';
+  const url = '/api/work/' + workId + '/glossary-preview' + (pairsQuery ? '?pairs=' + encodeURIComponent(pairsQuery) : '');
+  const r = await fetch(url);
+  const j = await r.json();
+  if (!j.files.length) {
+    body.innerHTML = '<p class="muted">无受影响行（当前勾选 ' + j.pairs.length + ' 对替换词）</p>';
+    return;
+  }
+  body.innerHTML = '<p class="muted">共 ' + j.total + ' 行受影响（勾选术语后应用，跳过 # 行；点行号跳转阅读器预览）</p>' +
+    j.files.map(f => '<div class="gfile"><b>' + escapeHtml(f.file) + '</b>（' + f.changed + ' 行）' +
+      (f.skipped.length ? ' <span class="bad">⚠ ' + f.skipped.length + ' 行超宽跳过</span>' : '') +
+      '<ul>' + f.lines.map(l => { const [n, b, a, cf, cl, ow] = l;
+        return '<li><a class="mono small" href="/work/' + workId + '/read?f=' + encodeURIComponent(cf) + '&line=' + cl + '" target="_blank" title="跳转阅读器">' + n + ':</a> ' +
+        (ow ? '<span class="bad" title="替换后超宽">⚠超宽</span> ' : '') +
+        escapeHtml(b) + ' → <b>' + escapeHtml(a) + '</b></li>'; }).join('') + '</ul></div>').join('');
+}
+document.getElementById('glossary-preview').addEventListener('click', async () => {
+  modal.classList.remove('hidden');
+  groupsBox.innerHTML = '';
+  const r = await fetch('/api/work/' + workId + '/glossary-preview');
+  const j = await r.json();
+  // 分组勾选 UI（全局术语表默认不选，作品专属表默认选）
+  selectedPairs = [];
+  groupsBox.dataset.groups = JSON.stringify((j.groups || []).map(g => g.pairs));
+  groupsBox.innerHTML = (j.groups || []).map((g, gi) => {
+    const checked = g.src === 'global' ? '' : 'checked';
+    // 2026-09-01: 全局组默认折叠(点组头展开), 作品组默认展开
+    const folded = g.src === 'global' ? ' folded' : '';
+    return `<div class="gl-group${folded}" data-src="${g.src}"><label class="gl-group-head">
+        <input type="checkbox" class="gl-group-all" data-gi="${gi}" ${checked}> <b>${escapeHtml(g.label)}</b>
+        <span class="muted small">（${g.pairs.length} 对）</span></label>
+      <div class="gl-pairs">${g.pairs.map((p, pi) => {
+        const h = (g.hints || {})[p[0]];
+        const roleTag = h ? ` <span class="gl-rolehint" title="疑似角色：${escapeHtml(h.cn)}（${escapeHtml((h.works||[]).join('、'))}）">疑似角色: ${escapeHtml(h.cn)}${h.works && h.works.length ? '（' + escapeHtml(h.works.join('、')) + '）' : ''}</span>` : '';
+        return `<label class="gl-pair"><input type="checkbox" class="gl-pair-chk" data-gi="${gi}" data-pi="${pi}" ${checked}>
+        <span class="mono">${escapeHtml(p[0])}</span> → <b>${escapeHtml(p[1])}</b>${roleTag}</label>`;
+      }).join('')}
+      </div></div>`;
+  }).join('');
+  // 2026-09-01: 组头点击切换折叠(全局组默认折叠)
+  groupsBox.querySelectorAll('.gl-group-head').forEach(hd => {
+    hd.addEventListener('click', () => {
+      hd.parentElement.classList.toggle('folded');
+    });
+  });
+  // 全选/反选联动
+  groupsBox.querySelectorAll('.gl-group-all').forEach(ck => {
+    ck.addEventListener('change', () => {
+      const gi = +ck.dataset.gi;
+      groupsBox.querySelectorAll(`.gl-pair-chk[data-gi="${gi}"]`).forEach(p => p.checked = ck.checked);
+    });
+  });
+  // 单条取消联动组头
+  groupsBox.querySelectorAll('.gl-pair-chk').forEach(ck => {
+    ck.addEventListener('change', () => {
+      const gi = +ck.dataset.gi;
+      const group = groupsBox.querySelectorAll(`.gl-pair-chk[data-gi="${gi}"]`);
+      const allOn = [...group].every(x => x.checked);
+      groupsBox.querySelector(`.gl-group-all[data-gi="${gi}"]`).checked = allOn;
+    });
+  });
+  // 打开即按当前勾选（作品全选/全局不选）计算受影响行
+  loadPreview(collectCheckedPairs().map(p => p[0] + '|' + p[1]).join(','));
+});
+// 重新计算受影响行（按当前勾选）
+document.getElementById('glossary-recalc').addEventListener('click', () => {
+  loadPreview(collectCheckedPairs().map(p => p[0] + '|' + p[1]).join(','));
+});
+document.getElementById('glossary-apply').addEventListener('click', async () => {
+  const btn = document.getElementById('glossary-apply');
+  if (btn.disabled) return;   // 防重复点击
+  const groupsBox = document.getElementById('glossary-modal-groups');
+  // 收集勾选的对
+  const gdata = JSON.parse(groupsBox.dataset.groups || '[]');
+  selectedPairs = [];
+  groupsBox.querySelectorAll('.gl-pair-chk:checked').forEach(ck => {
+    const gi = +ck.dataset.gi, pi = +ck.dataset.pi;
+    if (gdata[gi] && gdata[gi][pi]) selectedPairs.push(gdata[gi][pi]);
+  });
+  if (!selectedPairs.length) { toast('未勾选任何术语', false); return; }
+  // 加载动画 + 防重复
+  btn.disabled = true;
+  btn.textContent = '应用中…';
+  try {
+    const r = await fetch('/api/work/' + workId + '/apply-glossary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pairs: selectedPairs })
+    });
+    const j = await r.json();
+    if (j.ok) { toast('已应用 ' + j.applied + ' 行替换（' + j.pairs + ' 对术语，已备份）✓'); modal.classList.add('hidden'); setTimeout(() => location.reload(), 800); }
+    else toast('失败: ' + JSON.stringify(j), false);
+  } catch (e) { toast('网络错误: ' + e, false); }
+  btn.disabled = false;
+  btn.textContent = '确认应用（先自动备份）';
+});
+document.getElementById('glossary-cancel').addEventListener('click', () => modal.classList.add('hidden'));
+
+// ---- 可反哺全局的条目（2026-09-20 方案 doc/方案归档/术语表反哺与候选池差集修复方案_2026-09-20.md） ----
+// 判据 = 本作品表 manual 条目 − 全局(glossary.json+roles.json+known_names) 差集；跨作品同名优先；
+// 短词(≤3 字)默认不勾（专名短词写入时由服务端包 re: 词边界，只做本地替换不注入 prompt）。
+let rpItems = [];
+const rpBox = document.getElementById('rp-box');
+function rpRender() {
+  const tb = document.getElementById('tbl-rp').querySelector('tbody');
+  tb.innerHTML = '';
+  rpItems.forEach((it, i) => {
+    const tr = document.createElement('tr');
+    const er = (it['嵌入率'] === null || it['嵌入率'] === undefined)
+      ? '<span class="muted">-</span>'
+      : `<span class="${it['嵌入率'] >= 0.5 ? 'warn' : 'muted'}">${(it['嵌入率'] * 100).toFixed(0)}%</span>`;
+    const tags = [];
+    if (it['短词']) tags.push('<span class="warn small">短词·需人工判断</span>');
+    if (it['类型'] === '白名单') tags.push('<span class="small" style="color:#2a6f9b">作品白名单·只写 known_names</span>');
+    if (it['跳过']) tags.push(`<span class="warn small">跳过：${escapeHtml(it['跳过'])}</span>`);
+    const tp = it['跳过'] ? '—' : escapeHtml(it['建议']);
+    tr.innerHTML = `<td><input type="checkbox" class="rp-chk" data-i="${i}" ${it['选中'] ? 'checked' : ''} ${it['跳过'] ? 'disabled' : ''}></td>
+      <td class="mono">${escapeHtml(it['jp'])}</td>
+      <td>${it['zh'] ? escapeHtml(it['zh']) : '<span class="muted">—</span>'}</td>
+      <td>${tp} ${tags.join(' ')}</td>
+      <td title="${escapeHtml((it['作品'] || []).join('、'))}">${it['跨作品']} 部</td>
+      <td>${er}</td>`;
+    tb.appendChild(tr);
+  });
+}
+async function rpLoad() {
+  const st = document.getElementById('rp-status');
+  const btn = document.getElementById('rp-load');
+  btn.disabled = true; btn.textContent = '扫描中…';
+  st.textContent = '扫描中（按本作品语料算短词嵌入率，大作品略慢）…';
+  try {
+    const r = await fetch('/api/work/' + encodeURIComponent(workId) + '/repatriate-list');
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || '失败');
+    rpItems = j.items || [];
+    rpBox.classList.remove('hidden');
+    rpRender();
+    const s = j.summary || {};
+    st.textContent = `可反哺 ${s['可反哺'] || 0} 条（跨作品 ${s['跨作品'] || 0} / 短词 ${s['短词'] || 0} / 白名单 ${s['白名单'] || 0} / 建议勾选 ${s['建议勾选'] || 0} / 跳过 ${s['跳过'] || 0}）`;
+  } catch (e) { st.textContent = '扫描失败：' + e.message; }
+  btn.disabled = false; btn.textContent = '检查可反哺项';
+}
+document.getElementById('rp-load').addEventListener('click', rpLoad);
+document.getElementById('rp-sel-cross').addEventListener('click', () => {
+  document.querySelectorAll('.rp-chk').forEach(ck => {
+    const it = rpItems[+ck.dataset.i];
+    if (it && !it['跳过'] && it['跨作品'] >= 2) ck.checked = true;
+  });
+});
+document.getElementById('rp-sel-none').addEventListener('click', () => {
+  document.querySelectorAll('.rp-chk').forEach(ck => { ck.checked = false; });
+});
+document.getElementById('rp-apply').addEventListener('click', async () => {
+  const sel = [];
+  document.querySelectorAll('.rp-chk:checked').forEach(ck => {
+    const it = rpItems[+ck.dataset.i];
+    if (it) sel.push(it);
+  });
+  if (!sel.length) { toast('未勾选任何条目', false); return; }
+  const nName = sel.filter(x => x['类型'] === '白名单').length;
+  const nRole = sel.filter(x => x['类型'] !== '白名单' && x['建议'] === '角色').length;
+  const nPair = sel.filter(x => x['类型'] !== '白名单' && x['建议'] !== '角色').length;
+  const nRe = sel.filter(x => x['类型'] !== '白名单' && x['建议'] !== '角色' && x['短词']).length;
+  if (!confirm(`将写入全局术语表（先自动备份 roles.json / glossary.json）：\n\n`
+    + `· roles.json 角色：${nRole} 条\n`
+    + `· glossary.json 替换对（特殊-专名）：${nPair} 条${nRe ? `（其中 ${nRe} 条短词自动包 re: 词边界，不注入 prompt）` : ''}\n`
+    + `· known_names 白名单：最多 ${sel.length} 条${nName ? `（含作品白名单反哺 ${nName} 条）` : ''}\n\n继续？`)) return;
+  const btn = document.getElementById('rp-apply');
+  btn.disabled = true; btn.textContent = '写入中…';
+  try {
+    const r = await fetch('/api/work/' + encodeURIComponent(workId) + '/repatriate-apply', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selected: sel.map(x => x['jp']) })
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || '写入失败');
+    document.getElementById('rp-msg').textContent = `已写入：角色 ${j.roles} / 替换对 ${j.pairs} / 白名单 ${j.known}；备份 ${j.backup || '—'}`;
+    toast('反哺完成 ✓ ' + (j.msg || ''));
+    rpLoad();
+  } catch (e) { toast('失败: ' + e.message, false); document.getElementById('rp-msg').textContent = '失败：' + e.message; }
+  btn.disabled = false; btn.textContent = '反哺选中项…';
+});
+</script>
+{% endblock %}

@@ -1,0 +1,271 @@
+# ============================================================
+# AA翻译 模型统一配置（2026-08-19 方案 A 落地）
+# 优先级: 环境变量(AA_*) > 本配置文件 > 代码默认值
+# 加载器: scripts/common/aa_config.py（tomllib 标准库）
+# 实测依据: doc/模型比对_全后端翻译与视觉_2026-08-19.md
+# ============================================================
+
+[default]
+# 主后端: commandcode | siliconflow | qwen-vl | minimax | mimo | runinfra | openrouter | ollama
+backend = "commandcode"
+# 默认模型（backend 为 commandcode 时有效; 其他后端用各自 [backend.*].model）
+model = "xiaomi/mimo-v2.5"
+# 默认网关（仅 cloud 后端/直接模式用; 现主后端走 [backend.commandcode].url）
+gateway = "https://api.commandcode.ai/provider/v1/chat/completions"
+# 云端直接模式(AA_BACKEND 未设)的 key 环境变量名 → 与 [default].backend 对应
+key_env = "COMMANDCODE_API_KEY"
+max_workers = 8
+# 付费链章内 pin 会缓存的端点（2026-09-15 实测只有官网 deepseek 缓存；见 doc/token成本优化方案_2026-09-15.md §8）
+# true=章首钉住链上第一个 [backend.*].cache=true 的端点, 其余候选仅作降级/超限溢出；AA_PIN_CACHE_ENDPOINT=0 可回退轮询
+pin_cache_endpoint = true
+max_output_tokens = 16384
+temperature = 0.4
+use_proxy = "auto"          # auto | 0 | 1；env AA_USE_PROXY 覆盖
+proxy = "http://127.0.0.1:10808"   # 本地代理（v2rayN）；env AA_PROXY 覆盖（2026-10-08 阶段 4）
+
+# ---- 按作品 R18 属性自动选后端（aa_translate --work 模式; AA_BACKEND 显式设置时优先）----
+# 优先级从高到低; 每项 [后端名, 模型覆盖]；模型覆盖可空(用 [backend.*].model)
+# 翻译统一用文本模型(视觉模型只做视觉, 2026-08-20 用户要求)
+# 2026-09-06: 模型基准评估(benchmark)选型——性价比 top2 接入两链(均 r18=true 无审查):
+#   deepinfra/DeepSeek-V4-Flash-0731($0.09/M 最便宜, 综合91.2) + runinfra/ornith-1-5-35b($0.2/M 综合98.3最快12s)
+# 2026-09-06(2): case10 长困难块压力(30行art密集mixed)实测——ornith/runinfra-deepseek 长块不稳(漏行/art坏),
+#   glm-5-3-flash / qwen3-8-27b / deepinfra-GLM 100分稳。链上 runinfra 位换长块稳模型。
+# 2026-09-06(3): 用户实测 21095 重译 glm-5-3-flash 质量好(14/17 事故行全译出) → 置链首优先调用。
+# 2026-09-07: 链首改 deepinfra zai-org/GLM-5.3-Flash(用户指定; runinfra glm-5-3-flash 同模型降次位双端点分散)
+# 2026-09-21(用户指定): ① 摘除 runinfra 端点; ② 摘除 deepinfra GLM-5.3-Flash(实测弱于 V4.1-Flash:
+#   同 48 行块 13 行残留假名 + 27 行照抄 + 最慢 69.9s; 其异模型兜底作用由无审查的 cc 兜底端点覆盖);
+#   ③ commandcode 改「兜底端点」(fallback_only=true: 默认不使用, 仅在其他端点均失效时启用——
+#   不参与端点轮询, 也不作章内 pin 目标); ④ deepinfra 条目更新为 deepseek-ai/DeepSeek-V4.1-Flash
+#   (deepinfra 列表 $0.20/$0.60, discount 0.3 → 折后 $0.06/$0.18)
+# 注: GLM-5.3-Flash 仍是 refine_aa 校对链的 deepinfra 兜底(refine_aa 内硬编码 _call_glm_deepinfra), 故
+#   [backend.deepinfra] 与 [pricing.rates] 的 GLM 条目保留, 勿当死配置删。
+# 2026-09-23(用户指定「加入链就行, 用哪个我自己决定」): deepinfra 在两条链上各**两条**
+#   (V4.1-Flash + DeepSeek-V4-Flash-0731) 并存, 同端点内按轮次切模型(`_endpoint_round_chain`)。
+#   0731 依据: 基准 9/9 满分(综合 99.5)/R18 0/3 拒/校对与现役链同级; 真实块 25/30/48 行 A/B 与
+#   V4.1-Flash 持平(均 0 漏行, 快 25~30%) — 见 doc/翻译模型对比.md 2026-09-23 段。
+#   ⚠️ 已知: 链上选择/预估/校对链模型表按**后端名**索引 → 同后端两条时 ① test_model_choice
+#   1 例断言失败(选择集出现 ['deepinfra','deepinfra']) ② refine 链模型表 {后端:模型} 折叠取后者。
+r18_backends = [
+  {backend="deepseek", model="deepseek-flash"},                    # 链首(2026-09-13 用户指定): 官网 V4.1-Flash 综合95.1/16.5s; 关思考=reasoning:{effort:none}; cache=true → 章内 pin 目标
+  {backend="deepinfra", model="deepseek-ai/DeepSeek-V4.1-Flash"},  # 2026-09-21 更新(原 DeepSeek-V4-Flash-0731): 折后 $0.06/$0.18 最便宜, 552B MoE 多模态
+  {backend="deepinfra", model="deepseek-ai/DeepSeek-V4-Flash-0731"},  # 2026-09-23 新增(用户指定): 同端点第二条, $0.06/$0.18
+  # 2026-09-13 摘除 siliconflow: 实测 HTTP 402 Payment Required(余额耗尽), 白烧重试; 充值后可手动加回
+  # 2026-09-21 摘除 runinfra / deepinfra GLM-5.3-Flash: 用户指定(见上方注释)
+  {backend="commandcode", model="meta/muse-spark-1.3-contributor", fallback_only=true},  # 兜底端点(2026-09-21): **默认不使用**, 仅其他端点全失效时启用; 综合98.3 无审查; 慢(268s/9项)
+  # {backend="commandcode", model="xiaomi/mimo-v2.5"},               # commandcode 网关 mimo(非小米官方) 无审查 10s
+]
+# 非 R18 作品: 同 r18 链结构(端点轮询均匀分散) + 原作兜底
+# 2026-09-06(2): 21095 漏译事故归因——ornith 30行块漏13行(首轮)+deepinfra补译也漏(用户手动修14行)。
+#   根因: 这些行 text 段 confidence=0.4 < 0.65 阈值, 未走 mixed 段级, 整行(含art)进主块发模型。
+#   长块稳模型(glm-5-3-flash/qwen3-8-27b/deepinfra-GLM) case10 满分, 替换 ornith/deepseek-v4-flash。
+normal_backends = [
+  {backend="mimo", model="mimo-v2.6-flash"},                       # 链首(2026-09-22 用户指定): 小米官网 V2.6-Flash 裸测95.1/16.0s/$0.21每M; 关思考=thinking:{type:disabled}(call_mimo 内置, 实测 reasoning_tokens=0); r18=false→R18章不会选它
+  {backend="deepseek", model="deepseek-flash"},                    # 次位(2026-09-22 让位 mimo; 2026-09-13~2026-09-22 曾为链首): 官网 V4.1-Flash 综合95.9/16.4s; 关思考=reasoning:{effort:none}; cache=true
+  {backend="deepinfra", model="deepseek-ai/DeepSeek-V4.1-Flash"},  # 2026-09-21 更新(原 DeepSeek-V4-Flash-0731): 折后 $0.06/$0.18 最便宜
+  {backend="deepinfra", model="deepseek-ai/DeepSeek-V4-Flash-0731"},  # 2026-09-23 新增(用户指定): 同端点第二条, $0.06/$0.18(见 r18 链上方 2026-09-23 注)
+  # 2026-09-13 摘除 siliconflow: 实测 HTTP 402 Payment Required(余额耗尽), 白烧重试; 充值后可手动加回
+  # 2026-09-21 摘除 runinfra 与 deepinfra GLM-5.3-Flash: 用户指定(理由见 r18 链上方注释)
+  {backend="commandcode", model="meta/muse-spark-1.3-contributor", fallback_only=true},  # 兜底端点(2026-09-21): **默认不使用**, 仅其他端点全失效时启用
+  # {backend="commandcode", model="xiaomi/mimo-v2.5"},               # 兜底2
+]
+
+# ---- 后端配置 ----
+# 每个后端: url(端点) / model(默认模型) / key_env(.env 里的 key 名) / r18(是否放行R18)
+#           temperature / ua(浏览器UA, 需要时) / fallback_model / ocr_model / qwen_vl_model
+
+[backend.commandcode]
+url = "https://api.commandcode.ai/provider/v1/chat/completions"
+model = "xiaomi/mimo-v2.5"
+fallback_model = "meta/muse-spark-1.3-contributor"   # 2026-09-13 换 1.2→1.3 (综合 98.3>94.4, 但慢 2.8×; 网关内兜底 timeout 180s 足够)
+key_env = "COMMANDCODE_API_KEY"
+ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+temperature = 0.4
+r18 = true   # ✅ 无内容过滤(R-18 首选; 默认模型即此)
+
+[backend.siliconflow]
+url = "https://api.siliconflow.cn/v1/chat/completions"
+model = "THUDM/GLM-4-9B-0414"
+ocr_model = "deepseek-ai/DeepSeek-OCR"
+qwen_vl_model = "Qwen/Qwen3-VL-32B-Instruct"
+key_env = "SILICONFLOW_API_KEY"
+temperature = 0.1
+r18 = true   # ✅ 无审查(R18 可用; 纯文本 GLM-4-9B 零成本)
+
+[backend.dashscope]
+url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+model = "qwen3.5-27b"          # 2026-09-05: flash→27b(flash art 空格保护弱, entry_17808 事故); 慢些但 art 稳
+key_env = "QWEN_API_KEY"
+temperature = 0.1
+r18 = false  # 🔴 DashScope 平台输出审核: R18 内容 400 DataInspectionFailed(2026-09-02 实测全建模拦截); 仅非R18
+# max_input_tokens(模型): qwen3.5-27b 限 AA_DS_MAX_INPUT=128000(2026-09-02 dashscope 系统一限输入约128k)
+
+
+[backend.qwen-vl]
+url = "https://api.siliconflow.cn/v1/chat/completions"
+model = "Qwen/Qwen3-VL-32B-Instruct"
+qwen_vl_8b = "Qwen/Qwen3-VL-8B-Instruct"
+qwen_vl_30b = "Qwen/Qwen3-VL-30B-A3B-Instruct"
+key_env = "SILICONFLOW_API_KEY"
+temperature = 0.1
+r18 = true   # ✅ 无审查(Qwen3-VL 全系直过, R18 双用首选)
+
+[backend.minimax]
+url = "https://api.minimaxi.com/v1/chat/completions"
+model = "MiniMax-M3"
+key_env = "MINIMAX_CN_API_KEY"
+temperature = 0.1
+r18 = false   # ❌ 2026-08-25 实测有审查: R18 内容拒绝生成(中出し/挿入直接拒)
+
+[backend.mimo]
+# 2026-09-29(用户指定): BASE_URL 改用**token plan 专用链接**(小米官网 token 套餐)。
+#   实测两套 key/端点互不通用: 旧 key 在新链接 401, tp key 在旧链接 401; 关思考参数两边都生效。
+#   token plan 计费: 北京时间**每日 00:00-08:00 消耗系数 0.8×**(见 [pricing.rates] 的 off/off_windows)。
+#   回滚: 本段 url 改回 https://api.xiaomimimo.com/v1/chat/completions、key_env 改回 XIAOMI_MIMO_API_KEY,
+#   或临时 AA_MIMO_URL=<旧链接> AA_MIMO_KEY_ENV=XIAOMI_MIMO_API_KEY。
+url = "https://token-plan-cn.xiaomimimo.com/v1/chat/completions"
+model = "mimo-v2.6-flash"  # 2026-09-22 升级: 原 mimo-v2.5-pro 官网公告 2026-10-21 10:00 下线
+                          #   (v2.6 裸测 95.1 分 vs v2.5 93.6, 更快更便宜, 见 doc/翻译模型对比.md)
+key_env = "XIAOMI_API_KEY"   # 2026-09-29: token plan key(tp-xxx); 旧按量 key XIAOMI_MIMO_API_KEY 仍在 .env
+temperature = 0.1
+r18 = false  # ❌ 2026-09-22 实测: v2.6-flash/pro 对 R18 一律 finish_reason=content_filter
+             #   ("considered high risk", 开/关思考都拒, 破限无效) —— 与 v2.5 时代结论相反, 只能进 normal
+             #   批量推理(半价)同模型: https://batch-api-cn.xiaomimimo.com/v1 (files+batches, OpenAI 兼容)
+cache = true  # **会命中前缀缓存**(2026-09-22 实测: 同前缀第 2 次调用 prompt_tokens_details.cached_tokens=960/994)
+              # → 2026-09-22 加入 normal 链首后, 同时成为「章内 pin」目标与 COMMON_PREFIX 拼接对象(cache_safe 读本字段)
+
+[backend.runinfra]
+url = "https://api.runinfra.ai/v1/chat/completions"
+model = "deepseek-v4-flash"
+key_env = "RUNINFRA_API_KEY"
+temperature = 0.4
+r18 = true   # ✅ 无审查
+
+[backend.openrouter]
+url = "https://openrouter.ai/api/v1/chat/completions"
+model = "google/gemma-4-26b-a4b-it:free"
+key_env = "OPENROUTER_API_KEY"
+temperature = 0.4
+r18 = true   # ✅ 无审查
+
+[backend.ollama]
+url = "http://127.0.0.1:11434"
+model = "llama3.1:8b-instruct-q4_K_M"
+key_env = ""               # 本地无 key
+temperature = 0.4
+r18 = true   # ✅ 本地无审查(已停用, 保留回退)
+
+[backend.deepseek]
+# deepseek 官网 Responses 端点; 2026-08-22 临时替换 commandcode(周限额满)
+url = "https://api.deepseek.com/responses"
+model = "deepseek-flash"     # V4.1-Flash(官网现名; 旧名 deepseek-v4-flash/-vision-exp 已下线仍可调)
+key_env = "DEEPSEEK_API_KEY"
+temperature = 0.4
+format = "responses"        # Responses API(instructions/input/max_output_tokens);
+                            # 关思考必须发 reasoning:{effort:none}(发 thinking:{type:disabled} 被静默忽略仍满思考)
+r18 = true    # 官网放行普通 R18(benchmark case3=100), 但长露骨章仍可能被审核拒 → 链上后排兜底另设
+cache = true  # **会命中前缀缓存**（2026-09-15 实测: 同前缀连续调用命中 1024/1286=79.6%,
+              # 冷前缀 8 并发首波仍 79.0%; 而 deepinfra/runinfra 网关实测 0/0/0 零命中）
+              # → 付费链「章内 pin」优先钉本端点（[default].pin_cache_endpoint），网关只作降级/溢出。
+
+[backend.deepinfra]
+url = "https://api.deepinfra.com/v1/openai/chat/completions"
+model = "deepseek-ai/DeepSeek-V4.1-Flash"   # 2026-09-21 更新(原 DeepSeek-V4-Flash-0731): 552B MoE 多模态 1M ctx
+                                            # deepinfra 列表 $0.20/$0.60, metadata.discount=0.3 → 折后 $0.06/$0.18 (cache_read $0.0018)
+key_env = "DEEPINFRA_API_KEY"
+temperature = 0.4
+r18 = true   # ✅ OpenAI 兼容, 无额外内容审查(deepseek-v4-flash 有 reasoning, 须 reasoning_effort=none)
+
+
+# ---- 视觉分类候选（vision_classify.py）----
+# 按序 round-robin 分配主力; 失败 fallback 下一个
+# 字段: name(展示名) / url / key_env(.env里的key名) / model(API模型名) / fmt(chat|responses) / r18
+[vision]
+# R18 作品名单: 由 registry.py 的 r18 字段统一提供(vision_r18_works 优先读 registry),
+# 此字段仅作兜底(旧配置兼容)——正常留空即可
+r18_works = []
+# 视觉模型按 R18 属性分组(2026-08-20 用户要求):
+#   models_r18   = R18 作品专用(双模并行: Qwen3-VL-32B + Qwen3-VL-30B-A3B)
+#   models_normal= 非 R18 作品专用(双模并行)
+#   每组第 3 项 = 兜底(该组主模型都失败时用)
+# 并行语义: 块内同时发组内前 2 个主模型, 一致→定稿; 分歧→取第一个(主力)判定; 双失败→兜底
+models_r18 = [
+  {name="Qwen3-VL-32B",   url="https://api.siliconflow.cn/v1/chat/completions",          key_env="SILICONFLOW_API_KEY",  model="Qwen/Qwen3-VL-32B-Instruct", fmt="chat",  r18=true},
+  {name="Qwen3-VL-30B-A3B",url="https://api.siliconflow.cn/v1/chat/completions",         key_env="SILICONFLOW_API_KEY",  model="Qwen/Qwen3-VL-30B-A3B-Instruct", fmt="chat", r18=true},
+  {name="mimo2.5-cmd",    url="https://api.commandcode.ai/provider/v1/chat/completions", key_env="COMMANDCODE_API_KEY",  model="xiaomi/mimo-v2.5",     fmt="chat",      r18=true},
+]
+models_normal = [
+  {name="mimo2.5-cmd",    url="https://api.commandcode.ai/provider/v1/chat/completions", key_env="COMMANDCODE_API_KEY",  model="xiaomi/mimo-v2.5",     fmt="chat",      r18=true},
+]
+# 兼容旧配置: 无 models_r18/models_normal 时回落此列表
+models = []
+
+# ---- usage 落盘 ----
+[usage]
+file = "usage.jsonl"       # 相对仓库根; 默认落盘路径
+tag = "translate"          # 默认环节标签
+
+# ---- 划词翻译链（2026-10-08 阶段 3；工作台设置页「划词」区块）----
+# 条目写法 = `后端|模型`（与链条目 id 同口径；裸后端名 = 用该后端默认模型）。
+# 未配置 / 设置页留空（.env 无 AA_SEL_CHAIN）→ 用这里的默认链（2026-09-13 用户指定的三通道）。
+# 划词**不走**付费链 call_with_fallback（纯文本翻译，无 AA 图形列位要求），
+# 顺序 = 降级顺序；超时/重试走 AA_SEL_TIMEOUT / AA_SEL_RETRY。
+[selection]
+backends = [
+  "deepseek|deepseek-flash",                        # 官网 V4.1-Flash，思考关 → 0.6~1.1s
+  "deepinfra|deepseek-ai/DeepSeek-V4-Flash-0731",   # $0.09/M 最便宜，艺术字符保持最稳
+  "runinfra|glm-5-3-flash",                         # 术语遵循强（该端点已从付费链摘除，仅划词在用）
+]
+
+# ---- 精译独立流程（refine_runner, 2026-08-30 落地）----
+# 对照原文式精译: 付费强模型直连, 不走免费链/降级(免费链会静默换弱模型)
+# 2026-08-30 实测切换: SiliconFlow V4-Flash 持续挂起(30段块 5次重试全超时)
+#   → 改 commandcode deepseek-v4-flash(推理模型, 必须 reasoning_effort=low,
+#   reasoning 吃输出, max_tokens 必须大(32768), 否则 content 空)
+[refine_aa]
+# 校对（refine_aa）后端链 —— 2026-09-22「与付费链一致」：默认**跟随付费链**
+#   （`follow_default = true` → 用 [default].normal_backends，R18 作品按 r18_backends 过滤，
+#    端点模型也随链：mimo-v2.6-flash → deepseek-flash → deepinfra DeepSeek-V4.1-Flash → cc 兜底）。
+# env AA_REFINE_BACKEND 仍可临时覆盖（原样用、不过滤；写单个即不降级，
+#   如 AA_REFINE_BACKEND=glm 钉 deepinfra 路径的 GLM-5.3-Flash 给 R18 大尺度作品用）。
+# 下面 backends 仅在 follow_default = false 时生效（固定链，不看付费链）。
+follow_default = true
+backends = "deepseek,deepinfra"
+call_timeout = 25    # 单次调用上限秒（原 160s → 长尾 60~189s）
+call_retry = 2       # 单后端自身重试次数
+workers = 8          # 段级并发（env AA_REFINE_WORKERS）。实测单章 123 次调用:
+                     # 串行 86.5s → 8 并发 11.6s(7.4×) → 16 并发 6.0s(14.5×)。默认 8 = 主翻译章内并发
+
+[refine]
+backend = "commandcode"
+model = "deepseek/deepseek-v4-flash"
+key_env = "COMMANDCODE_API_KEY"   # 主 key(付费)
+max_tokens = 32768                # 推理模型 reasoning 吃 token, 必须大
+temperature = 0.1
+reasoning_effort = "low"          # 推理模型必须 low, 否则思考吃光输出
+chunk_max_segs = 30               # 每块 ≤30 段
+chunk_max_tokens = 3000           # 预估输出 ≤3K token
+retry_single = 1                  # 假名拒用单行重试次数
+retry_chunk = 1                   # 块级截断整块重试次数
+
+# ---- 成本单价表（2026-09-15 成本口径 P0）----
+# 用途: usage_stats.py --cost / 任务成本报表。见 doc/token成本优化方案_2026-09-15.md、doc/降低token成本技术调研_2026-09-15.md
+# 单位: 元 / 百万 token。字段 hit=缓存命中输入, miss=未命中输入, out=输出;
+#   **缺失字段 = 未查证**（报表只计 token 不折算金额, 绝不猜价）。
+# peak = 高峰倍率（DeepSeek 官网: 工作日北京时间 09:00-12:00 / 14:00-18:00 单价 ×2, 周末不翻倍）;
+# 2026-09-29: **折扣窗口**（反向）——条目可自带 `off`(系数) + `off_windows`(["HH:MM-HH:MM"])：
+#   小米 token plan = 北京时间**每日** 00:00-08:00 消耗系数 0.8×（**不看周末**，与 peak 的工作日限定相反）。
+#   折算走 aa_cost.time_mult()（按记录时间戳，peak×off 相乘）→ usage_stats --cost / 工作台预估自动体现。
+# 查表顺序: "<backend>|<model>" → "*|<model>"(模型级, 跨网关近似) → "<backend>|*" → 模型名含 free ⇒ 0 元。
+[pricing]
+windows = ["09:00-12:00", "14:00-18:00"]
+
+[pricing.rates]
+"deepseek|deepseek-flash" = { hit = 0.02, miss = 1.0, out = 4.0, peak = 2.0, src = "DeepSeek 官网 off-peak 官方价 2026-09-15" }
+"deepseek|deepseek-v4.1-flash" = { hit = 0.02, miss = 1.0, out = 4.0, peak = 2.0, src = "同 deepseek-flash（现行链首）" }
+"deepseek|*" = { hit = 0.02, miss = 1.0, out = 4.0, peak = 2.0, src = "按官网 flash 近似" }
+"*|mimo-v2.6-flash" = { hit = 0.02, miss = 1.0, out = 2.0, off = 0.8, off_windows = ["00:00-08:00"], src = "小米 MiMo 官网国内实时价 2026-09-22(命中0.02/未命中1/输出2 ¥每M; 批量推理=×0.5); 无高峰倍率; 2026-09-29 起端点走 token plan(token-plan-cn): 每日 00:00-08:00 消耗系数 0.8×" }
+"*|zai-org/GLM-5.3-Flash" = { hit = 0.23, miss = 0.8, src = "智谱官网 GLM-5.3-Flash；**网关(deepinfra)实际价未查证**" }
+"*|glm-5-3-flash" = { hit = 0.23, miss = 0.8, src = "智谱官网 GLM-5.3-Flash；网关(runinfra)实际价未查证" }
+"*|deepseek-ai/DeepSeek-V4.1-Flash" = { hit = 0.013, miss = 0.43, out = 1.30, src = "deepinfra 折后价(列表 $0.20/$0.60, discount 0.3 → $0.06/$0.18, cache_read $0.0018; 汇率 7.2) 2026-09-21 实测 metadata" }
+"*|deepseek-ai/DeepSeek-V4-Flash-0731" = { hit = 0.11, miss = 0.43, out = 1.30, src = "deepinfra 现价 $0.06/$0.18, cache_read $0.015(汇率 7.2) 2026-09-21 实测" }
+"siliconflow|*" = { hit = 0, miss = 0, out = 0, src = "限免(免费)" }

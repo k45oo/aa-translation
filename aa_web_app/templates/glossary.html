@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}术语表 · AA 汉化矫正工作台{% endblock %}
+{% block content %}
+<h1>术语表 <span class="muted small">更新日期：{{ data['更新日期'] }} · 作品块只读，其余可编辑</span></h1>
+<div class="actions">
+  <input id="g-search" type="search" placeholder="过滤当前块">
+  <button id="g-save" class="btn">保存术语表</button>
+  <button id="g-backups" class="btn ghost">备份记录</button>
+  <span class="muted" id="g-msg"></span>
+</div>
+
+<h2>作品（只读，{{ data['作品'] | length }}）</h2>
+<table class="grid"><thead><tr><th>id</th><th>名称</th><th>别名</th><th>来源</th><th></th></tr></thead>
+<tbody>
+{% for w in data['作品'] %}
+<tr><td class="mono">{{ w.id }}</td><td class="strong">{{ w['名称'] }}</td>
+<td class="small">{{ w.get('别名', []) | join('、') }}</td>
+<td class="small">{{ w.get('来源', '') }}</td>
+<td><button class="btn tiny ghost" data-roles="{{ w.id }}">角色</button></td></tr>
+{% endfor %}
+</tbody></table>
+
+<p class="muted small">作品专属术语表（<code>glossary_&lt;作品id&gt;.json</code>）请在<b>各作品的 work 页面</b>编辑（「作品术语表」区块）——按作品隔离，避免全局对串作品。</p>
+
+<h2>glossary 替换对（<span id="cnt-glossary">{{ data['glossary'] | length }}</span>）</h2>
+<p class="muted small">替换对按顺序应用；<code>{jp, zh, cat}</code> 对象。cat 前缀 <code>常用-</code> 全量注入、<code>特殊-</code> 按语料过滤。新增行在末尾。</p>
+<table class="grid editable" id="tbl-glossary">
+<thead><tr><th>日文</th><th>中文</th><th>cat</th><th></th></tr></thead>
+<tbody></tbody>
+</table>
+<button class="btn tiny" id="add-glossary">+ 新增替换对</button>
+
+<h2>角色（<span id="cnt-roles">{{ roles_data['角色'] | length }}</span>）<span class="muted small">按作品管理（点作品行的「角色」按钮）</span></h2>
+<div class="hidden">
+<table class="grid editable" id="tbl-roles">
+<thead><tr><th>日文</th><th>中文</th><th>作品</th><th>分类</th><th>备注</th><th></th></tr></thead>
+<tbody></tbody>
+</table>
+<button class="btn tiny" id="add-role">+ 新增角色</button>
+
+<h2>known_names 白名单（<span id="cnt-known">{{ data['known_names'] | length }}</span>）</h2>
+<p class="muted small">残留校验白名单；含拆分碎片（如 よりん → よん 也需单独加入）。</p>
+<table class="grid editable" id="tbl-known">
+<thead><tr><th>名称</th><th></th></tr></thead>
+<tbody></tbody>
+</table>
+<button class="btn tiny" id="add-known">+ 新增白名单项</button>
+</div>
+
+<!-- 作品角色管理弹窗 -->
+<div class="modal hidden" id="roles-modal">
+  <div class="modal-box">
+    <h2>作品角色 <span class="muted small" id="roles-modal-title"></span></h2>
+    <table class="grid editable" id="tbl-modal-roles">
+      <thead><tr><th>日文</th><th>中文</th><th>作品</th><th>分类</th><th>备注</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <button class="btn tiny" id="add-modal-role">+ 新增角色</button>
+    <div class="actions">
+      <button class="btn" id="roles-modal-save">保存</button>
+      <button class="btn ghost" id="roles-modal-close">关闭</button>
+      <span class="muted" id="roles-modal-msg"></span>
+    </div>
+  </div>
+</div>
+
+<div id="g-backups-box" class="hidden"></div>
+{% endblock %}
+{% block scripts %}
+<script>window.GLOSSARY_DATA = {{ data | tojson }};</script>
+<script>window.ROLES_DATA = {{ roles_data | tojson }};</script>
+<script src="/static/glossary.js?v=20260901b"></script>
+{% endblock %}

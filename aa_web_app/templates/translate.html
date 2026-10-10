@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block title %}{{ cfg.title }} · 翻译 · AA 汉化矫正工作台{% endblock %}
+{% block content %}
+<p><a href="/work/{{ work }}">← {{ cfg.title }}</a></p>
+<h1>翻译任务 <span class="muted small mono">({{ work }})</span></h1>
+<p class="muted small">选章节 → 提交 → 后台跑 translate_runner（翻译→定向清理→生成合集；不再自动补下载）。烧 token，长耗时；本页轮询状态/进度，实时日志去「翻译任务」菜单页看。</p>
+
+<div class="actions">
+  <button id="select-new" class="btn small" title="选中全部未译章（含其他页）">全选未译</button>
+  <button id="select-all" class="btn small" title="选中全部章节（跨页，不受当前页限制）">全选</button>
+  <button id="select-none" class="btn small" title="取消全部勾选（跨页）">全不选</button>
+  <span id="sel-count" class="muted small"></span>
+  <label class="muted small"><input type="checkbox" id="opt-force"> 强制重译已译章（--force）</label>
+  <label class="muted small" title="2026-09-07: 校对默认开(refine_aa 段级重建新校对)。勾选禁用。"><input type="checkbox" id="opt-noproof"> 禁用校对（--no-proofread）</label>
+  <label class="muted small">模型：
+    <select id="opt-model">
+      <option value="default" selected>默认（付费链）</option>
+      <option value="free">免费模型（免费链，AA_FREE_MODE=1）</option>
+      <option value="mimo">小米 mimo-v2.6（token 套餐 · 可定时）</option>
+    </select>
+  </label>
+  <button id="start-btn" class="btn">启动翻译</button>
+</div>
+{# 2026-09-29 定时启动（仅小米 mimo-v2.6）：排到 token plan 折扣时段（每日 00:00-08:00 系数 0.8×）。 #}
+<div class="actions sched-row">
+  <label class="muted small" title="定时启动：到点才进队列跑（未到点不占本作品、可在任务页取消）。只支持小米 mimo-v2.6（token 套餐），翻译+校对都走它、不降级。">
+    <input type="checkbox" id="opt-sched"> 定时启动
+  </label>
+  <input type="datetime-local" id="opt-sched-at" class="small" step="60">
+  <button id="sched-next" class="btn tiny ghost" title="填到下一个 00:00（当日折扣窗口 00:00-08:00 的开始）">下一个 00:00</button>
+  <span class="muted small" id="sched-hint"></span>
+</div>
+<div id="est-box" class="est-box small">预估消耗：未选章节</div>
+<div id="model-box" class="model-box small"></div>
+
+<h2>任务状态</h2>
+<div id="task-box">
+  <p class="muted">无任务。</p>
+</div>
+
+<h2>章节（{{ chapters|length }}）</h2>
+<div id="chapters-pager" class="pager-row"></div>
+<table class="grid" id="chapters-tbl">
+  <thead>
+    <tr><th>选</th><th>章节</th><th>状态</th></tr>
+  </thead>
+  <tbody>
+  {% for c in chapters %}
+    <tr data-tr="{{ 1 if c.translated else 0 }}">
+      <td><input type="checkbox" class="chk" data-eid="{{ c.src_file }}"></td>
+      <td>{{ c.title }}</td>
+      <td>{% if c.translated %}<span class="good">已译</span>{% else %}<span class="warn">未译</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const workId = {{ work | tojson }};
+const $ = (id) => document.getElementById(id);
+const chks = [...document.querySelectorAll('.chk')];
+const allRows = [...document.querySelectorAll('#chapters-tbl tbody tr')];
+const chkEid = (el) => (el.dataset.eid.match(/\d+/) || [''])[0];
+let est = null;   // 消耗预估控制器（见文件末 aaEstimateBox；updateCount 里刷新）
+
+// 分页（每页 10/50/100，2026-09-13）：只隐藏行，勾选状态跨页保留 → 「全选/全不选」覆盖全部章节
+// 2026-09-16：换页行同时承载「本页」按钮 + 「仅未译」筛选；章节勾选默认全不选（模板 checkbox 无 checked）
+let onlyUntr = false;        // 「仅未译」筛选
+let curRows = allRows;       // 参与分页的行（受筛选影响）
+let pager = null;
+
+function updateCount() {
+  const n = chks.filter(c => c.checked).length;
+  $('sel-count').textContent = '已选 ' + n + ' / ' + chks.length + ' 章（全选跨页：分页只影响显示，勾选一直保留）' +
+    (onlyUntr ? '；筛选「仅未译」显示 ' + curRows.length + ' 章' : '');
+  if (est) est.refresh();
+}
+// 本页可见行（未译/已译按行 data-tr 区分，别用文案判）
+function pageChks() {
+  const rows = (pager && pager.visible) ? pager.visible() : curRows;
+  return chks.filter(c => rows.indexOf(c.closest('tr')) >= 0);
+}
+// 换页行里的「本页」按钮 + 「仅未译」筛选（2026-09-16）
+function pagerRowCtrls() {
+  const box = document.createElement('span');
+  box.className = 'pager-page-btns';
+  box.innerHTML = '<span class="muted small">本页：</span>' +
+    '<button id="p-untr" class="btn tiny ghost" title="只勾选当前页里的未译章">未译全选</button>' +
+    '<button id="p-tr" class="btn tiny ghost" title="只勾选当前页里的已译章">已译全选</button>' +
+    '<button id="p-none" class="btn tiny ghost" title="取消当前页所有勾选">全不选</button>' +
+    '<label class="muted small" title="只显示未译章：分页与「本页」按钮都只作用于未译章；已勾选状态不受影响">' +
+    '<input type="checkbox" id="flt-untr"' + (onlyUntr ? ' checked' : '') + '> 仅未译</label>';
+  box.querySelector('#p-untr').onclick = () => { pageChks().forEach(c => { if (c.closest('tr').dataset.tr === '0') c.checked = true; }); updateCount(); };
+  box.querySelector('#p-tr').onclick = () => { pageChks().forEach(c => { if (c.closest('tr').dataset.tr === '1') c.checked = true; }); updateCount(); };
+  box.querySelector('#p-none').onclick = () => { pageChks().forEach(c => { c.checked = false; }); updateCount(); };
+  box.querySelector('#flt-untr').onchange = (e) => { onlyUntr = e.target.checked; buildPager(); updateCount(); };
+  return box;
+}
+// 重建分页（筛选变化时换行集合）：先复位行显示，再按当前筛选集重新分页，最后把「本页」控件挂进同一换页行
+function buildPager() {
+  curRows = onlyUntr ? allRows.filter(r => r.dataset.tr === '0') : allRows;
+  // 被筛掉的行必须显式隐藏（aaPager 只管自己那批行的显示）
+  allRows.forEach(r => { r.style.display = curRows.indexOf(r) >= 0 ? '' : 'none'; });
+  const box = $('chapters-pager');
+  box.innerHTML = '';
+  pager = aaPager({rows: curRows, controls: '#chapters-pager', key: 'translate:' + workId});
+  box.appendChild(pagerRowCtrls());
+}
+buildPager();
+
+$('select-new').onclick = () => { chks.forEach(c => { c.checked = c.closest('tr').dataset.tr === '0'; }); updateCount(); };
+$('select-all').onclick = () => { chks.forEach(c => { c.checked = true; }); updateCount(); };
+$('select-none').onclick = () => { chks.forEach(c => { c.checked = false; }); updateCount(); };
+chks.forEach(c => c.onchange = updateCount);
+
+// 消耗预估（2026-09-21）：勾选/强制重译/模型开关变化 → 去抖刷新（/api/work/<id>/estimate）
+// 付费链模型多选（2026-09-22）：仅「默认（付费链）」时显示；选免费链时隐藏（免费池不挑模型）
+// 2026-09-29 定时启动：仅小米 mimo（token 套餐）；定时时模型勾选集固定 ['mimo']，另传 at=定时时刻
+const mp = aaModelPicker({
+  box: '#model-box', work: workId, type: 'translate',
+  onChange: () => { if (est) est.refresh(); },
+});
+const modelVal = () => $('opt-model').value;              // default | free | mimo
+function modelNames() {
+  if (modelVal() === 'mimo') return ['mimo'];             // 只用小米（含定时；服务端定时也强制写）
+  return (mp && modelVal() === 'default') ? mp.names() : [];
+}
+function syncModelBox() { if (mp) mp.show(modelVal() === 'default'); }
+// 定时区：勾上 = 自动切到小米 mimo；时刻默认填下一个 00:00（折扣窗口开始）
+function nextOffStart() {
+  const d = new Date();
+  const t = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+  if (t <= d) t.setDate(t.getDate() + 1);                 // 今天的 00:00 已过（或正在窗口内）→ 明天
+  const p = (n) => String(n).padStart(2, '0');
+  return t.getFullYear() + '-' + p(t.getMonth() + 1) + '-' + p(t.getDate()) + 'T' + p(t.getHours()) + ':' + p(t.getMinutes());
+}
+function syncSched() {
+  const on = $('opt-sched').checked;
+  const mimo = modelVal() === 'mimo';
+  $('opt-sched-at').disabled = !on;
+  $('sched-next').disabled = !on;
+  if (on && !$('opt-sched-at').value) $('opt-sched-at').value = nextOffStart();
+  $('sched-hint').textContent = on
+    ? (mimo ? '定时任务：到点自动排队启动（token 套餐 00:00-08:00 系数 0.8×）'
+            : '⚠ 定时启动只支持小米 mimo-v2.6')
+    : (mimo ? '已选小米 mimo-v2.6（本任务只用它：翻译+校对，不降级）' : '');
+}
+est = aaEstimateBox({
+  box: '#est-box', work: workId, type: 'translate',
+  eids: () => chks.filter(c => c.checked).map(chkEid).filter(Boolean),
+  force: () => $('opt-force').checked,
+  free: () => modelVal() === 'free',
+  models: () => modelNames(),
+  at: () => ($('opt-sched').checked ? $('opt-sched-at').value : ''),
+});
+$('opt-force').onchange = () => est.refresh();
+$('opt-model').onchange = () => { syncModelBox(); syncSched(); est.refresh(); };
+$('opt-sched').onchange = () => {
+  if ($('opt-sched').checked && modelVal() !== 'mimo') $('opt-model').value = 'mimo';  // 勾定时 = 自动切小米
+  syncModelBox(); syncSched(); est.refresh();
+};
+$('opt-sched-at').onchange = () => est.refresh();
+$('sched-next').onclick = () => { $('opt-sched-at').value = nextOffStart(); est.refresh(); };
+syncModelBox();
+syncSched();
+updateCount();
+
+// 任务状态轮询
+let pollTimer = null;
+async function refreshStatus(initial = false) {
+  try {
+    const r = await fetch('/api/work/' + workId + '/translate/status');
+    const j = await r.json();
+    if (!j || j.status === 'idle' || !j.status) {
+      $('task-box').innerHTML = '<p class="muted">无任务。</p>';
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      return;
+    }
+    const color = j.status === 'done' ? 'good' : (j.status === 'running' || j.status === 'starting' || j.status === 'scheduled' ? 'warn' : 'bad');
+    $('task-box').innerHTML = '<p>状态：<span class="' + color + '"><b>' + j.status + '</b></span>' +
+      (j.status === 'scheduled' && j.scheduled_at ? ' · 定时 ' + j.scheduled_at + ' 启动（到点自动开始；任务页可取消）' : '') +
+      (j.chapters ? ' · 章节：<code>' + j.chapters + '</code>' : '') +
+      (j.started ? ' · 开始：' + j.started : '') +
+      (j.finished ? ' · 结束：' + j.finished : '') +
+      (typeof j.rc === 'number' ? ' · rc=' + j.rc : '') + '</p>';
+    if (j.status === 'done' || j.status === 'failed' || j.status === 'crashed') {
+      if (pollTimer && !initial) { clearInterval(pollTimer); pollTimer = null; }
+      if (j.status === 'done') toast('翻译完成 ✓');
+      else toast('任务结束（' + j.status + '）', false);
+    }
+  } catch (e) { /* 服务器暂不可达 */ }
+}
+refreshStatus(true);
+pollTimer = setInterval(refreshStatus, 5000);
+
+$('start-btn').onclick = async () => {
+  const eids = chks.filter(c => c.checked).map(chkEid).filter(Boolean);
+  if (!eids.length) { toast('请先勾选章节', false); return; }
+  const schedOn = $('opt-sched').checked;
+  const schedAt = $('opt-sched-at').value || '';
+  if (schedOn && !schedAt) { toast('请选定时启动的时刻', false); return; }
+  if (schedOn && new Date(schedAt) <= new Date()) { toast('定时时刻已过，请选一个将来的时刻', false); return; }
+  $('start-btn').disabled = true;
+  try {
+    const r = await fetch('/api/work/' + workId + '/translate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({eids, force: $('opt-force').checked,
+        no_proofread: $('opt-noproof')?.checked || false,
+        free_mode: modelVal() === 'free',
+        models: modelNames(),
+        schedule_at: schedOn ? schedAt : ''}),
+    });
+    const j = await r.json();
+    if (!j.ok) { toast('启动失败: ' + (j.error || JSON.stringify(j)), false); return; }
+    toast(j.msg + ' ✓');
+    if (pollTimer) clearInterval(pollTimer);
+    refreshStatus(true);
+    pollTimer = setInterval(refreshStatus, 5000);
+  } finally {
+    $('start-btn').disabled = false;
+  }
+};
+</script>
+{% endblock %}

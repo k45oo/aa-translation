@@ -1,0 +1,146 @@
+{
+ "_note": "每部 AA 作品的官方设定 wiki 本地化配置（scripts/tools/gen_work_wiki.py 读取）。每部作品独立一段：站点 / 输出目录 / 分类表 / 借名表 / prompt 作品名。新增作品=加一段 + 跑 `python scripts/tools/gen_work_wiki.py --work <id> --all`。",
+ "_字段": {
+  "site": "seesaawiki 站点根（形如 https://seesaawiki.jp/xxx）",
+  "work_id": "作品 id（= aaManga/<id>/ 与 work_meta key）",
+  "wiki_dir": "doc/aa作品相关/<wiki_dir>/（约定 = <work_id>wiki，pre_terms 本作 wiki 词源按此解析）",
+  "prompt_title": "注入模型 prompt 的作品名",
+  "usage_tag": "AA_USAGE_TAG（usage_stats 按此聚合成本）",
+  "gen_cmd": "写进生成物里的“重跑命令”（人工修正说明用）",
+  "html_title/html_h1": "index.html 的 <title> / <h1>",
+  "skip_pages": "站点框架页/模板页，不入 wiki",
+  "cat_system": "系统设定类页名（非个体/人物）",
+  "cat_term_page": "表格式术语页 {页名: 分类名}",
+  "known_official": "借名（外作角色/宝可梦）的通行中文名 {日文: 中文}，压过模型译文",
+  "about_html": "index.html「说明」页正文",
+  "missing_marks": "原站“页面不存在”页面的判据字符串"
+ },
+ "この素晴らしいシンオウに祝福を": {
+  "site": "https://seesaawiki.jp/poke_konosin",
+  "work_id": "この素晴らしいシンオウに祝福を",
+  "work_title_jp": "【安価】この素晴らしいシンオウに祝福を！【ポケットモンスター】",
+  "prompt_title": "この素晴らしいシンオウに祝福を！",
+  "wiki_dir": "この素晴らしいシンオウに祝福をwiki",
+  "usage_tag": "konosinwiki",
+  "gen_cmd": "python scripts/tools/gen_konosin_wiki.py",
+  "html_title": "この素晴らしいシンオウに祝福を！ wiki（中日对照）",
+  "html_h1": "『この素晴らしいシンオウに祝福を！』设定 wiki <span class=\"sub\">中日对照 · 本地离线快照</span>",
+  "skip_pages": [
+   "MenuBar1",
+   "MenuBar2",
+   "天賦の才/金冠サイズ",
+   "準備用テンプレ"
+  ],
+  "cat_system": [
+   "カズマの現状",
+   "ダンジョン",
+   "トップページ",
+   "バトルの仕様",
+   "パーティ",
+   "フィールド効果",
+   "世界観・用語",
+   "天賦の才/金冠サイズ",
+   "対戦記録",
+   "戦闘メモ",
+   "手持ちの現状",
+   "登場人物",
+   "種族",
+   "資質別"
+  ],
+  "cat_term_page": {
+   "オリジナルわざ": "原创招式",
+   "オリジナル特性": "原创特性"
+  },
+  "known_official": {
+   "ウォーグレイモン": "战斗暴龙兽",
+   "ブラックウォーグレイモン": "黑暗战斗暴龙兽",
+   "エンジェウーモン": "神圣天使兽",
+   "オメガモン": "奥米加兽",
+   "ベルゼブブ": "别西卜",
+   "ジンオウガ": "雷狼龙",
+   "ナルガクルガ": "迅龙",
+   "クシャルダオラ": "钢龙",
+   "イビルジョー": "恐暴龙",
+   "シャガルマガラ": "天廻龙",
+   "セルレギオス": "千刃龙",
+   "モノブロス": "一角龙",
+   "ヤマツカミ": "浮岳龙",
+   "ティガレックス": "轰龙",
+   "リオレウス": "火龙",
+   "ディノバルド": "斩龙",
+   "ラギアクルス": "海龙",
+   "ディアブロス": "角龙",
+   "ラージャン": "金狮子",
+   "イャンクック": "大怪鸟",
+   "ゴア・マガラ": "黑蚀龙",
+   "ウカムルバス": "乌卡姆鲁巴斯",
+   "ボルジャナフ": "雷颚龙",
+   "一方通行": "一方通行",
+   "インデックス": "茵蒂克丝",
+   "グリムジョー・ジャガージャック": "葛力姆乔·贾卡杰克",
+   "スタープラチナ": "白金之星",
+   "クロコダイン": "鳄鱼王",
+   "モモ・ベリア・デビルーク": "桃·贝利亚·戴比路克",
+   "キルア": "奇犽",
+   "ザク・レッドスター": "扎克·红星",
+   "ギガムート": "吉加穆特",
+   "ギャラクシーアイズ・フォトン・ドラゴン": "银河眼光子龙",
+   "セルベリア・ブレス": "塞露贝利亚·布蕾斯",
+   "ディルムッド・オディナ": "迪尔姆德·奥迪那",
+   "キュゥべえ": "丘比",
+   "ジバニャン": "地缚猫",
+   "リンク": "林克",
+   "ツキヨミ": "月读",
+   "グレートシング": "大鲸",
+   "ヨクバリス（ダイマックスのすがた）": "藏饱栗鼠（极巨化姿态）",
+   "ヲ級": "航母WO级"
+  },
+  "about_html": "<p>本 wiki 是日本狐板 AA 作品『【安価】この素晴らしいシンオウに祝福を！【ポケットモンスター】』\n官方 wiki（<a href=\"https://seesaawiki.jp/poke_konosin/\" target=\"_blank\">seesaawiki.jp/poke_konosin</a>）的\n<b>本地离线快照 + 中日对照</b>。原文快照 2026-10-03。</p>\n<p>收录 wiki 全部 707 页（跳过 MenuBar/模板页）：系统设定、原创招式、原创特性、潜能（ポテンシャル）、\n宝可梦图鉴、人物/宝可梦页。每页按原站结构给出「中文行 + 日文原行」；AA 字符画原样保留不翻译；\n表格逐格对照。勾选页内「显示日文原文」可看逐行对照。</p>\n<p>译名口径（优先级从高到低）：<b>本作品术语表</b>（glossary_この素晴らしいシンオウに祝福を.json 人工确认过）→\n<b>作品知识库</b>（人物/术语）→ <b>宝可梦wiki 补充术语</b>（通用补充 + 作品专属：竞技场/队伍/地名）→\n<b>ポケマス AA 术语</b> → <b>神奇宝贝百科（52poke）官方译名</b>。\n未收录的招式/特性/道具/宝可梦/属性一律用官方中文译名。</p>\n<p>生成器：<code>scripts/tools/gen_konosin_wiki.py</code>（分阶段 crawl/extract/translate/build，可断点续跑）。\n译文缓存逐行存在 <code>_raw/lines_zh.json</code>（键=日文原文），改一处译文后重跑 <code>--build</code> 即可覆盖，不必重译。</p>",
+  "missing_marks": [
+   "ページが見つかりませんでした"
+  ]
+ },
+ "ポケの子": {
+  "site": "https://seesaawiki.jp/pokenoko",
+  "work_id": "ポケの子",
+  "work_title_jp": "【安価】ポケの子【ポケットモンスター】",
+  "prompt_title": "ポケの子",
+  "wiki_dir": "ポケの子wiki",
+  "usage_tag": "pokenokowiki",
+  "gen_cmd": "python scripts/tools/gen_work_wiki.py --work ポケの子",
+  "html_title": "ポケの子（？） wiki（中日对照）",
+  "html_h1": "『ポケの子（？）』设定 wiki <span class=\"sub\">中日对照 · 本地离线快照</span>",
+  "skip_pages": [
+   "MenuBar1",
+   "MenuBar2"
+  ],
+  "cat_system": [
+   "トップページ",
+   "世界観・用語",
+   "バトルの仕様",
+   "フィールド効果",
+   "ダンジョン",
+   "種族",
+   "天賦の才/金冠サイズ",
+   "パーティ",
+   "戦闘メモ",
+   "対戦記録",
+   "登場人物",
+   "ホーム",
+   "支援絵コーナー"
+  ],
+  "cat_term_page": {
+   "オリジナルわざ": "原创招式",
+   "オリジナル特性": "原创特性"
+  },
+  "known_official": {},
+  "about_html": "<p>本 wiki 是日本狐板 AA 作品『【安価】ポケの子【ポケットモンスター】』官方 wiki（<a href=\"https://seesaawiki.jp/pokenoko/\" target=\"_blank\">seesaawiki.jp/pokenoko</a>）的<b>本地离线快照 + 中日对照</b>。</p><p>收录该 wiki 全部页面（跳过 MenuBar 等站点框架页）：系统设定、原创招式/特性、潜能（ポテンシャル）、宝可梦图鉴、个体/人物页。每页按原站结构给出「中文行 + 日文原行」；AA 字符画原样保留不翻译；表格逐格对照。勾选页内「显示日文原文」可看逐行对照。</p><p>译名口径（优先级从高到低）：<b>本作品术语表</b>（glossary_ポケの子.json 人工确认过）→<b>作品知识库</b>（人物/术语）→ <b>本 wiki 人工修正表</b>（本地译名）→ <b>宝可梦wiki 补充术语</b>（通用补充 + 作品专属）→ <b>ポケマス AA 术语</b> → <b>神奇宝贝百科（52poke）官方译名</b>。</p><p>生成器：<code>scripts/tools/gen_work_wiki.py --work ポケの子</code>（分阶段 crawl/extract/translate/build，可断点续跑；<code>--update</code> = 连载更新同步）。译文缓存逐行存在 <code>_raw/lines_zh.json</code>（键=日文原文），改一处译文后重跑 <code>--build</code> 即可覆盖，不必重译。</p>",
+  "missing_marks": [
+   "ページが見つかりませんでした",
+   "指定されたページ"
+  ],
+  "cat_override": {
+   "桐生一馬": "人物"
+  }
+ }
+}

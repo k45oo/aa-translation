@@ -1,0 +1,91 @@
+# 本地全数据版本管理（2026-08-10 起）
+# 原则：除第三方下载词典与运行环境外，全部作品数据/交付物入库
+
+# Python 缓存 / 运行环境
+__pycache__/
+*.pyc
+.venv/
+
+# 本地密钥（API key/代理凭据，绝不入库；`git add -A` 会误收）
+.env
+.env.*
+
+# 第三方下载词典（2.3GB，不入库，可重新获取）
+AAhub/
+
+# 图片漫画下载与裁边产物（GB 级第三方下载漫画，不入库）
+manhuagui_/
+manhuagui_*/
+
+# 应用运行时状态（非数据）
+.aaweb_progress.json
+stats_cache.json
+runner_task.json
+runner_log.txt
+runner_log_*.txt
+dl_tmp_*.json
+_stt_test_speech.mp3
+
+# 统一任务管理器运行时注册表/队列/心跳/停止标志（2026-08-29，动态状态非数据）
+aa_web_app/data/tasks/
+aa_web_app/data/tts_cache/
+
+# 阅读状态（2026-09-03，自动写入频繁，与手动 work_meta 分离；运行时状态非数据）
+aa_web_app/data/read_state.json
+
+# 划词翻译记账（2026-09-20，逐次追加：通道/耗时/照抄；运行时状态非数据，滚动 .1）
+aa_web_app/data/selection_log.jsonl
+aa_web_app/data/selection_log.jsonl.[0-9]
+
+# AA 搜索缓存（2026-09-01，r401 tags 映射 + 人气榜单，1 天 TTL 可再生，非数据）
+data/search/
+
+# token 用量统计日志（默认开启，逐调用追加；2026-08-31 滚动归档 .1/.2/.3 一并忽略）
+usage.jsonl
+usage.jsonl.[0-9]
+
+# 空行修复实验备份（41MB+17MB 历史快照，非交付数据）
+*_backup_blank/
+
+# 工作台运行日志（运行状态，持续写入）
+temp/
+
+# 模型基准评估报告输出（运行时产物，非数据）
+scripts/benchmark/report/
+
+# Obsidian 本地工作区状态（非项目内容）
+doc/.obsidian/workspace.json
+
+# 漫画文件不入库
+交付HTML/
+aaManga/
+揭示板/
+
+# 备份与临时副本（不入库）
+备份/
+.glossary_backup/
+glossary.json.bak*
+*- 副本.bat
+*.bak_*
+aa_web_app/workbench.log*
+
+# PyInstaller 构建产物（交付页编辑服务 exe，可重建 → scripts/tools/build_edit_server.py）
+scripts/tools/build/
+scripts/tools/dist/
+
+# 发行包产物（开箱即用 zip 与解包目录，可重建 → scripts/tools/build_release.py）
+导出/
+
+# 交付页 AA 等宽字体子集缓存（woff2，可由 fonts/SarasaMonoSC-Regular.ttf 重新生成）
+fonts/subset/
+
+# 数据 / 私料（2026-10-10 出库：磁盘保留，不入版本库）
+/acgn_*/
+/.yacreaderlibrary/
+kanban_doc.html
+kanban_tut.html
+_cat1.html
+_cat2.html
+gl_old.tmp.json
+mitm_mcp_traffic.db
+tempaahub_m1_run.log

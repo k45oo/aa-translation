@@ -1,0 +1,1379 @@
+{% extends "base.html" %}
+{% block title %}作品列表 · AA 汉化矫正工作台{% endblock %}
+{% block container_class %} wide idx-wide{% endblock %}
+{% block content %}
+<h1>作品列表</h1>
+<p class="muted">按作者分组（◆tripcode 楼主）。进度 = 已读章节/总章节（差N=未译）；作者级 = 已译作品数/未译作品数。点击作者行展开/收起；<b>详情</b>可编辑汉化名/标签/素材/作者/评分。</p>
+<div class="actions">
+  <button id="regen-all" class="btn">全部重新生成合集 HTML</button>
+  <button id="add-work-btn" class="btn">＋ 添加作品</button>
+  <button id="import-work-btn" class="btn" title="导入工作台导出的作品包（.rar）：自动归位到 aaManga/ 并注册作品">⤓ 导入作品包</button>
+  <span class="muted" id="add-work-msg"></span>
+  <span class="muted" id="regen-all-msg"></span>
+</div>
+<div class="search-bar" id="search-bar">
+  <span class="muted small" id="sbox-msg"><span id="sbox-status" class="sbox-idle">就绪</span></span>
+  <input id="sbox" type="search" placeholder="输入搜索词，回车或点「搜索」" autocomplete="off">
+  <label class="sbox-opt" title="把搜索词当正则表达式（如 第\d+话）；非法正则提示错误"><input type="checkbox" id="sbox-regex">正则</label>
+  <span class="muted small">范围</span>
+  <label class="sbox-scope"><input type="checkbox" value="title" checked>标题</label>
+  <label class="sbox-scope"><input type="checkbox" value="chapter" checked>章节名</label>
+  <label class="sbox-scope"><input type="checkbox" value="content" checked>正文</label>
+  <span class="muted small">语言</span>
+  <select id="sbox-lang">
+    <option value="all">全部</option>
+    <option value="zh">仅中文</option>
+    <option value="jp">仅日文</option>
+  </select>
+  <button type="button" id="sbox-go" class="btn">搜索</button>
+</div>
+<div class="flt-bar" id="flt-bar">
+  <span class="muted small">筛选：</span>
+  <div class="flt" data-key="tstate" data-multi="0">
+    <button type="button" class="flt-btn"><span class="flt-label">翻译</span><i class="flt-arrow">▾</i></button>
+    <div class="flt-panel" hidden>
+      <div class="flt-tools"><button type="button" class="flt-clear">清空</button></div>
+      <div class="flt-opts">
+        <label class="flt-opt"><input type="checkbox" value="done"><span>已翻译</span></label>
+        <label class="flt-opt"><input type="checkbox" value="doing"><span>翻译中（差N章）</span></label>
+        <label class="flt-opt"><input type="checkbox" value="none"><span>未翻译</span></label>
+      </div>
+    </div>
+  </div>
+  <div class="flt" data-key="r18" data-multi="0">
+    <button type="button" class="flt-btn"><span class="flt-label">R18</span><i class="flt-arrow">▾</i></button>
+    <div class="flt-panel" hidden>
+      <div class="flt-tools"><button type="button" class="flt-clear">清空</button></div>
+      <div class="flt-opts">
+        <label class="flt-opt"><input type="checkbox" value="high"><span>high（高含量）</span></label>
+        <label class="flt-opt"><input type="checkbox" value="medium"><span>medium（常规）</span></label>
+        <label class="flt-opt"><input type="checkbox" value="low"><span>low（低含量）</span></label>
+        <label class="flt-opt"><input type="checkbox" value="no"><span>no（非R18）</span></label>
+      </div>
+    </div>
+  </div>
+  <div class="flt" data-key="status" data-multi="0">
+    <button type="button" class="flt-btn"><span class="flt-label">状态</span><i class="flt-arrow">▾</i></button>
+    <div class="flt-panel" hidden>
+      <div class="flt-tools"><button type="button" class="flt-clear">清空</button></div>
+      <div class="flt-opts">
+        <label class="flt-opt"><input type="checkbox" value="连载中"><span>连载中</span></label>
+        <label class="flt-opt"><input type="checkbox" value="完结"><span>完结</span></label>
+        <label class="flt-opt"><input type="checkbox" value="中断"><span>中断</span></label>
+        <label class="flt-opt"><input type="checkbox" value="未设"><span>（未设）</span></label>
+      </div>
+    </div>
+  </div>
+  {% if all_tags %}
+  <div class="flt" data-key="tags" data-multi="1">
+    <button type="button" class="flt-btn"><span class="flt-label">标签</span><i class="flt-arrow">▾</i></button>
+    <div class="flt-panel" hidden>
+      <div class="flt-tools"><button type="button" class="flt-clear">清空</button></div>
+      <div class="flt-opts">
+        {% for t in all_tags %}<label class="flt-opt"><input type="checkbox" value="{{ t }}"><span>{{ t }}</span></label>{% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  {% if all_mats %}
+  <div class="flt" data-key="mats" data-multi="1">
+    <button type="button" class="flt-btn"><span class="flt-label">素材</span><i class="flt-arrow">▾</i></button>
+    <div class="flt-panel" hidden>
+      <div class="flt-tools"><button type="button" class="flt-clear">清空</button></div>
+      <div class="flt-opts">
+        {% for t in all_mats %}<label class="flt-opt"><input type="checkbox" value="{{ t }}"><span>{{ t }}</span></label>{% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  <div class="flt" data-key="rs" data-multi="1">
+    <button type="button" class="flt-btn"><span class="flt-label">阅读状态</span><i class="flt-arrow">▾</i></button>
+    <div class="flt-panel" hidden>
+      <div class="flt-tools"><button type="button" class="flt-clear">清空</button></div>
+      <div class="flt-opts">
+        <label class="flt-opt"><input type="checkbox" value="toread"><span>待读</span></label>
+        <label class="flt-opt"><input type="checkbox" value="reading"><span>阅读中</span></label>
+        <label class="flt-opt"><input type="checkbox" value="done"><span>读完</span></label>
+        <label class="flt-opt"><input type="checkbox" value="none"><span>（未标记）</span></label>
+      </div>
+    </div>
+  </div>
+  <div class="flt" data-key="rating" data-multi="1">
+    <button type="button" class="flt-btn"><span class="flt-label">评分</span><i class="flt-arrow">▾</i></button>
+    <div class="flt-panel" hidden>
+      <div class="flt-tools"><button type="button" class="flt-clear">清空</button></div>
+      <div class="flt-opts">
+        {% for r in range(1,6) %}<label class="flt-opt"><input type="checkbox" value="{{ r }}"><span>{{ r }}★</span></label>{% endfor %}
+        <label class="flt-opt"><input type="checkbox" value="none"><span>未评分</span></label>
+      </div>
+    </div>
+  </div>
+  <span class="muted small" id="flt-count"></span>
+</div>
+<table class="grid works-table">
+  <tbody>
+  {% for g in groups %}
+    {# ===== 作者行 ===== #}
+    <tr class="author-row expanded" data-author="{{ g.author }}">
+      <td class="author-toggle">
+        <button class="tgl" title="展开/收起">▾</button>
+      </td>
+      <td class="author-name strong">{{ g.author }}</td>
+      <td class="num">
+        {% if g.all_translated %}
+          作品数 <b>{{ g.total }}</b>
+        {% else %}
+          <b>{{ g.translated }}</b> 已译 / <b class="warn">{{ g.untranslated }}</b> 未译
+        {% endif %}
+      </td>
+      <td class="author-tags">
+        {% if g.tags_agg %}{% for t in g.tags_agg[:6] %}<span class="tag">{{ t }}</span>{% endfor %}{% if g.tags_agg|length > 6 %}<span class="tag more">+{{ g.tags_agg|length - 6 }}</span>{% endif %}{% else %}<span class="muted small">—</span>{% endif %}
+      </td>
+      <td class="num">{{ '%g' % g.avg_rating if g.avg_rating is not none else '—' }}★</td>
+      <td class="author-op">
+        <span class="muted small">共 {{ g.total }} 部</span>
+      </td>
+    </tr>
+    {# ===== 作品子表 ===== #}
+    <tr class="work-block">
+      <td colspan="7">
+        <table class="grid sub-grid">
+          <thead>
+            <tr>
+              <th class="center col-title">作品</th>
+              <th class="center col-prog">进度</th>
+              <th class="center col-rating">评分</th>
+              <th class="center col-tags">标签</th>
+              <th class="center col-mats">素材</th>
+              <th class="center col-upd">最后更新</th>
+              <th class="center col-op">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for w in g.works %}
+            {% set s = w.stats %}
+            <tr class="work-row" data-work="{{ w.id }}" data-translated="{{ 1 if w.translated else 0 }}" data-r18="{{ w.r18_level or 'no' }}" data-tstate="{{ w.tstate }}" data-status="{{ w.status or '未设' }}" data-tags="{{ w.tags_key }}" data-mats="{{ w.mats_key }}" data-rs="{{ w.read_state or 'none' }}" data-rating="{{ w.rating if w.rating else 'none' }}" data-title="{{ (w.jp_title|strip_r18)|lower }} {{ (w.cn_name or '')|lower }} {{ (w.title or '')|lower }}">
+              <td class="col-title">
+                <div class="w-title">
+                  {% if w.status == '连载中' %}<span class="st-serial" title="连载中">连</span>{% elif w.status == '完结' %}<span class="st-done" title="完结">完</span>{% elif w.status == '中断' %}<span class="st-abort" title="中断">断</span>{% endif %}
+                  <span class="jp{{ ' warn' if not w.translated else '' }}">{{ (w.jp_title|strip_r18) or w.title }}</span>
+                  {% if w.r18_level == 'high' %}
+                    <span class="r-badge high" title="高含量 R18：除了 no 章都走 r18 模型">R</span>
+                  {% elif w.r18_level == 'low' %}
+                    <span class="r-badge low" title="低含量 R18：默认走非 r18 模型，校验最严。R18 章节 {{ w.r18_summary.yes }}/{{ w.r18_summary.total }}（{{ w.r18_summary.pct }}%），命中 {{ w.r18_summary.word_hits }} 次">R</span>
+                  {% elif w.r18_level == 'medium' %}
+                    <span class="r-badge" title="常规 R18：yes 章走 r18 模型。R18 章节 {{ w.r18_summary.yes }}/{{ w.r18_summary.total }}（{{ w.r18_summary.pct }}%），命中 {{ w.r18_summary.word_hits }} 次">R</span>
+                  {% endif %}
+                </div>
+                {% if w.cn_name %}<div class="w-cn{{ ' warn' if not w.translated else '' }}">{{ w.cn_name }}</div>{% endif %}
+              </td>
+              <td class="col-prog" title="已读章节 / 总章节{% if w.deficit %}（原文 {{ w.src_total }} 话，差 {{ w.deficit }} 未译）{% endif %}">
+                <div>{{ w.read }}/{{ w.total }}{% if w.deficit %}<span class="warn small">（差{{ w.deficit }}）</span>{% endif %}</div>
+                <div class="rs-cell" data-work="{{ w.id }}">{% if w.read_state == 'toread' %}<span class="rs-badge toread">待读</span>{% elif w.read_state == 'reading' %}<span class="rs-badge reading">阅读中</span>{% elif w.read_state == 'done' %}<span class="rs-badge done">读完</span>{% else %}<span class="rs-empty">—</span>{% endif %}</div>
+              </td>
+              <td class="col-rating num">
+                <span class="stars" title="{% if w.review %}{{ w.review }}{% else %}未填写评价{% endif %}">
+                  {% if w.rating %}{% for _ in range(5) %}<span class="star{{ '' if loop.index0 < w.rating else ' off' }}">★</span>{% endfor %}{% else %}<span class="muted small">—</span>{% endif %}
+                </span>
+              </td>
+              <td class="col-tags w-tags">
+                {% for t in w.tags[:5] %}<span class="tag {{ 'tag-r18' if t == 'R18' else '' }}">{{ t }}</span>{% else %}<span class="muted small">—</span>{% endfor %}
+              </td>
+              <td class="col-mats w-mats">
+                {% if w.mats_display %}
+                  {% for mt in w.mats_display %}
+                    {% if mt.count %}
+                      <span class="mat" data-mat>
+                        <b>{{ mt.name }}</b>
+                        <span class="mat-sub">{{ mt.pct }}%</span>
+                        <span class="mat-tip">
+                          <i>{{ mt.works or '原创' }}</i>
+                          {% if mt.note %}<i>{{ mt.note }}</i>{% endif %}
+                          <i>出场 {{ mt.chapters }} 章 / 共 {{ mt.count }} 次</i>
+                        </span>
+                      </span>
+                    {% endif %}
+                  {% endfor %}
+                  {% if w.mats_more %}
+                    <span class="mat more" title="还有 {{ w.mats_more }} 个素材">+{{ w.mats_more }}</span>
+                  {% endif %}
+                {% else %}<span class="muted small">—</span>{% endif %}
+              </td>
+              <td class="col-upd num" title="{{ w.last_update|timestamp }}">{{ w.last_update|timestamp }}</td>
+              <td class="col-op">
+                <div class="op-cell">
+                  <div class="primary-row">
+                    <a class="btn small" target="_blank" rel="noopener" href="/work/{{ w.id }}/read">阅读</a>
+                    <button class="btn small ghost" data-detail="{{ w.id }}">详情</button>
+                    <button class="btn small danger del-work" data-work="{{ w.id }}">删除</button>
+                  </div>
+                  <div class="primary-row">
+                    <button class="btn small ghost" onclick="window.open('/work/{{ w.id }}','_blank')">打开</button>
+                    <button class="btn small ghost upd-chk" data-work="{{ w.id }}" title="检查原站是否有新章节">更新</button>
+                    <button class="btn small ghost more-tgl" data-work="{{ w.id }}">更多</button>
+                  </div>
+                  <div class="more-menu" id="more-{{ w.id }}" hidden>
+                    {% if w.site_url %}<a class="btn tiny" href="{{ w.site_url }}" target="_blank" rel="noopener" title="原站">原站</a>{% endif %}
+                    <button class="btn tiny regen" data-work="{{ w.id }}">重新生成{% if w.unsynced %}（{{ w.unsynced }}）{% endif %}</button>
+                    <button class="btn tiny mat-scan" data-work="{{ w.id }}" title="扫描汉化文本自动统计素材并写回">统计素材</button>
+                    <a class="btn tiny" href="/glossary?work={{ w.id }}">作品术语表</a>
+                    <button class="btn tiny work-export" data-work="{{ w.id }}" data-pack-title="{{ (w.cn_name or w.jp_title or w.title or w.id) }}"
+                      title="把本作品打成一个 rar 包（含原文/汉化/交付合集/work 人工资产；不含 work 过程文件、日志记录与备份）">导出</button>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+{# ===== 详情弹窗 ===== #}
+<div class="modal hidden" id="detail-modal">
+  <div class="modal-box detail-box">
+    <h3 id="dm-title">作品详情</h3>
+    <div id="dm-body"></div>
+  </div>
+</div>
+
+{# ===== 更新弹窗（检查原站新章节） ===== #}
+<div class="modal hidden" id="upd-modal">
+  <div class="modal-box upd-box">
+    <h3 id="upd-title">检查更新</h3>
+    <div id="upd-body"></div>
+    <div class="upd-actions" id="upd-actions" hidden>
+      <label class="upd-wiki" id="upd-wiki-wrap" hidden title="把本作品官方设定 wiki 一起对齐（重抓原站 + 增量翻译新增行，零模型成本）；未配置 wiki 的作品不显示">
+        <input type="checkbox" id="upd-wiki" checked> 同步本作 wiki
+      </label>
+      <button class="btn" id="upd-wiki-go" hidden>同步 wiki</button>
+      <button class="btn" id="upd-dl">仅下载</button>
+      <button class="btn" id="upd-tr">下载并翻译</button>
+      <button class="btn ghost" id="upd-cancel">取消</button>
+    </div>
+  </div>
+</div>
+
+{# ===== 导入作品包（2026-10-01） ===== #}
+<div class="modal hidden" id="import-modal">
+  <div class="modal-box" style="width:720px;max-width:94vw">
+    <h3>导入作品包（.rar）</h3>
+    <p class="muted small">选工作台「导出作品」生成的 rar 包：解包后自动归位到
+      <code>aaManga/</code>、恢复 registry 条目与作品元数据。同名作品已存在时会拒绝（请先删除）。</p>
+    <div class="dm-sec">
+      <label>作品包文件
+        <input type="file" id="imp-file" accept=".rar">
+      </label>
+      <span class="muted small" id="imp-file-msg"></span>
+    </div>
+    <div id="imp-preview"></div>
+    <div class="actions">
+      <button class="btn" id="imp-confirm" hidden>确认导入</button>
+      <button class="btn ghost" id="imp-close">关闭</button>
+    </div>
+    <div class="muted small" id="imp-status" style="margin-top:6px"></div>
+  </div>
+</div>
+
+{# ===== 删除两步确认弹窗（2026-09-03） ===== #}
+<div class="modal hidden" id="del-modal">
+  <div class="modal-box del-box">
+    <h3 id="del-title">删除作品</h3>
+    <div class="del-warn" style="display:none;color:#c0392b;font-weight:bold;margin-bottom:8px">⚠️ 将彻底删除以下内容（不可恢复）</div>
+    <div id="del-body" class="del-body"></div>
+    <div class="actions del-actions">
+      <button class="btn danger" id="del-confirm" hidden>确认彻底删除</button>
+      <button class="btn ghost" id="del-cancel">取消</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+/* ========== 全局遮罩 + 加载动画（提前定义, mat-scan/详情共用） ========== */
+const globalMask = document.createElement('div');
+globalMask.className = 'global-mask';
+globalMask.innerHTML = '<div class="spinner"></div><div class="mask-txt">加载中...</div>';
+document.body.appendChild(globalMask);
+function showMask(t) { globalMask.querySelector('.mask-txt').textContent = t || '加载中...'; globalMask.classList.add('show'); }
+function hideMask() { globalMask.classList.remove('show'); }
+
+/* ========== 展开/收起 ========== */
+document.querySelectorAll('.author-row').forEach(r => {
+  const tgl = r.querySelector('.tgl');
+  tgl.addEventListener('click', () => {
+    const block = r.nextElementSibling;          // work-block tr
+    const collapsed = r.classList.toggle('collapsed');
+    tgl.textContent = collapsed ? '▸' : '▾';
+    if (block) block.style.display = collapsed ? 'none' : '';
+  });
+});
+
+/* ========== 更多按钮组（悬浮弹出框）：点击「更多…」弹出；点击外部自动收起 ========== */
+function hideAllMore(except) {
+  document.querySelectorAll('.more-menu').forEach(m => {
+    if (m.id !== except) m.hidden = true;
+  });
+}
+document.querySelectorAll('.more-tgl').forEach(b => {
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();                       // 阻止冒泡到 document（否则点开即关）
+    const m = document.getElementById('more-' + b.dataset.work);
+    if (!m) return;
+    const willShow = m.hidden;
+    hideAllMore('more-' + b.dataset.work);
+    m.hidden = !willShow;
+  });
+});
+// 点击浮层内部不收起（菜单里的链接/按钮照常触发自己的动作）
+document.querySelectorAll('.more-menu').forEach(m => {
+  m.addEventListener('click', e => e.stopPropagation());
+});
+// 点击页面其它任意区域 → 收起所有弹出框
+document.addEventListener('click', () => hideAllMore());
+
+/* ========== 导出作品（「更多」菜单；弹窗实现在 static/work_pack.js） ========== */
+document.querySelectorAll('.work-export').forEach(b => b.addEventListener('click', () => {
+  hideAllMore();
+  aaExportDialog(b.dataset.work, b.dataset.packTitle || b.dataset.work);
+}));
+
+/* ========== 重新生成（作品级） ========== */
+document.querySelectorAll('.regen').forEach(b => b.addEventListener('click', async () => {
+  b.disabled = true;
+  const r = await fetch('/api/work/' + b.dataset.work + '/regenerate', {method: 'POST'});
+  const j = await r.json();
+  toast(j.ok ? '已重新生成 ✓' : '生成失败:\n' + j.output, j.ok);
+  b.disabled = false;
+  setTimeout(() => location.reload(), 800);
+}));
+
+/* ========== 统计素材（扫描汉化文本写回 materials） ========== */
+document.querySelectorAll('.mat-scan').forEach(b => b.addEventListener('click', async () => {
+  if (globalMask.classList.contains('show')) return;
+  showMask('统计素材中...');
+  b.disabled = true;
+  try {
+    const r = await fetch('/api/work-meta/' + b.dataset.work + '/mat-scan', {method: 'POST'});
+    const j = await r.json();
+    if (j.ok) {
+      const src = j.source === 'knowledge' ? '作品知识库' : '全局角色表';
+      toast('素材已统计 ✓（' + (j.materials || []).join(' / ') + '）[' + src + ']', true);
+    } else {
+      toast('统计失败: ' + (j.detail || ''), false);
+    }
+    setTimeout(() => location.reload(), 900);
+  } catch (e) {
+    toast('统计失败: ' + e, false);
+  } finally {
+    hideMask();
+    b.disabled = false;
+  }
+}));
+
+/* ========== 更新检查（更多菜单「更新」：原站新章检查） ========== */
+const updModal = document.getElementById('upd-modal');
+const updBody = document.getElementById('upd-body');
+const updTitle = document.getElementById('upd-title');
+const updActions = document.getElementById('upd-actions');
+const updWikiWrap = document.getElementById('upd-wiki-wrap');   // 「同步本作 wiki」勾选框（有 wiki 的作品才显示）
+const updWikiGo = document.getElementById('upd-wiki-go');       // 独立「同步 wiki」按钮（没有新章也能点）
+const updDl = document.getElementById('upd-dl');
+const updTr = document.getElementById('upd-tr');
+let updWork = null, updCount = 0;
+function closeUpdModal() { updModal.classList.add('hidden'); updWork = null; }
+
+document.querySelectorAll('.upd-chk').forEach(b => b.addEventListener('click', async () => {
+  if (globalMask.classList.contains('show')) return;
+  const work = b.dataset.work;
+  showMask('检查更新中...');
+  b.disabled = true;
+  try {
+    const r = await fetch('/api/work/' + encodeURIComponent(work) + '/check-update', {method: 'POST'});
+    const j = await r.json();
+    if (!j.ok) {
+      toast('更新检查失败: ' + (j.error || j.detail || ''), false);
+      return;
+    }
+    const ups = j.updates || [];
+    const hasWiki = !!j.wiki;
+    updWork = work;
+    updCount = ups.length;
+    updTitle.textContent = '检查更新 — ' + work;
+    updWikiWrap.hidden = !hasWiki;
+    updWikiGo.hidden = !hasWiki;
+    updDl.hidden = ups.length === 0;
+    updTr.hidden = ups.length === 0;
+    updActions.hidden = (ups.length === 0 && !hasWiki);
+    if (ups.length === 0) {
+      updBody.innerHTML = '<p class="muted">✓ 已是最新（原站 ' + j.total + ' 章，本地 ' + j.local_count + ' 章）</p>';
+    } else {
+      const rows = ups.map(u => {
+        const t = esc(u.title || '');
+        const d = esc(u.date || '');
+        return '<div class="upd-row"><span class="upd-eid">' + esc(u.eid) + '</span>' +
+               '<span class="upd-title">' + (t || '（无标题）') + '</span>' +
+               (d ? '<span class="upd-date">' + d + '</span>' : '') + '</div>';
+      }).join('');
+      updBody.innerHTML = '<p class="muted">发现 ' + ups.length + ' 个新章节（原站 ' + j.total + ' 章，本地 ' + j.local_count + ' 章）：</p>' +
+        '<div class="upd-list">' + rows + '</div>';
+      updActions.hidden = false;
+    }
+    updModal.classList.remove('hidden');
+  } catch (e) {
+    toast('更新检查失败: ' + e, false);
+  } finally {
+    hideMask();
+    b.disabled = false;
+  }
+}));
+
+// 弹窗按钮
+document.getElementById('upd-dl').addEventListener('click', async () => {
+  if (!updWork) return;
+  const r = await fetch('/api/work/' + encodeURIComponent(updWork) + '/update', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'download'})
+  });
+  const j = await r.json();
+  toast(j.ok ? ('已入队: ' + j.msg) : ('失败: ' + (j.error || j.detail || '')), j.ok);
+  closeUpdModal();
+});
+document.getElementById('upd-tr').addEventListener('click', async () => {
+  if (!updWork) return;
+  const syncWiki = !document.getElementById('upd-wiki-wrap').hidden
+                   && document.getElementById('upd-wiki').checked;
+  const r = await fetch('/api/work/' + encodeURIComponent(updWork) + '/update', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'translate', sync_wiki: syncWiki})
+  });
+  const j = await r.json();
+  toast(j.ok ? ('已入队: ' + j.msg) : ('失败: ' + (j.error || j.detail || '')), j.ok);
+  closeUpdModal();
+});
+// 「同步 wiki」：只同步本作品官方设定 wiki（不下载/不翻译章节），没有新章也能点
+document.getElementById('upd-wiki-go').addEventListener('click', async () => {
+  if (!updWork) return;
+  const r = await fetch('/api/work/' + encodeURIComponent(updWork) + '/sync-wiki', {method: 'POST'});
+  const j = await r.json();
+  toast(j.ok ? ('已入队: ' + j.msg) : ('失败: ' + (j.error || j.detail || '')), j.ok);
+  closeUpdModal();
+});
+document.getElementById('upd-cancel').addEventListener('click', closeUpdModal);
+// 点击弹窗外关闭（mousedown 与 click 都必须落在遮罩上——弹窗内按下、弹窗外松开（拖选文字）不关）
+let _updDown = null;
+updModal.addEventListener('mousedown', e => { _updDown = e.target; });
+updModal.addEventListener('click', e => { if (e.target === updModal && _updDown === updModal) closeUpdModal(); });
+
+/* ========== 全部重新生成 ========== */
+const regenBtn = document.getElementById('regen-all');
+regenBtn.addEventListener('click', async () => {
+  regenBtn.disabled = true;
+  const msg = document.getElementById('regen-all-msg');
+  msg.textContent = '生成中…（纯本地，零 token）';
+  try {
+    const r = await fetch('/api/regenerate-all', {method: 'POST'});
+    const j = await r.json();
+    const bad = Object.entries(j.results).filter(([,v]) => !v.ok);
+    msg.textContent = bad.length ? '部分失败: ' + bad.map(([k]) => k).join(', ') : '全部完成 ✓';
+  } catch (e) { msg.textContent = '失败: ' + e; }
+  setTimeout(() => location.reload(), 1200);
+});
+
+/* ========== 详情弹窗（可编辑 汉化名/标签/素材/作者） ========== */
+const modal = document.getElementById('detail-modal');
+const dmBody = document.getElementById('dm-body');
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+  {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function closeModal() { modal.classList.add('hidden'); }
+
+document.querySelectorAll('[data-detail]').forEach(b => {
+  b.addEventListener('click', async () => {
+    const work = b.dataset.detail;
+    if (globalMask.classList.contains('show')) return;  // 加载中防多次点击
+    showMask('加载详情...');
+    try {
+      const r = await fetch('/api/work-meta/' + work);
+      const d = await r.json();
+      buildDetail(work, d);
+    } catch (e) {
+      toast('加载详情失败: ' + e, false);
+    } finally {
+      hideMask();
+    }
+  });
+});
+
+function buildDetail(work, d) {
+  document.getElementById('dm-title').textContent = '作品详情 — ' + (d.cn_name || d.jp_title);
+  const mats = (d.materials || []).map(esc);
+  const tags = (d.tags || []).map(esc);
+  dmBody.innerHTML = `
+    <div class="dm-grid">
+      <label>汉化名 <input id="dm-cn" value="${esc(d.cn_name)}" placeholder="汉化名"></label>
+      <label>作者 ◆<input id="dm-author" value="${esc((d.author || d.author_auto || '').replace(/^◆/,''))}" placeholder="tripcode">${(!d.author && d.author_auto) ? '<span class="muted small">帖头自动提取，保存后即为手动值</span>' : ''}</label>
+      <label>状态
+        <select id="dm-status">
+          <option value="连载中" ${d.status==='连载中'?'selected':''}>连载中</option>
+          <option value="完结" ${d.status==='完结'?'selected':''}>完结</option>
+          <option value="中断" ${d.status==='中断'?'selected':''}>中断</option>
+          <option value="" ${!d.status?'selected':''}>（未设）</option>
+        </select>
+      </label>
+      <label>日文原题（只读）<input value="${esc(d.jp_title)}" disabled></label>
+      <label>站点 <input value="${esc(d.site || '')}" disabled></label>
+      <label>R18 分级
+        <select id="dm-r18-level">
+          <option value="" ${!d.r18_level?'selected':''}>no（非R18，全走非r18模型）</option>
+          <option value="medium" ${d.r18_level==='medium'?'selected':''}>medium（常规：yes章走r18模型）</option>
+          <option value="low" ${d.r18_level==='low'?'selected':''}>low（低含量：全走非r18，校验最严）</option>
+          <option value="high" ${d.r18_level==='high'?'selected':''}>high（高含量：除no章都走r18）</option>
+        </select>
+        <span class="muted small" id="dm-r18-summary" style="display:block"></span>
+      </label>
+      <label>管线归属
+        <select id="dm-pipeline">
+          <option value="generic" ${(!d.pipeline || d.pipeline==='generic')?'selected':''}>generic（通用翻译链）</option>
+          <option value="pokemon" ${d.pipeline==='pokemon'?'selected':''}>pokemon（宝可梦专属链：固定内容表预填 + 本地 wiki 术语绑定）</option>
+        </select>
+        <span class="muted small" style="display:block;color:#d9534f">改动会切换翻译链：pokemon 作品不能用通用
+          translate_runner 跑（会被拒绝），请用任务管理器「pokemon」类型或 scripts/works/pokemon_runner.py。</span>
+      </label>
+    </div>
+    <div class="dm-sec">
+      <b>标签</b> <span class="muted small">逗号分隔</span>
+      <input id="dm-tags" value="${tags.join(',')}" placeholder="标签1,标签2">
+    </div>
+    <div class="dm-sec">
+      <b>简介</b> <span class="muted small">作品简介</span>
+      <textarea id="dm-intro" rows="4" placeholder="作品简介">${esc(d.intro || '')}</textarea>
+    </div>
+    <div class="dm-sec">
+      <b>评分</b> <span class="muted small">点击星级选择 1-5（取消=未评分）</span>
+      <div class="dm-rating" id="dm-rating">${'★★★★★'.split('').map((s,i) =>
+        `<span class="star${(d.rating && i < d.rating) ? '' : ' off'}" data-n="${i+1}">${s}</span>`).join('')}</div>
+      <b>评价</b>
+      <textarea id="dm-review" rows="2" placeholder="评价文字（可选）">${esc(d.review || '')}</textarea>
+    </div>
+    <div class="dm-sec">
+      <b>素材人物</b> <span class="muted small">横向徽章，占比从汉化文本自动统计；可添加/移除</span>
+      <div id="dm-mats-wrap" class="mats-wrap">
+        ${d.materials.map(m => {
+          const dn = (m.name || "").replace(/（.+?）$/, '');
+          const ws = (m.works || "");
+          const mn = esc(ws ? dn + '（' + ws + '）' : dn);
+          return `<span class="mat" data-mat-title="${esc(m.works||'')}">
+                    <b>${mn}</b><span class="mat-sub">${m.pct||0}%</span>
+                    <span class="mat-x" title="移除">×</span>
+                  </span>`;
+        }).join('')}
+        <span class="mat add-mat" id="dm-mat-add">＋ 添加</span>
+      </div>
+      <input id="dm-mat-input" placeholder="输入角色名后回车添加" style="display:none;margin-top:4px;width:100%">
+      <div id="dm-mat-work-box" class="mat-work-box" style="display:none">
+        <span id="dm-mat-work-label" class="muted small"></span>
+        <input id="dm-mat-work-input" placeholder="作品名（留空=纯名）" autocomplete="off">
+        <button type="button" class="btn tiny" id="dm-mat-work-ok">确定</button>
+        <button type="button" class="btn ghost tiny" id="dm-mat-work-cancel">取消</button>
+      </div>
+    </div>
+    <div class="dm-sec" id="dm-chapters"></div>
+    <div class="actions dm-actions">
+      <button class="btn" id="dm-save">保存</button>
+      <button class="btn ghost" onclick="closeModal()">关闭</button>
+    </div>`;
+  // R18 摘要(2026-08-26: 分级下拉 + 章节命中摘要)
+  const rs = d.r18_summary || {};
+  let r18val = '';
+  if (d.r18_level === 'high') {
+    r18val = `高含量（除no章都走r18） 章节 ${rs.yes||0}/${rs.total||0}（${rs.pct}%） 命中词 ${rs.word_hits||0}`;
+  } else if (d.r18_level === 'low') {
+    r18val = `低含量（全走非r18，校验最严） 章节 ${rs.yes||0}/${rs.total||0}（${rs.pct}%） 命中词 ${rs.word_hits||0}` +
+             (rs.suspect ? ` 疑似 ${rs.suspect} 章` : '');
+  } else if (d.r18_level === 'medium') {
+    r18val = `常规 章节 ${rs.yes||0}/${rs.total||0}（${rs.pct}%） 命中词 ${rs.word_hits||0}` +
+             (rs.suspect ? ` 疑似 ${rs.suspect} 章` : '');
+  } else {
+    r18val = '非 R18（不走章节级判定）';
+  }
+  document.getElementById('dm-r18-summary').textContent = r18val;
+  // 评分星级点选（2026-09-03）：点第 n 颗 → 点亮 1..n；再点当前最高星 → 取消（回到未评分）
+  const _dmRating = document.getElementById('dm-rating');
+  if (_dmRating) {
+    let _cur = d.rating || 0;
+    const _redraw = () => {
+      Array.from(_dmRating.querySelectorAll('.star')).forEach(st =>
+        st.classList.toggle('off', +st.dataset.n > _cur));
+    };
+    _redraw();
+    _dmRating.addEventListener('click', e => {
+      const s = e.target.closest('.star');
+      if (!s) return;
+      const n = +s.dataset.n;
+      _cur = (n === _cur) ? 0 : n;   // 点当前最高星 → 取消
+      _redraw();
+    });
+  }
+  // 素材出现话数（可滚动）
+  const ch = document.getElementById('dm-chapters');
+  ch.innerHTML = '<b>素材出现话数</b><div class="dm-scroll">' +
+    (Object.keys(d.material_chapters || {}).map(n => {
+      const chs = (d.material_chapters[n] || {});
+      const first = Object.entries(chs).slice(0, 6).map(([f, c]) =>
+        `<span class="mat" title="第${esc(f)}话">${esc(f).replace(/[^0-9]/g,'')}(${c})</span>`).join(' ');
+      return `<div class="dm-ch-row"><b>${esc(n)}</b>：${first}${Object.keys(chs).length>6?' …':''}</div>`;
+    }).join('')) + '</div>';
+  // 素材徽章：添加/移除（维护内部名表）——2026-08-26: 作品识别+多出处选择+同作品去重
+  let matNames = (d.materials || []).map(m => (m.name || '').replace(/（.+?）$/, ''));
+  // 2026-08-26: 内部名表存「角色名（作品名）」完整格式(与 work_meta 一致), 展示名拆出角色名
+  let matFull = (d.materials || []).map(m => {
+    const mn = (m.name || '');
+    const ws = (m.works || '');
+    return ws ? mn + '（' + ws + '）' : mn;
+  });
+  const wrap = document.getElementById('dm-mats-wrap');
+  const input = document.getElementById('dm-mat-input');
+  // 添加素材: resolve 作品候选 → 单候选直接加/多候选弹选择/无候选手动输入作品
+  const addMaterial = async (raw) => {
+    let n = (raw || '').trim();
+    if (!n) return;
+    try {
+      const r = await fetch('/api/materials/resolve?name=' + encodeURIComponent(n));
+      const j = await r.json();
+      const cands = (j.candidates || []).filter(c => c.wname);  // 排除无作品候选
+      if (cands.length === 1) {
+        appendMat(n, cands[0].wname);
+      } else if (cands.length > 1) {
+        // 多出处: 弹选择
+        const opts = cands.map((c, i) =>
+          `<button type="button" class="mat-opt" data-i="${i}">${esc(c.wname)}` +
+          (c.note ? `<span class="muted small"> ${esc(c.note)}</span>` : '') + `</button>`).join('');
+        const box = document.createElement('div');
+        box.className = 'mat-pick';
+        box.innerHTML = `<div class="mat-pick-title">「${esc(n)}」可能有多个出处，请选择：</div>${opts}` +
+          `<button type="button" class="mat-opt" data-i="-1">手动输入作品名…</button>`;
+        document.body.appendChild(box);
+        box.querySelectorAll('.mat-opt').forEach(b => b.onclick = async () => {
+          const i = parseInt(b.dataset.i, 10);
+          box.remove();
+          if (i >= 0) { appendMat(n, cands[i].wname); return; }
+          await manualWork(n);
+        });
+      } else {
+        // 无候选: 手动输入作品名
+        await manualWork(n);
+      }
+    } catch (e) {
+      await manualWork(n);   // API 失败回退手动
+    }
+  };
+  // 手动输入作品名：内联输入框（2026-08-26 由 prompt() 弹窗改为内联，避免浏览器拦截/阻断式交互）
+  let _mwResolve = null;
+  let _mwName = '';
+  let _mwInputPrev = '';
+  const manualWork = (n) => new Promise(resolve => {
+    _mwResolve = resolve;
+    _mwName = n;
+    _mwInputPrev = input.style.display;
+    const box = document.getElementById('dm-mat-work-box');
+    const lab = document.getElementById('dm-mat-work-label');
+    const ipt = document.getElementById('dm-mat-work-input');
+    lab.textContent = `「${n}」未在角色表识别到作品，输入作品名（留空=纯名）`;
+    ipt.value = '';
+    box.style.display = 'flex';
+    input.style.display = 'none';
+    ipt.focus();
+  });
+  const _mwFinish = (wn) => {
+    const box = document.getElementById('dm-mat-work-box');
+    box.style.display = 'none';
+    input.style.display = _mwInputPrev;
+    if (_mwResolve) { _mwResolve(); _mwResolve = null; }
+    if (wn !== null) appendMat(_mwName, wn.trim() || '');
+  };
+  document.getElementById('dm-mat-work-ok').onclick = () =>
+    _mwFinish(document.getElementById('dm-mat-work-input').value);
+  document.getElementById('dm-mat-work-cancel').onclick = () => _mwFinish(null);
+  document.getElementById('dm-mat-work-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      _mwFinish(document.getElementById('dm-mat-work-input').value);
+    } else if (e.key === 'Escape') {
+      _mwFinish(null);
+    }
+  });
+  const appendMat = (n, wname) => {
+    const full = wname ? `${n}（${wname}）` : n;
+    // 同作品去重: 角色名+作品唯一
+    if (matFull.includes(full)) {
+      toast(`「${full}」已存在`, false);
+      return;
+    }
+    matFull.push(full);
+    matNames.push(n);
+    wrap.insertAdjacentHTML('beforeend',
+      `<span class="mat"><b>${esc(full)}</b><span class="mat-x" title="移除">×</span></span>`);
+  };
+  wrap.addEventListener('click', e => {
+    const x = e.target.closest('.mat-x');
+    if (x) {
+      const el = x.closest('.mat');
+      const txt = (el.querySelector('b')?.textContent || '').replace(/×$/, '');
+      matFull = matFull.filter(m => m !== txt);
+      el.remove();
+    }
+    if (e.target.closest('#dm-mat-add')) {
+      input.style.display = 'block'; input.focus();
+    }
+  });
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && input.value.trim()) {
+      const n = input.value.trim();
+      input.value = ''; input.style.display = 'none';
+      addMaterial(n);
+    }
+  });
+  // 保存
+  document.getElementById('dm-save').onclick = async () => {
+    const val = id => document.getElementById(id).value;
+    const _ratingEl = document.getElementById('dm-rating');
+    // 取「点亮」的最高星（最后一个未 off），即评分值；全灭=未评分
+    const _litStars = _ratingEl ? Array.from(_ratingEl.querySelectorAll('.star')).filter(s => !s.classList.contains('off')) : [];
+    const _selStar = _litStars.length ? _litStars[_litStars.length - 1] : null;
+    const _au = val('dm-author').replace(/^◆/,'').trim();   // 空输入别再写成 '◆'（会遮蔽帖头自动提取的作者）
+    const payload = {
+      author: _au ? '◆' + _au : '',
+      cn_name: val('dm-cn').trim(),
+      status: val('dm-status'),
+      intro: val('dm-intro').trim(),
+      tags: val('dm-tags').split(',').map(s => s.trim()).filter(Boolean),
+      materials: Array.from(wrap.querySelectorAll('.mat:not(.add-mat)')).map(el =>
+        ((el.querySelector('b')?.textContent || el.textContent).replace(/×$/,''))
+        .trim()).filter(Boolean),
+      r18_level: val('dm-r18-level'),
+      rating: _selStar ? +_selStar.dataset.n : null,
+      review: val('dm-review').trim(),
+      pipeline: val('dm-pipeline'),
+    };
+    const r = await fetch('/api/work-meta/' + work, {method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)});
+    const j = await r.json();
+    toast(j.ok ? '已保存 ✓（刷新可见）' : '保存失败', !!j.ok);
+    if (j.ok) setTimeout(() => location.reload(), 900);
+  };
+  modal.classList.remove('hidden');
+}
+let _dmDown = null;
+modal.addEventListener('mousedown', e => { _dmDown = e.target; });
+modal.addEventListener('click', e => { if (e.target === modal && _dmDown === modal) closeModal(); });
+</script>
+
+<!-- 添加作品弹窗（2026-08-30）-->
+<div class="modal hidden" id="addwork-modal">
+  <div class="modal-box" style="width:680px;max-width:92vw">
+    <h3>添加作品（从网址下载）</h3>
+    <p class="muted small">粘贴作品分类页网址（yaruobook 三站 / rss.r401.net），解析后确认信息并下载。</p>
+    <div class="dm-sec">
+      <label>作品分类页 URL
+        <input id="aw-url" placeholder="https://yaruobook.com/?cat=377 或 https://rss.r401.net/yaruo/categories/15829">
+      </label>
+    </div>
+    <div class="actions" style="margin:6px 0">
+      <button class="btn" id="aw-parse">解析</button>
+      <span class="muted small" id="aw-parse-msg"></span>
+    </div>
+    <div id="aw-result" style="display:none">
+      <div class="dm-sec">
+        <label>作品 ID（自动生成，只读）
+          <input id="aw-id" readonly disabled style="background:#f5f0e6;color:#888">
+        </label>
+        <label>标题（汉化名）
+          <input id="aw-title">
+        </label>
+      </div>
+      <div class="dm-sec">
+        <label>作者 <input id="aw-author" placeholder="留空待填"></label>
+        <label>状态
+          <select id="aw-status">
+            <option value="">未设置</option>
+            <option value="连载中">连载中</option>
+            <option value="完结">完结</option>
+            <option value="中断">中断</option>
+          </select>
+        </label>
+        <label>R18 分级
+          <select id="aw-r18">
+            <option value="">no（非R18）</option>
+            <option value="low">low（低含量，章节级判定）</option>
+            <option value="medium">medium（常规）</option>
+            <option value="high">high（高含量，整部走r18）</option>
+          </select>
+        </label>
+      </div>
+      <div class="dm-sec">
+        <b>简介</b> <span class="muted small">默认日文原样（不自动翻译）；点「翻译简介」按需翻译，翻译后可再手动修改</span>
+        <div class="actions" style="margin:4px 0">
+          <button class="btn ghost" type="button" id="aw-tr-intro">翻译简介</button>
+          <span class="muted small" id="aw-intro-msg"></span>
+        </div>
+        <textarea id="aw-intro" rows="5"></textarea>
+      </div>
+      <div class="dm-sec">
+        <b>章节数</b> <span id="aw-count" class="muted"></span>
+      </div>
+      <div class="actions">
+        <button class="btn" id="aw-confirm">确认并下载</button>
+        <button class="btn ghost" onclick="document.getElementById('addwork-modal').classList.add('hidden')">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const modal = document.getElementById('addwork-modal');
+  const btn = document.getElementById('add-work-btn');
+  if (!btn || !modal) return;
+  btn.addEventListener('click', () => {
+    modal.classList.remove('hidden');
+    document.getElementById('aw-url').focus();
+  });
+  let _awDown = null;
+  modal.addEventListener('mousedown', e => { _awDown = e.target; });
+  modal.addEventListener('click', e => { if (e.target === modal && _awDown === modal) modal.classList.add('hidden'); });
+  const msg = document.getElementById('aw-parse-msg');
+  const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const urlInput = document.getElementById('aw-url');
+  const resultBox = document.getElementById('aw-result');
+  let parsed = null;
+  document.getElementById('aw-parse').addEventListener('click', async () => {
+    const url = urlInput.value.trim();
+    if (!url) { msg.textContent = '请输入网址'; return; }
+    msg.textContent = '解析中…（需要 v2rayN 代理）';
+    try {
+      const r = await fetch('/api/parse-url', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({url})});
+      const j = await r.json();
+      if (!r.ok) { msg.textContent = '解析失败：' + (j.detail || ''); return; }
+      parsed = j;
+      document.getElementById('aw-title').value = j.title || '';
+      document.getElementById('aw-count').textContent = j.chapter_count + ' 话';
+      document.getElementById('aw-intro').value = j.intro_cn || j.intro_jp || '';
+      document.getElementById('aw-intro-msg').textContent = '';
+      document.getElementById('aw-author').value = '';
+      document.getElementById('aw-status').value = '';
+      document.getElementById('aw-r18').value = '';
+      document.getElementById('aw-id').value = j.work_id || '';
+      resultBox.style.display = 'block';
+      msg.textContent = '解析完成' + (j.intro_jp ? '（简介为日文原文，需要时点「翻译简介」）' : '（无简介）');
+    } catch (e) {
+      msg.textContent = '解析出错：' + e.message;
+    }
+  });
+  // 简介手动翻译（2026-09-20）：默认不自动翻译；点按钮才调 /api/translate-intro
+  document.getElementById('aw-tr-intro').addEventListener('click', async () => {
+    const ta = document.getElementById('aw-intro');
+    const imsg = document.getElementById('aw-intro-msg');
+    const btn = document.getElementById('aw-tr-intro');
+    const text = ta.value.trim();
+    if (!text) { imsg.textContent = '简介为空'; return; }
+    if (btn.disabled) return;
+    btn.disabled = true;
+    const old = btn.textContent;
+    btn.textContent = '翻译中…';
+    imsg.textContent = '模型翻译中…（需要 v2rayN 代理）';
+    try {
+      const r = await fetch('/api/translate-intro', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text, r18_level: document.getElementById('aw-r18').value})});
+      const j = await r.json();
+      if (!r.ok) { imsg.textContent = '翻译失败：' + (j.detail || ''); return; }
+      if (j.text) ta.value = j.text;
+      imsg.textContent = j.translated ? '已翻译（可再手动修改）' : '翻译失败或被内容审查拒绝，保留原文，可手动译';
+    } catch (e) {
+      imsg.textContent = '翻译出错：' + e.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = old;
+    }
+  });
+  document.getElementById('aw-confirm').addEventListener('click', async () => {
+    if (!parsed) { msg.textContent = '请先解析'; return; }
+    const payload = {
+      url: urlInput.value.trim(),
+      cn_title: document.getElementById('aw-title').value.trim(),
+      work_id: document.getElementById('aw-id').value.trim(),
+      author: document.getElementById('aw-author').value.trim(),
+      status: document.getElementById('aw-status').value,
+      r18_level: document.getElementById('aw-r18').value,
+      intro: document.getElementById('aw-intro').value.trim(),
+    };
+    const confirmBtn = document.getElementById('aw-confirm');
+    if (confirmBtn.disabled) return;   // 防连点
+    confirmBtn.disabled = true;
+    confirmBtn.classList.add('loading');
+    confirmBtn.textContent = '下载中…';
+    msg.textContent = '注册并下载中…';
+    try {
+      const r = await fetch('/api/add-work', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+      const j = await r.json();
+      if (!r.ok) {
+        msg.textContent = '添加失败：' + (j.detail || JSON.stringify(j));
+        confirmBtn.disabled = false;
+        confirmBtn.classList.remove('loading');
+        confirmBtn.textContent = '确认并下载';
+        return;
+      }
+      msg.textContent = '已添加 ' + j.work + '，下载任务 ' + j.task_id + ' 已入队 ✓';
+      modal.classList.add('hidden');
+      setTimeout(() => location.reload(), 1200);
+    } catch (e) {
+      msg.textContent = '添加出错：' + e.message;
+      confirmBtn.disabled = false;
+      confirmBtn.classList.remove('loading');
+      confirmBtn.textContent = '确认并下载';
+    }
+  });
+})();
+
+// ===== 作品列表筛选（2026-09-02：多选下拉——翻译/R18/状态/标签/素材）=====
+(function () {
+  const bar = document.getElementById('flt-bar');
+  const cnt = document.getElementById('flt-count');
+  if (!bar || !cnt) return;
+  const SEP = '\u0001';
+  const flts = Array.from(bar.querySelectorAll('.flt'));
+
+  function closeAll(except) {
+    flts.forEach(f => {
+      if (f === except) return;
+      f.classList.remove('open');
+      f.querySelector('.flt-panel').hidden = true;
+    });
+  }
+  flts.forEach(f => {
+    const btn = f.querySelector('.flt-btn');
+    const panel = f.querySelector('.flt-panel');
+    btn.addEventListener('click', () => {
+      const willOpen = panel.hidden;
+      closeAll(f);
+      panel.hidden = !willOpen;
+      f.classList.toggle('open', willOpen);
+    });
+    f.querySelector('.flt-clear').addEventListener('click', () => {
+      f.querySelectorAll('input[type=checkbox]').forEach(c => { c.checked = false; });
+      apply();
+    });
+    panel.addEventListener('change', apply);
+  });
+  document.addEventListener('click', e => { if (!e.target.closest('.flt')) closeAll(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAll(); });
+
+  function selected(f) {
+    return new Set(Array.from(f.querySelectorAll('input[type=checkbox]:checked')).map(c => c.value));
+  }
+  function rowOk(row) {
+    for (const f of flts) {
+      const sel = selected(f);
+      if (!sel.size) continue;                 // 该组未选 = 不约束
+      const key = f.dataset.key;
+      if (f.dataset.multi === '1') {           // 多值字段（标签/素材）：任一命中即过
+        const vals = (row.dataset[key] || '').split(SEP).filter(Boolean);
+        if (!vals.some(v => sel.has(v))) return false;
+      } else {                                 // 单值字段：必须命中
+        if (!sel.has(row.dataset[key])) return false;
+      }
+    }
+    return true;
+  }
+  function apply() {
+    let shown = 0;
+    document.querySelectorAll('.work-row').forEach(row => {
+      const ok = rowOk(row);
+      row.style.display = ok ? '' : 'none';
+      if (ok) shown++;
+    });
+    // 作者组：组内全部隐藏则整组隐藏
+    document.querySelectorAll('.work-block').forEach(blk => {
+      const any = Array.from(blk.querySelectorAll('.work-row')).some(r => r.style.display !== 'none');
+      blk.style.display = any ? '' : 'none';
+      const authorRow = blk.previousElementSibling;
+      if (authorRow && authorRow.classList.contains('author-row')) {
+        authorRow.style.display = any ? '' : 'none';
+      }
+    });
+    cnt.textContent = `（${shown} 部）`;
+    // 按钮选中数徽章
+    flts.forEach(f => {
+      const n = f.querySelectorAll('input[type=checkbox]:checked').length;
+      let badge = f.querySelector('.flt-n');
+      if (n > 0) {
+        if (!badge) {
+          badge = document.createElement('b');
+          badge.className = 'flt-n';
+          f.querySelector('.flt-btn').insertBefore(badge, f.querySelector('.flt-arrow'));
+        }
+        badge.textContent = n;
+        f.classList.add('flt-active');
+      } else {
+        if (badge) badge.remove();
+        f.classList.remove('flt-active');
+      }
+    });
+  }
+})();
+
+/* ========== 阅读状态小菜单（2026-09-03）：点进度第2行状态徽章 → 弹出 待读/读完/清除 ========== */
+(function () {
+  let rsMenu = null;
+  function closeRsMenu() { if (rsMenu) { rsMenu.remove(); rsMenu = null; } }
+  document.addEventListener('click', () => closeRsMenu());
+  document.querySelectorAll('.rs-cell').forEach(cell => {
+    cell.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeRsMenu();
+      const work = cell.dataset.work;
+      const men = document.createElement('div');
+      men.className = 'rs-menu';
+      men.innerHTML = [
+        ['toread', '待读'], ['done', '读完'], ['', '清除回空']
+      ].map(([v, lab]) =>
+        `<button type="button" class="rs-opt" data-v="${v}" data-work="${work}">${lab}</button>`).join('');
+      document.body.appendChild(men);
+      rsMenu = men;
+      const r = cell.getBoundingClientRect();
+      men.style.top = (r.bottom + 4) + 'px';
+      men.style.left = Math.min(r.left, window.innerWidth - 140) + 'px';
+      men.addEventListener('click', async (ev) => {
+        const b = ev.target.closest('.rs-opt');
+        if (!b) return;
+        const v = b.dataset.v, wk = b.dataset.work;
+        closeRsMenu();
+        const r2 = await fetch('/api/read-state/' + encodeURIComponent(wk), {
+          method: 'PUT', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({state: v})});
+        const j2 = await r2.json();
+        if (j2.ok) {
+          const row = document.querySelector(`.work-row[data-work="${wk}"]`);
+          if (row) {
+            row.dataset.rs = v || 'none';
+            const rsCell = row.querySelector('.rs-cell');
+            rsCell.innerHTML = v === 'toread' ? '<span class="rs-badge toread">待读</span>'
+              : v === 'reading' ? '<span class="rs-badge reading">阅读中</span>'
+              : v === 'done' ? '<span class="rs-badge done">读完</span>'
+              : '<span class="rs-empty">—</span>';
+            toast(v ? '已标记「' + ({toread:'待读',done:'读完'}[v] || v) + '」' : '已清除标记', true);
+          }
+        } else toast('标记失败: ' + (j2.detail || ''), false);
+      });
+      men.addEventListener('click', e => e.stopPropagation());
+    });
+  });
+})();
+
+/* ========== 删除两步确认（2026-09-03） ========== */
+(function () {
+  const delModal = document.getElementById('del-modal');
+  const delBody = document.getElementById('del-body');
+  const delConfirm = document.getElementById('del-confirm');
+  const delWarn = document.querySelector('.del-warn');
+  const delTitle = document.getElementById('del-title');
+  let delWork = null;
+  function closeDel() { delModal.classList.add('hidden'); delWork = null; delConfirm.hidden = true; delWarn.style.display = 'none'; }
+  document.getElementById('del-cancel').addEventListener('click', closeDel);
+  delModal.addEventListener('mousedown', e => { delModal._dwn = e.target; });
+  delModal.addEventListener('click', e => { if (e.target === delModal && delModal._dwn === delModal) closeDel(); });
+
+  document.querySelectorAll('.del-work').forEach(b => {
+    b.addEventListener('click', async () => {
+      const work = b.dataset.work;
+      if (globalMask.classList.contains('show')) return;
+      showMask('读取删除清单...');
+      try {
+        const r = await fetch('/api/work/' + encodeURIComponent(work) + '/delete-preview');
+        const j = await r.json();
+        if (!r.ok) { toast('取删除清单失败: ' + (j.detail || ''), false); return; }
+        delWork = work;
+        delConfirm.dataset.work = work;
+        delTitle.textContent = '删除作品 — ' + work;
+        const rows = j.dirs.map(d =>
+          `<div class="del-row"><code>${esc(d.path.replace(/^.*aaManga[\\\\/]/, 'aaManga/'))}</code>` +
+          (d.exists ? `（目录 ${fmtSize(d.size)}，${d.chapters} 章）` : '<span class="muted small">（不存在）</span>') + '</div>');
+        const htmls = (j.htmls || []).map(h =>
+          `<div class="del-row"><code>${esc(h.path.replace(/^.*交付HTML[\\\\/]/, '交付HTML/'))}</code></div>`).join('');
+        delBody.innerHTML =
+          `<div class="del-dirs">${rows.join('') || '<div class="muted small">（无目录待删）</div>'}</div>` +
+          (htmls ? `<div class="del-sec"><b>交付HTML</b>${htmls}</div>` : '') +
+          (j.extra && j.extra.length ? `<div class="del-sec"><b>work 级资产</b>${j.extra.map(x => `<div class="del-row"><code>${esc(x.path.replace(/^.*work[\\\\/]/, 'work/'))}</code></div>`).join('')}</div>` : '');
+        delWarn.style.display = 'block';
+        delConfirm.hidden = false;   // 第一步 → 显示最终确认按钮
+        delModal.classList.remove('hidden');
+      } catch (e) { toast('删除清单读取失败: ' + e, false); }
+      finally { hideMask(); }
+    });
+  });
+  function fmtSize(n) {
+    if (n >= 1e6) return (n/1e6).toFixed(1) + 'MB';
+    if (n >= 1e3) return (n/1e3).toFixed(0) + 'KB';
+    return n + 'B';
+  }
+  delConfirm.addEventListener('click', async () => {   // 第二步：最终 confirm
+    if (!delWork) return;
+    if (!window.confirm('确认彻底删除作品 [' + delWork + ']？磁盘文件与 registry 条目都将移除，且不可恢复！')) return;
+    delConfirm.disabled = true;
+    showMask('删除中...');
+    try {
+      const r = await fetch('/api/work/' + encodeURIComponent(delWork) + '/delete', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({confirm: true})});
+      const j = await r.json();
+      if (j.ok) { toast('已删除 ' + j.removed.length + ' 项 ✓', true); closeDel(); setTimeout(() => location.reload(), 800); }
+      else toast('删除失败: ' + (j.detail || ''), false);
+    } catch (e) { toast('删除失败: ' + e, false); }
+    finally { hideMask(); delConfirm.disabled = false; }
+  });
+})();
+
+/* ========== 导入作品包（2026-10-01）：上传 → 预览 → 确认 → 轮询 ========== */
+(function () {
+  const btn = document.getElementById('import-work-btn');
+  const modal = document.getElementById('import-modal');
+  if (!btn || !modal) return;
+  const fileEl = document.getElementById('imp-file');
+  const msg = document.getElementById('imp-file-msg');
+  const prevEl = document.getElementById('imp-preview');
+  const statusEl = document.getElementById('imp-status');
+  const confirmBtn = document.getElementById('imp-confirm');
+  let token = null, timer = null;
+  const fmt = n => (n == null ? '—' : (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : (n / 1024).toFixed(0) + ' KB'));
+  function stopPoll() { if (timer) { clearInterval(timer); timer = null; } }
+  function close() { modal.classList.add('hidden'); stopPoll(); }
+  btn.addEventListener('click', () => {
+    modal.classList.remove('hidden');
+    fileEl.value = ''; msg.textContent = ''; prevEl.innerHTML = ''; statusEl.textContent = '';
+    confirmBtn.hidden = true; confirmBtn.disabled = false; token = null;
+  });
+  modal.addEventListener('mousedown', e => { modal._d = e.target; });
+  modal.addEventListener('click', e => { if (e.target === modal && modal._d === modal) close(); });
+  document.getElementById('imp-close').addEventListener('click', close);
+
+  fileEl.addEventListener('change', async () => {
+    const f = fileEl.files && fileEl.files[0];
+    if (!f) return;
+    confirmBtn.hidden = true; token = null; prevEl.innerHTML = '';
+    msg.textContent = '上传中… ' + fmt(f.size);
+    showMask('上传作品包…');
+    try {
+      const r = await fetch('/api/work-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': encodeURIComponent(f.name) },
+        body: f
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.detail || '上传失败');
+      token = j.token;
+      const p = j.preview || {};
+      let h = `<div class="del-row">作品：<b>${escapeHtml(p.title || '')}</b> <span class="mono">(${escapeHtml(p.work || '')})</span>`
+        + (p.include_raw ? ' <span class="muted small">含 raw/ 原文HTML</span>' : '') + '</div>';
+      h += `<div class="del-row">包内：${p.files} 个文件 / ${fmt(p.bytes)}（rar ${fmt(p.rar_size)}）｜ 导出时间 ${escapeHtml(p.exported_at || '—')}</div>`;
+      h += `<div class="del-row">归位到：<code>${escapeHtml(p.root_rel || '')}</code></div>`;
+      if ((p.conflicts || []).length) h += `<div class="del-row" style="color:#c0392b">⛔ ${p.conflicts.map(c => escapeHtml(c)).join('；')}</div>`;
+      else h += `<div class="del-row good">✓ 无冲突，可导入</div>`;
+      prevEl.innerHTML = h;
+      confirmBtn.hidden = (p.conflicts || []).length > 0;
+      msg.textContent = f.name;
+    } catch (e) {
+      prevEl.innerHTML = `<div class="del-row" style="color:#c0392b">${escapeHtml(e.message)}</div>`;
+      msg.textContent = '';
+    } finally { hideMask(); }
+  });
+
+  function poll() {
+    stopPoll();
+    timer = setInterval(async () => {
+      try {
+        const r = await fetch('/api/work-import/status?token=' + encodeURIComponent(token));
+        const j = await r.json();
+        if (j.state === 'running') {
+          statusEl.textContent = '导入中… ' + ((j.log || []).slice(-2).join(' / ') || '');
+        } else if (j.state === 'done') {
+          stopPoll();
+          const res = j.result || {};
+          statusEl.innerHTML = `<span class="good">✓ 导入完成：合位 ${res.files} 个文件 → ${escapeHtml(res.root_rel || '')}`
+            + `${res.registry ? '（registry 已登记）' : ''}${res.work_meta ? '（元数据已恢复）' : ''}</span>`;
+          toast('导入完成 ✓');
+          setTimeout(() => location.reload(), 1400);
+        } else if (j.state === 'error') {
+          stopPoll(); confirmBtn.disabled = false;
+          statusEl.innerHTML = `<span class="warn">导入失败：${escapeHtml(j.error || '')}</span>`;
+        }
+      } catch (e) { /* 下次再试 */ }
+    }, 1000);
+  }
+  confirmBtn.addEventListener('click', async () => {
+    if (!token) return;
+    confirmBtn.disabled = true; statusEl.textContent = '导入中…';
+    try {
+      const r = await fetch('/api/work-import/confirm', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token })
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.detail || '导入失败');
+      poll();
+    } catch (e) {
+      confirmBtn.disabled = false;
+      statusEl.innerHTML = `<span class="warn">${escapeHtml(e.message)}</span>`;
+    }
+  });
+})();
+
+/* ========== 搜索框（2026-09-03）：标题前端即时 / 章节名+正文后端 ========== */
+(function () {
+  const box = document.getElementById('sbox');
+  const msg = document.getElementById('sbox-msg');
+  const langSel = document.getElementById('sbox-lang');
+  if (!box) return;
+  const scopeSet = () => new Set(Array.from(document.querySelectorAll('#search-bar .sbox-scope input:checked')).map(c => c.value));
+  let titleTimer = null, backendTimer = null, backendTok = 0;
+  // 全作品数（模板注入，用于进度“已扫 N/M”的 M）
+  const registryTotal = {{ works | length }};
+  const statusEl = () => document.getElementById('sbox-status');
+  function clearStatus() { const s = statusEl(); if (s) { s.textContent = ''; s.className = 'sbox-idle'; } }
+  function isJP(s) { return /[ぁ-んァ-ヶ]/.test(s || ''); }
+  // 语言过滤：标题含假名=日文，否则中文（title 属性已含 jp+cname）
+  function titleLang(row) { return isJP(row.dataset.title) ? 'jp' : 'zh'; }
+  function applyLang(row) {
+    const l = langSel ? langSel.value : 'all';
+    if (l === 'all') return true;
+    return titleLang(row) === l;
+  }
+  function filterRows(titleQ, extraHide, keepWork) {
+    const q = (titleQ || '').toLowerCase().trim();
+    document.querySelectorAll('.work-row').forEach(row => {
+      let show = true;
+      // keepWork（后端命中集）：即使标题不含 q 也保留（章节/正文命中的作品）
+      if (keepWork && keepWork.has(row.dataset.work)) { show = true; }
+      else if (q) show = (row.dataset.title || '').includes(q);
+      if (show && extraHide && extraHide.has(row.dataset.work)) show = false;
+      if (show) show = applyLang(row);
+      row.style.display = show ? '' : 'none';
+    });
+    // 作者组联动
+    document.querySelectorAll('.work-block').forEach(blk => {
+      const any = Array.from(blk.querySelectorAll('.work-row')).some(r2 => r2.style.display !== 'none');
+      blk.style.display = any ? '' : 'none';
+      const ar = blk.previousElementSibling;
+      if (ar && ar.classList.contains('author-row')) ar.style.display = any ? '' : 'none';
+    });
+  }
+  async function doBackend(q) {
+    const scopes = scopeSet();
+    const regexOn = !!document.getElementById('sbox-regex').checked;
+    // 正则模式：标题也必须走后端（前端 includes 不支持正则）
+    const needBackend = (scopes.has('chapter') || scopes.has('content'))
+      || (regexOn && scopes.has('title'));
+    if (!needBackend) { msg.textContent = ''; return; }
+    const token = ++backendTok;
+    const t0 = Date.now();
+    const status = document.getElementById('sbox-status');
+    const tick = setInterval(() => {
+      status.textContent = `⏳ 搜索中 ${Math.round((Date.now() - t0) / 1000)}s`;
+      status.className = 'sbox-run';
+    }, 500);
+    const end = (txt, cls) => { clearInterval(tick); if (token !== backendTok) return; status.textContent = txt; status.className = cls; };
+    end('⏳ 搜索中…', 'sbox-run');
+    const reg = regexOn ? '&regex=1' : '';
+    let chapterWorks = new Set(), contentData = {};
+    let chapterScanned = 0, contentScanned = 0, errMsg = '';
+    if (scopes.has('chapter')) {
+      try {
+        const r = await fetch('/api/search-chapters?q=' + encodeURIComponent(q) + reg);
+        const j = await r.json();
+        if (j.error) errMsg = j.error; else { chapterWorks = new Set(j.works || []); chapterScanned = j.scanned || 0; }
+      } catch (e) { errMsg = '章节搜索失败'; }
+    }
+    if (scopes.has('content') || (regexOn && scopes.has('title'))) {
+      // 正文/正则标题合一走 search-local（title+content scope）
+      const sc = ['title', 'content'].filter(s => scopes.has(s) || (regexOn && s === 'title')).join(',');
+      try {
+        const r = await fetch('/api/search-local?q=' + encodeURIComponent(q) + '&scope=' + sc + reg);
+        const j = await r.json();
+        if (j.error) errMsg = j.error; else {
+          (j.hits || []).forEach(h => { contentData[h.work] = h; });
+          contentScanned = j.scanned || 0;
+        }
+      } catch (e) { errMsg = errMsg || '正文搜索失败'; }
+    }
+    const hitWorks = new Set([...chapterWorks, ...Object.keys(contentData)]);
+    // 显示正文片段（在 work-row 下方插入展开行）
+    document.querySelectorAll('.sr-hit').forEach(el => el.remove());
+    Object.entries(contentData).forEach(([wk, h]) => {
+      const row = document.querySelector(`.work-row[data-work="${wk}"]`);
+      if (!row) return;
+      const frag = h.content_hits && h.content_hits.length
+        ? h.content_hits.slice(0, 3).map(hit =>
+          `<div class="sr-hit-line"><a href="/work/${encodeURIComponent(wk)}/read?f=${encodeURIComponent(hit.file)}&line=${hit.line}" target="_blank" rel="noopener">${esc(hit.tr.slice(0,60))}</a></div>`).join('')
+        : '<div class="muted small">（标题命中）</div>';
+      const div = document.createElement('tr');
+      div.className = 'sr-hit';
+      div.innerHTML = `<td colspan="7" class="sr-hit-cell"><b class="muted small">正文命中 › </b>${frag}</td>`;
+      row.after(div);
+    });
+    if (errMsg) { end('✗ ' + errMsg, 'sbox-err'); return; }
+    // 过滤：非正则按标题过滤，但保留后端命中集（章节/正文命中即使标题不含 q）；正则时标题已由后端判，仅隐藏后端未命中行
+    filterRows(q, null, hitWorks.size ? hitWorks : null);
+    // 语言过滤（仅对标题判定）——但后端命中行不受语言过滤影响（其命中依据是正文/章节内容）
+    if (langSel.value !== 'all') {
+      document.querySelectorAll('.work-row').forEach(row => {
+        if (row.style.display !== 'none' && !hitWorks.has(row.dataset.work) && !applyLang(row)) row.style.display = 'none';
+      });
+    }
+    const n = hitWorks.size;   // 并集大小（content 与 chapter 有重叠时防重复计数）
+    const total = Math.max(chapterScanned, contentScanned) || registryTotal;
+    const dt = Math.round((Date.now() - t0) / 1000);
+    end(n ? `✓ 命中 ${n} 部（${total} 部 · ${dt}s）` : `✓ 无命中（${total} 部 · ${dt}s）`, 'sbox-ok');
+  }
+  // 手动触发后端搜索（点按钮/回车）：不随输入自动跑，避免 76 部全扫卡顿
+  function runSearch() {
+    backendTok++;
+    clearStatus();
+    const q = box.value.trim();
+    document.querySelectorAll('.sr-hit').forEach(e => e.remove());
+    if (!q) { filterRows('', null); statusEl().textContent = '就绪'; return; }
+    const scopes = scopeSet();
+    const regexOn = !!document.getElementById('sbox-regex').checked;
+    // 先按标题即时过滤（正则模式下标题也走后端判定，这里只清状态不滤标题）
+    if (!regexOn) filterRows(q, null);
+    if (scopes.has('chapter') || scopes.has('content') || (regexOn && scopes.has('title'))) {
+      doBackend(q);
+    } else {
+      statusEl().textContent = '已过滤标题'; statusEl().className = 'sbox-ok';
+    }
+  }
+  box.addEventListener('input', () => {
+    backendTok++;          // 作废在途的后端响应
+    clearStatus();
+    // 不实时：清掉旧结果展开行并恢复全量显示，等点「搜索」/回车才过滤+搜索
+    document.querySelectorAll('.sr-hit').forEach(e => e.remove());
+    filterRows('', null);
+    statusEl().textContent = '就绪'; statusEl().className = 'sbox-idle';
+  });
+  // 范围/语言/正则变化：仅恢复全量 + 清状态，不自动搜索（等点「搜索」）
+  document.querySelectorAll('#search-bar input, #search-bar select').forEach(el => {
+    el.addEventListener('change', () => {
+      backendTok++;
+      clearStatus();
+      document.querySelectorAll('.sr-hit').forEach(e => e.remove());
+      filterRows('', null);
+      statusEl().textContent = '就绪'; statusEl().className = 'sbox-idle';
+    });
+  });
+  // 按钮 + 回车触发
+  const goBtn = document.getElementById('sbox-go');
+  if (goBtn) goBtn.addEventListener('click', runSearch);
+  box.addEventListener('keydown', e => { if (e.key === 'Enter') runSearch(); });
+})();
+</script>
+
+{% endblock %}
