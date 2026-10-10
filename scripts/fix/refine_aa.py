@@ -1100,6 +1100,35 @@ def _term_guard_reason(old, new, pairs):
     return ""
 
 
+def art_gate_enabled():
+    """行级艺术闸门是否启用（默认开，显式 `AA_REFINE_ART_GATE=0` 关闭/回滚）。"""
+    v = os.environ.get("AA_REFINE_ART_GATE")
+    if v is None:
+        return True
+    return v not in ("0", "false", "False", "")
+
+
+def _row_model_gate(idx, src_lines, meta0):
+    """该行是否「模型不该碰」= 主链判据 `T.is_translatable` 为假。meta 缺失/异常 → 放行。
+
+    2026-10-10 行级艺术闸门（`refine_chapter` 派发 jobs 前过滤）：
+    refine 现场重判 segment_line（Q3 不信磁盘 meta.kind），于是会从「整行就是画」的行里切出
+    艺术碎片段当台词段送模型（实测 `xぅ笏外`→「抱歉」、`芹仍てﾊ`→「芹仍て嗯」）。本书 1104 条
+    人工修正归因：185 处「艺术假名被译成中文」里 64 处由本环节引入，其中 50 处所在行的
+    meta.kind=art / `art_line_veto` 命中 —— 主链压根不会送这些行。
+    过滤只作用于**模型调用**；本地路径（`_restore_art_kana`/`no_text_restore`/`rebuild_row`
+    对齐修复）都发生在过滤之前，行为不变。
+    """
+    if not art_gate_enabled() or not meta0:
+        return False
+    if idx < 0 or idx >= len(src_lines):
+        return False
+    try:
+        return not T.is_translatable(idx, src_lines[idx], meta0)
+    except Exception:
+        return False
+
+
 def refine_chapter(cfg, base, do_write=False, review_inline=False):
     """单章 refine。返回 (base, 统计dict, 改行list)。"""
     aa_dir, out_dir, work_dir = cfg["aa_dir"], cfg["out_dir"], cfg["work_dir"]
@@ -1111,6 +1140,8 @@ def refine_chapter(cfg, base, do_write=False, review_inline=False):
     src = open(src_p, encoding="utf-8").read().split("\n")
     tr = open(tr_p, encoding="utf-8").read().split("\n")
     meta = json.load(open(meta_p, encoding="utf-8"))
+    # 2026-10-10: 行级艺术闸门用 0-based meta（kind/reason），与主链同一份判据
+    _meta0 = T.load_meta_0based(os.path.join(work_dir, "line_meta_v2"), base)
     if len(src) != len(tr):
         return base, {"skip_len": f"{len(src)}!={len(tr)}"}, []
 
@@ -1145,6 +1176,7 @@ def refine_chapter(cfg, base, do_write=False, review_inline=False):
     edits = []       # 记录 (i, src_row, old_row, new_row, action, ok, reason)
     jobs = []        # P1: [(行号, callable)] —— 需要模型的段落行，循环结束后并发跑
     n_skip_white = 0
+    n_art_gate = 0   # 2026-10-10: 行级艺术闸门拦下的行数（主链不送模型 → 不切段补译）
     for i, (s, h) in enumerate(zip(src, tr)):
         if s.startswith("#"):
             continue
@@ -1330,8 +1362,18 @@ def refine_chapter(cfg, base, do_write=False, review_inline=False):
     # 行内本地判定已同步完成(segment_line/_is_real_missed/art 对齐/rebuild_row)，
     # 这里只是把"发模型调用"并行化；结果仍按行号排序，与串行版顺序一致。
     if jobs:
+        # 2026-10-10: 行级艺术闸门 —— 主链不会送模型的行（art_line_veto / meta kind=art 且无
+        #   3+ 真台词假名 / header / blank）一律不派模型 job，按「job 未产出」走调用方回退
+        #   （mixed 补译 → 人工清单；poly → 不动）。本地路径已在循环内跑完，不受影响。
+        if art_gate_enabled():
+            _kept = [j for j in jobs if not _row_model_gate(j.i, src, _meta0)]
+            n_art_gate = len(jobs) - len(_kept)
+            if n_art_gate:
+                print("[%s] 行级艺术闸门拦下 %d 行（主链不送模型 → 不切段补译）"
+                      % (base, n_art_gate), flush=True)
+            jobs = _kept
         # P0(2026-10-03): 默认批量（同章同类合并成块，调用数 ↓ ~10×）；AA_REFINE_BATCH=0 回退单行
-        if _bsz > 0 and len(jobs) > 1:
+        if jobs and _bsz > 0 and len(jobs) > 1:
             results_by_row = _run_jobs_batched(jobs, workers, gloss_hint=gloss_hint,
                                                chunk=_bsz, base=base)
         else:
@@ -1392,6 +1434,7 @@ def refine_chapter(cfg, base, do_write=False, review_inline=False):
     return base, {"restore": n_restore, "rebuild": n_rebuild, "poly": n_poly,
                   "total": len(edits), "partial_kana": _partial,
                   "art_kana_restore": n_artk, "skip_white": n_skip_white,
+                  "art_gate_skip": n_art_gate,
                   "term_guard_rejected": len(_guard_rej)}, edits
 
 
