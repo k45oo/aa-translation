@@ -152,13 +152,25 @@ class TestKeyCache(unittest.TestCase):
         self.orig_cache = T._KEY_CACHE
         self.orig_env_path = os.environ.get("AA_ENV_PATH")
         self.orig_aa_env = os.environ.get("AA_ENV")            # ⚠ 优先级高于 AA_ENV_PATH
-        self.orig_key = os.environ.get("OPENCODE_GO_API_KEY")  # ⚠ 真环境变量优先于 .env
         self.orig_fallback = aa_env.fallback_paths
         self.orig_sig = aa_env._CACHE.get("sig")
         # 夹具要**独占**取值来源，否则操作者 shell 里带 AA_ENV / *_API_KEY 时这 4 个用例会假失败
-        # （实测：AA_ENV 指向别处 + 环境里有 OPENCODE_GO_API_KEY → 4 例全红，包内自检因此误报）
+        # （实测：AA_ENV 指向别处 + 环境里有 OPENCODE_GO_API_KEY → 4 例全红，包内自检因此误报）。
+        # 2026-10-10：仓库根 .env 现在**真的存着**全部项目 key，aa_config 在 import 期已把它们灌进
+        # os.environ（read_key 先看 os.environ）→ 只清 OPENCODE_GO_API_KEY 不够，得把整批项目 key
+        # （ENV_EXTRA ∪ TOML 默认后端 key_env）都摘掉，夹具才只剩临时 .env 一个来源。
+        self.orig_keys = {}
+        _names = set(aa_env.ENV_EXTRA) | {"OPENCODE_GO_API_KEY"}
+        try:
+            import aa_config
+            _names.add(aa_config.backend_key_env(aa_config.get("default", "backend", "commandcode")))
+            _names.add(str(aa_config.get("default", "key_env", "") or ""))
+        except Exception:
+            pass
+        for k in _names:
+            if k:
+                self.orig_keys[k] = os.environ.pop(k, None)
         os.environ.pop("AA_ENV", None)
-        os.environ.pop("OPENCODE_GO_API_KEY", None)
         os.environ["AA_ENV_PATH"] = self.env_file
         aa_env.fallback_paths = lambda: ()          # 模拟「没有 hermes 档案」的干净机器
         aa_env._CACHE["sig"] = None                 # 别吃到父进程/上个用例缓存的 .env
@@ -168,8 +180,12 @@ class TestKeyCache(unittest.TestCase):
         T._KEY_CACHE = self.orig_cache
         self.aa_env.fallback_paths = self.orig_fallback
         self.aa_env._CACHE["sig"] = self.orig_sig
-        for k, v in (("AA_ENV_PATH", self.orig_env_path), ("AA_ENV", self.orig_aa_env),
-                     ("OPENCODE_GO_API_KEY", self.orig_key)):
+        for k, v in (("AA_ENV_PATH", self.orig_env_path), ("AA_ENV", self.orig_aa_env)):
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        for k, v in self.orig_keys.items():
             if v is None:
                 os.environ.pop(k, None)
             else:

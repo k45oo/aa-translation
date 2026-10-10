@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(_THIS_DIR, "common"))
 sys.path.insert(0, _THIS_DIR)
 
 import aa_env     # 仓库根 .env 统一读写（scripts/common/aa_env.py, 2026-10-08 阶段 1）
-ENV_FILE = aa_env.env_path()   # 仓库根 .env（2026-10-08 起为唯一用户可改层；hermes 两处仅只读兜底）
+ENV_FILE = aa_env.env_path()   # 仓库根 .env（唯一用户可改层，2026-10-10 起也是 key 的唯一文件来源）
 # 2026-08-19 模型配置统一化: 网关/模型从 scripts/config/model_config.toml 读([default] 段)
 # 环境变量 AA_GATEWAY/AA_MODEL 仍可覆盖(最高优先级); 未设回落配置值
 import aa_config as _CFG  # scripts/common/aa_config.py(同目录已 sys.path)
@@ -2392,6 +2392,10 @@ def process_chapter(path, cfg=None):
         import aa_backend as _AB
         if work_r18 is not None or _AB.aa_config.pin_cache_endpoint():
             _AB.reset_preferred_backend()   # 每章重置降级记忆, 防上章污染下章 + 章首重新钉缓存端点
+        # 2026-10-10: opencode Go 门必须带 x-opencode-session（官方口径: 一段会话一个稳定 id →
+        #   路由亲和 + 前缀缓存）。粒度 = 一章一段会话（章内所有块共用同一 id，跨章换 id），
+        #   与「章内 pin 缓存端点」同一粗粒度。
+        _AB.set_zen_session("aa-%s-%s" % (WORK_ID or "legacy", base))
     except Exception:
         pass
     # M4a: line_meta 驱动翻译范围（feature flag 控制，默认开；AA_USE_LINE_META=0 关闭）
