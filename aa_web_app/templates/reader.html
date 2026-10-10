@@ -442,9 +442,9 @@ try {
   </div>
 </div>
 {% endif %}
-<script src="/static/reader.js?v=20261006a"></script>
+<script src="/static/reader.js?v=20261010a"></script>
 <script>window.AA_SEL = { work: {{ work | tojson }}, base: {{ cur.replace('.txt', '') | tojson }}, enabled: {{ sel_enabled() | tojson }} };</script>
-<script src="/static/selection_translate.js?v=20261008a"></script>
+<script src="/static/selection_translate.js?v=20261010a"></script>
 <script>
 // 目录分页（每页 10/50/100，2026-09-13）：自动跳到当前章所在页；只隐藏链接，键盘 ← → 翻章不受影响
 aaPager({rows: '.reader-nav > a', controls: '#toc-pager', key: 'reader:{{ work }}',
