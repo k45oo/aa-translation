@@ -793,6 +793,62 @@ def one_line(s):
     return BREAK_RE.sub("", s or "")
 
 
+# ---------------------------------------------------------------------------
+# 补位位置规范化（2026-10-11）：U+3000 补位落在「文字内部」是三类整行事故的根因——
+#   ① `>>N` 引用左侧：line_meta 把半角 `>>` 切成 art 段（`>` 在 _ART_STROKE_CHARS 里），
+#      段落重建给前面那段 text 补位到源段宽 → 补位正好插在 `>>` 前
+#      （「…来着？　　>>德其欧」；全库 142 行）。
+#   ② `（C+1）`、`龙/地面` 这类括号/斜杠注记内部：日语术语被术语表换成更窄的中文后，
+#      模型为保列位自己往文字里塞补位（「龙　　　　/地面」「（C　　　　+1）」）。
+#   ③ 模型往 `>>N`／比分里塞字（`>>1`→`>>是1`／`>>由1`，`4-0`→`4-以0`）。
+# 口径：补位一律挪到**行尾**（总宽不变、行内 art 列位不受影响），塞的字直接删。
+# 幂等；纯 art 行不受影响（前置字符必须是中日文/字母/数字）。
+# ---------------------------------------------------------------------------
+_PAD_BEFORE_REF = re.compile(r"[\u3000 ]{1,}(?=>>)")
+_INNER_PAD = re.compile(
+    r"(?<=[\u4e00-\u9fffA-Za-z0-9０-９\uff21-\uff3a\uff41-\uff5a])"   # 补位左边是实字（非空格）
+    r"[\u3000 ]+"
+    r"(?=[/／+＋=＝×-][\u4e00-\u9fffA-Za-z0-9０-９\uff21-\uff3a\uff41-\uff5a])"  # 右边是运算符 + 实字
+)
+_REF_INSERT = re.compile(r"(?<=>>)(?:是|由)(?=[0-9０-９])")
+_NUM_INSERT = re.compile(r"(?<=[0-9０-９]-)以(?=[0-9０-９])")
+
+
+def normalize_pad_placement(line):
+    """把落在文字内部的空白补位挪到行尾；删掉塞进 `>>N`／`N-M` 的字。
+
+    搬走/删掉的按**同显示宽度**在行尾补回（整行宽度不变——否则行变短会被
+    scan_width 判 short 再送 fix_width 重译，白烧 API）。
+    """
+    if not line:
+        return line
+    cut = []
+
+    def _cut(m):
+        cut.append(m.group(0))
+        return ""
+    out = _REF_INSERT.sub(_cut, line)
+    out = _NUM_INSERT.sub(_cut, out)
+    boxes = []
+
+    def _grab(m):
+        boxes.append(m.group(0))
+        return ""
+    out = _PAD_BEFORE_REF.sub(_grab, out)
+    out = _INNER_PAD.sub(_grab, out)
+    need = sum(disp_width(b) for b in boxes) + sum(disp_width(b) for b in cut)
+    if not need:
+        return out
+    full, half = divmod(need, 2)
+    return out + "\u3000" * full + (" " if half else "")
+
+
+def normalize_lines(lines):
+    """整章过一遍补位规范化（写盘前调用；无改动则原样返回）。"""
+    out = [normalize_pad_placement(l) for l in lines]
+    return out
+
+
 # 同类备份目录（backup_<kind>_<时间戳>/）每个作品只保留最近 N 次运行（2026-10-01 用户指定）。
 BACKUP_KEEP_PER_KIND = 2
 
@@ -842,6 +898,10 @@ def txt_write(path, lines):
         print("[txt_write] WARN %d 行含换行符(已压平, 行首 %s), 防行号错位: %s"
               % (len(_bad), ",".join(str(i + 1) for i in _bad[:5]), path), file=sys.stderr)
         lines = [one_line(l) for l in lines]
+    if "_汉化" in os.path.basename(path):
+        # 补位位置规范化（2026-10-11）：文字内部的 U+3000 补位挪到行尾、删掉塞进 >>N/比分的字。
+        # 只对汉化产物生效——原文 aa/、台词 等一律不碰。
+        lines = normalize_lines(lines)
     data = "\n".join(lines)
     if path.endswith(".gz"):
         with gzip.open(path, "wt", encoding="utf-8") as f:

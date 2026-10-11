@@ -1666,6 +1666,7 @@ def process_work(work, eids=None, do_write=False, review_inline=False, force=Fal
                       f"请人工核对本章(常见根因: 模型译文折行被写回)", flush=True)
                 stats["write_skipped"] = 1
             else:
+                new_tr = T.normalize_lines(new_tr)   # 补位位置规范化（2026-10-11，refine 不走 txt_write）
                 with open(os.path.join(out_dir, fname.replace(".txt", "_汉化.txt")), "w", encoding="utf-8") as f:
                     f.write("\n".join(new_tr))
                 print(f"  -> 已写回并备份到 {bak}")

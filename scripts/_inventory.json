@@ -1,12 +1,12 @@
 {
  "generated_at": null,
  "stats": {
-  "total": 323,
+  "total": 324,
   "legacy": 108,
   "core": 75,
   "tool": 61,
   "deprecated_candidate": 5,
-  "test": 74,
+  "test": 75,
   "hardcoded": 30,
   "top_consts": 49,
   "dup_function_counts": {
@@ -248,6 +248,7 @@
      "tests.test_mixed_seg_rule",
      "tests.test_mixed_segments",
      "tests.test_opencode_go",
+     "tests.test_pad_norm",
      "tests.test_pipeline",
      "tests.test_pokemon_fixed",
      "tests.test_pre_terms",
@@ -683,6 +684,7 @@
      "legacy.scan_width_fc2",
      "tests.test_aa_common",
      "tests.test_backup_prune",
+     "tests.test_pad_norm",
      "tests.test_pipeline",
      "tests.test_thin_shell",
      "tools.aa_to_images",
@@ -1977,6 +1979,7 @@
      "common.pokemon_fixed",
      "fix.fix_delivered_terms",
      "fix.refine_aa",
+     "tests.test_pad_norm",
      "tests.test_pre_terms",
      "tests.test_refine_batch_guard",
      "tools.gen_needs_render",
@@ -2866,6 +2869,7 @@
      "tests.test_mixed_seg_rule",
      "tests.test_mixed_segments",
      "tests.test_opencode_go",
+     "tests.test_pad_norm",
      "tests.test_pipeline",
      "tests.test_pokemon_fixed",
      "tests.test_pre_terms",
@@ -7161,6 +7165,7 @@
      "tests.test_line_meta",
      "tests.test_model_choice",
      "tests.test_opencode_go",
+     "tests.test_pad_norm",
      "tests.test_pipeline",
      "tests.test_pre_terms",
      "tests.test_prompt_prefix",
@@ -8214,6 +8219,34 @@
    "dup_functions": [],
    "has_main_guard": true,
    "docstring": "opencode Go 门接入（2026-10-10）单测：session 头、_call_named 分发、关思考自适应、TOML 链首。"
+  },
+  "scripts/tests/test_pad_norm.py": {
+   "path": "scripts/tests/test_pad_norm.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "_work_guard",
+     "aa_common",
+     "aa_translate",
+     "os",
+     "pre_terms",
+     "sys",
+     "unittest"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "补位位置规范化 + ポケの子 词表守卫（2026-10-11 用户报错回归）。"
   },
   "scripts/tests/test_pager_wiring.py": {
    "path": "scripts/tests/test_pager_wiring.py",
