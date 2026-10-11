@@ -24,6 +24,9 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# scripts/works 也要在路径里：build() 走 registry 解析作品路径，缺它 → `import registry` 失败
+# → 静默返回 {"error": "no_registry"}、既不打印也不写盘（2026-10-11 实测 CLI 空跑）。
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "works"))
 
 _SP = re.compile(r"[\u3000 ]+")
 # 「已定稿章」名单文件（旧流程 backup_refine_aa_* 目录于 2026-10-01 清理后留下的信号）
@@ -297,7 +300,11 @@ def main(argv=None):
             by_base[v.get("base")] = by_base.get(v.get("base"), 0) + 1
         print(f"TM {work}: {n:,} 条 / 覆盖 {len(by_base)} 章 / 已建指纹 {len(tm.get('__built', {}))} 章")
         return 0
-    build(work, force=force)
+    st = build(work, force=force)
+    if isinstance(st, dict) and st.get("error"):
+        # 失败绝不静默（否则「跑过 TM 重建」是假的）——CLI 直接非零退出
+        print("[aa_tm] 重建失败: %s" % st["error"], file=sys.stderr)
+        return 1
     return 0
 
 
