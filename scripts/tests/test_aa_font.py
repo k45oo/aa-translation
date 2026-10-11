@@ -53,6 +53,82 @@ class TestSubset(unittest.TestCase):
         last = AF.font_css("aa_font.woff2", first=False)
         self.assertFalse(last.split("pre.aa{font-family:")[1].startswith("'%s'," % AF.FAMILY))
 
+    def test_aa_metric_font_goes_before_sarasa_in_last_mode(self):
+        """与 PGothic 度量一致的 aahub 子集：默认栈序里排在 Windows 字体之后、Sarasa 之前。
+
+        手机/非 Windows 设备没有 MS PGothic → 落到它 → AA 列位与 PC 一致（用户手机报障的修法）；
+        `first`（严格 1:2 网格）模式里不放它，免得把用户主动选的网格又破坏掉。
+        """
+        css = AF.font_css("aa_font.woff2", first=False, aa_ref="aa_font_aa.woff2")
+        self.assertEqual(css.count("@font-face"), 2, "应有两个 @font-face（AA 度量字体 + Sarasa 兜底）")
+        self.assertIn("font-family:'%s'" % AF.AA_FAMILY, css)
+        stack = css.split("pre.aa{font-family:")[1]
+        self.assertIn("'%s', '%s'" % (AF.AA_FAMILY, AF.FAMILY), stack,
+                      "AA 度量字体必须紧跟 Windows 字体、排在 Sarasa 之前")
+        self.assertTrue(stack.startswith('"ＭＳ Ｐゴシック"'), "PC 上仍以 PGothic 为准（观感不变）")
+        first = AF.font_css("aa_font.woff2", first=True, aa_ref="aa_font_aa.woff2")
+        self.assertNotIn(AF.AA_FAMILY, first, "严格网格模式不放 AA 度量字体")
+
+    def test_aa_font_env_and_source_exists(self):
+        self.assertTrue(os.path.exists(AF.aa_font_source()), "仓库里得有 fonts/aahub.ttf（交付靠它内嵌）")
+        old = {k: os.environ.get(k) for k in ("AA_AA_FONT_AA", "AA_AA_FONT_AA_FILE")}
+        try:
+            os.environ.pop("AA_AA_FONT_AA", None)
+            os.environ.pop("AA_AA_FONT_AA_FILE", None)
+            self.assertTrue(AF.aa_font_enabled(), "默认开：手机端不「错位」靠它")
+            os.environ["AA_AA_FONT_AA"] = "0"
+            self.assertFalse(AF.aa_font_enabled())
+            os.environ["AA_AA_FONT_AA_FILE"] = r"C:\tmp\aa.ttf"
+            self.assertTrue(AF.aa_font_source().endswith("aa.ttf"))
+        finally:
+            for k, v in old.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    @unittest.skipUnless(HAVE_FONTTOOLS, "需要 fontTools（工作台 .venv 已装）")
+    def test_aahub_是_PGothic_度量(self):
+        """aahub 必须与 MS PGothic 度量一致（差 <0.03em）——不然手机上还是「错位」。
+
+        这是「手机端显示正确」的唯一依据：Android 没有 MS PGothic，只能靠内嵌字体顶上。
+        没装 msgothic.ttc 的机器（非 Windows/无该字体）跳过。
+        """
+        ttc_path = r"C:\Windows\Fonts\msgothic.ttc"
+        if not os.path.exists(ttc_path):
+            self.skipTest("本机没有 msgothic.ttc")
+        from fontTools.ttLib import TTCollection, TTFont
+        aa = TTFont(AF.aa_font_source(), lazy=True)
+        pg = None
+        for f in TTCollection(ttc_path, lazy=True).fonts:
+            if (f["name"].getDebugName(1) or "").strip() in ("MS PGothic", "ＭＳ Ｐゴシック"):
+                pg = f
+        if pg is None:
+            self.skipTest("msgothic.ttc 里没有 MS PGothic")
+
+        def widths(font):
+            upem = font["head"].unitsPerEm
+            return {cp: font["hmtx"][g][0] / float(upem)
+                    for cp, g in font.getBestCmap().items() if g in font["hmtx"].metrics}
+        wa, wp = widths(aa), widths(pg)
+        # AA 画笔主力字符（半角 + 假名 + 全角标点/记号）
+        chars = [chr(i) for i in range(0x21, 0x7F)] + \
+                [chr(i) for i in range(0xFF61, 0xFFA0)] + \
+                [chr(i) for i in range(0x3041, 0x3097)] + [chr(i) for i in range(0x30A1, 0x30FB)] + \
+                list("　、。，．・：；？！ー―／＼｜…（）「」『』【】＋－±×÷＝＜＞☆★○●◎◇")
+        diffs = [abs(wa[ord(c)] - wp[ord(c)]) for c in chars if ord(c) in wa and ord(c) in wp]
+        self.assertGreater(len(diffs), 100, "采样太少，测不出度量一致性")
+        # 实测（364 个 AA 常用字符）：平均 0.0132em；|差|>0.05em 的只有 2 个（0.5%）；
+        # 最差是半角长音符 `ｰ`（U+FF70）0.141em ≈ 15px 下 2.1px——罕见字符，允许。
+        self.assertLess(sum(diffs) / len(diffs), 0.03, "平均宽度差应 <0.03em（实测 0.013em）")
+        self.assertLess(sum(1 for d in diffs if d > 0.05) / float(len(diffs)), 0.05,
+                        "|差|>0.05em 的字符不该超过 5%（实测 0.5%）")
+        self.assertLess(max(diffs), 0.15, "最差字符也不该超过 0.15em")
+        # 垂直度量：AA 的纵向连续性靠它
+        self.assertEqual((aa["hhea"].ascent - aa["hhea"].descent) / float(aa["head"].unitsPerEm),
+                         (pg["hhea"].ascent - pg["hhea"].descent) / float(pg["head"].unitsPerEm),
+                         "asc+desc 必须与 PGothic 相同（行盒内的基线位置）")
+
     def test_env_switches(self):
         old = {k: os.environ.get(k) for k in ("AA_AA_FONT", "AA_AA_FONT_STACK", "AA_AA_FONT_FILE")}
         try:

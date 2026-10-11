@@ -22,6 +22,27 @@
 - **外置形态**（data/*.js）：字体写成交付夹里的 `aa_font.woff2` + 相对 URL 引用
   （本机 Chromium `file://` 实测可加载相对路径字体，`document.fonts.check` = true，无需 base64）。
 
+## 手机端：再嵌一个 **与 PGothic 度量一致** 的 AA 字体 aahub（2026-10-11）
+
+用户手机实测：同一份交付在两个设备上「错位」——**根因是手机上根本没有 MS PGothic**，
+栈里只剩内嵌的 Sarasa（严格 1:2 网格），而作者是按 PGothic 的不规则字宽摆的笔画，
+于是每行按各自比例偏移（实测同一艺术行：PGothic 比严格网格窄 40~70 格）。
+**参照源站做法**：yaruobook.jp 就是这样解决的——它自带 `/assets/aahub.woff2`，
+CSS 里 `font-family: "ＭＳ Ｐゴシック", …, IPAMonaPGothic, "aahub", Mona, Monapo, Saitamaar, sans-serif`。
+
+故本模块现在内嵌**两个**字体族，栈序（last 模式）：
+
+    "ＭＳ Ｐゴシック", "MS PGothic", Mona, "MS Gothic",  AA-Aahub,  AA-SarasaMono, SimSun, monospace
+
+- `AA-Aahub` = `fonts/aahub.ttf`（与 PGothic 度量一致：157 个 AA 常用字符 |差| 平均 0.0106em、
+  最大 0.0859em；垂直度量 ascent/descent = 0.859em / −0.1406em **与 PGothic 完全相同**）→
+  Windows 以外的设备上 AA 列位与 PC 一致，「错位」消失。子集只取 **AA 相关字符块 ∩ 语料**
+  （CJK 汉字在两套字体里都是 1em，不需要 aahub）。
+- `AA-SarasaMono` 仍在栈里，继续兜底 aahub 没覆盖的字符（简体字、罕见符号）。
+- PC 不变：MS PGothic 在栈首，两个内嵌字体都轮不到（用户 2026-10-08 的 A/B 结论照旧成立）。
+- 开关：`AA_AA_FONT_AA=0` 关掉 aahub；`AA_AA_FONT_AA_FILE=<ttf>` 换 AA 字体源。
+  见 `fonts/aahub_LICENSE.txt`（モナーフォント 系谱）。
+
 ## 默认栈序 = **last**（2026-10-08 用户 A/B 定案，别改回 first）
 
 一开始默认把内嵌字体排在栈首，被用户否掉：**这批作品的 AA 是按 MS PGothic 的不规则字宽画的**
@@ -47,8 +68,10 @@ import os
 
 BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DEFAULT_FONT = os.path.join(BASE, "fonts", "SarasaMonoSC-Regular.ttf")
+AA_FONT = os.path.join(BASE, "fonts", "aahub.ttf")          # 与 MS PGothic 度量一致的 AA 字体（见模块注释）
 OUT_DIR = os.path.join(BASE, "fonts", "subset")
 FAMILY = "AA-SarasaMono"
+AA_FAMILY = "AA-Aahub"
 
 # 固定字符块：ASCII + 拉丁补充 + 通用标点 + 箭头 + 带圈数字 + 制表/方块/几何/杂项符号
 #             + CJK 标点 + 平/片假名 + 全角 ASCII + 半角假名（AA 画笔主力）
@@ -134,25 +157,32 @@ def build_subset(chars, font_path=None, out_dir=None):
     return out, missing, []
 
 
-def font_css(ref, family=None, first=None):
+def font_css(ref, family=None, first=None, aa_ref=None, aa_family=None):
     """`@font-face` + `pre.aa` 字体栈覆盖（追加在页面 CSS 之后，同特异性后者胜）。
 
     `first=None` → 按 `stack_first()`（默认 last：内嵌字体只作缺字体时的兜底）。
+    `aa_ref` = **与 PGothic 度量一致的 AA 字体**子集（aahub）——只在 `last`（默认）模式里插进栈，
+    排在 Windows 字体之后、Sarasa 之前：手机/非 Windows 设备因此按 PGothic 的比例渲染 AA；
+    `first`（严格 1:2 网格模式）不放它，免得把用户主动选择的网格再破坏掉。
     """
     if first is None:
         first = stack_first()
     family = family or FAMILY
+    faces = ["@font-face{font-family:'%s';font-style:normal;font-weight:normal;"
+             "font-display:swap;src:url(%s) format('woff2');}\n" % (family, ref)]
     if first:
         stack = ("'%s', \"ＭＳ Ｐゴシック\", \"MS PGothic\", \"Mona\", \"MS Gothic\", "
                  "\"SimSun\", monospace" % family)
     else:
+        mid = ""
+        if aa_ref:
+            afam = aa_family or AA_FAMILY
+            faces.append("@font-face{font-family:'%s';font-style:normal;font-weight:normal;"
+                         "font-display:swap;src:url(%s) format('woff2');}\n" % (afam, aa_ref))
+            mid = "'%s', " % afam
         stack = ("\"ＭＳ Ｐゴシック\", \"MS PGothic\", \"Mona\", \"MS Gothic\", "
-                 "'%s', \"SimSun\", monospace" % family)
-    return (
-        "@font-face{font-family:'%s';font-style:normal;font-weight:normal;"
-        "font-display:swap;src:url(%s) format('woff2');}\n"
-        "pre.aa{font-family:%s;}\n" % (family, ref, stack)
-    )
+                 + mid + "'%s', \"SimSun\", monospace" % family)
+    return "".join(faces) + "pre.aa{font-family:%s;}\n" % stack
 
 
 def font_enabled():
@@ -161,6 +191,15 @@ def font_enabled():
 
 def font_source():
     return os.environ.get("AA_AA_FONT_FILE") or DEFAULT_FONT
+
+
+def aa_font_enabled():
+    """是否内嵌「与 PGothic 度量一致」的 AA 字体（aahub）——手机端不「错位」靠它。"""
+    return os.environ.get("AA_AA_FONT_AA", "1") not in ("0", "false", "False")
+
+
+def aa_font_source():
+    return os.environ.get("AA_AA_FONT_AA_FILE") or AA_FONT
 
 
 def stack_first():

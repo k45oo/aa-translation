@@ -63,6 +63,8 @@ from aa_common import HEADER_RE   # 帖头行识别（楼间间距用）
 
 # 交付页 AA 等宽字体文件（外置形态写进交付夹；详见 common/aa_font.py）
 FONT_NAME = "aa_font.woff2"
+# 与 PGothic 度量一致的 AA 字体子集（手机/非 Windows 设备靠它不「错位」，见 aa_font 模块注释）
+FONT_NAME_AA = "aa_font_aa.woff2"
 
 CSS_MODERN = """body { background:#f5f2ea; color:#222; margin:0; }
 header { background:#3a3a4a; color:#eee; padding:18px 24px; font-family:"Microsoft YaHei",sans-serif;
@@ -98,7 +100,7 @@ header{margin-left:0;padding:12px 14px}
 nav{position:static;width:auto;height:auto;max-height:34vh;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px 10px;border-bottom:1px solid #3f3f55}
 nav button{font-size:13px;padding:7px 10px}
 main{margin-left:0;padding:10px 10px 48px;max-width:none}
-pre.aa{font-size:11px;line-height:14px;padding:6px 8px}
+pre.aa{font-size:11px;line-height:12.5px;padding:6px 8px}
 .chapter h2{font-size:15px}
 .pager button{padding:7px 12px;font-size:13px}
 }
@@ -128,7 +130,7 @@ header{margin-left:0;padding:12px 14px}
 nav{position:static;width:auto;height:auto;max-height:34vh;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px 10px;border-bottom:1px solid #3f3f55}
 nav button{font-size:13px;padding:7px 10px}
 main{margin-left:0;padding:10px 10px 48px;max-width:none}
-pre.aa{font-size:11px;line-height:14px;padding:6px 8px}
+pre.aa{font-size:11px;line-height:12.5px;padding:6px 8px}
 .pager button{padding:7px 12px;font-size:13px}
 }
 """
@@ -258,7 +260,7 @@ nav.open{transform:none;visibility:visible;box-shadow:2px 0 12px rgba(0,0,0,.35)
 /* 阅读界面左右不留空：正文通栏（模块自带的内边距/边框在这里被覆盖掉） */
 header{margin-left:0;padding:12px 12px 12px 66px}
 main{margin-left:0;padding:0 0 40px;max-width:none}
-pre.aa{font-size:11.5px;line-height:14px;padding:6px 0;border-left:none;border-right:none;border-radius:0}
+pre.aa{font-size:11.5px;line-height:13px;padding:6px 0;border-left:none;border-right:none;border-radius:0}
 .aa-wrap{--aa-lh:14px;margin:11.5px 0}
 .aa-gut{padding-top:7px}
 .chapter{margin:16px 0 26px}
@@ -1698,12 +1700,34 @@ def _font_parts(cfg, chapters, aa_dir, out_dir, layout, font_mode="auto", font_s
                 shutil.copy2(sub, os.path.join(out_dir, FONT_NAME))
                 font_ref = FONT_NAME
             first = _AF.stack_first() if font_stack is None else (font_stack.lower() != "last")
-            font_parts.append("<style>\n" + _AF.font_css(font_ref, first=first) + "</style>")
+            # ── 与 PGothic 度量一致的 AA 字体（aahub）：只在默认栈序（last）里内嵌 ——
+            # 手机/非 Windows 设备没有 MS PGothic，栈里只剩严格 1:2 的 Sarasa → 作者按 PGothic
+            # 摆的列位整体漂移（同一艺术行差 40~70 格）= 用户报的「手机端错位」。
+            # 子集只取 AA 相关字符块 ∩ 语料（CJK 汉字两套字体都是 1em，不需要 aahub）。
+            aa_ref, aa_missing = None, 0
+            if (not first) and _AF.aa_font_enabled():
+                aa_src = _AF.aa_font_source()
+                if os.path.exists(aa_src):
+                    aa_sub, aa_missing, _ = _AF.build_subset(corpus & _AF.base_chars(), aa_src)
+                    if layout == "inline":
+                        with open(aa_sub, "rb") as fp:
+                            aa_ref = ("data:font/woff2;base64,"
+                                      + base64.b64encode(fp.read()).decode("ascii"))
+                    else:
+                        shutil.copy2(aa_sub, os.path.join(out_dir, FONT_NAME_AA))
+                        aa_ref = FONT_NAME_AA
+                else:
+                    print("[font] 跳过 AA 度量字体（找不到 %s）" % aa_src)
+            font_parts.append("<style>\n" + _AF.font_css(font_ref, first=first, aa_ref=aa_ref) + "</style>")
             print("[font] AA 等宽字体 %s（%s, %d 字符, 栈序 %s）%s"
                   % (os.path.basename(sub),
                      "内嵌 base64" if layout == "inline" else FONT_NAME,
                      len(corpus), "first" if first else "last",
                      ("，字体缺 %d 字符→回退" % len(missing)) if missing else ""))
+            if aa_ref:
+                print("[font] AA 度量字体（aahub 系, %s, 栈序 last）——手机/非 Windows 端列位与 PC 一致：%s"
+                      % ("内嵌 base64" if layout == "inline" else FONT_NAME_AA,
+                         ("AA 字符块 ∩ 语料缺 %d 字→回退 Sarasa" % len(aa_missing)) if aa_missing else "覆盖充分"))
         except SystemExit:
             raise
         except Exception as e:
@@ -1721,8 +1745,7 @@ PLAIN_PREFIX = "【机翻】"
 # 「仅 HTML 文件」**单个文件**的内嵌数据上限（与交付夹「单档」同口径 20MB）。
 # 超了就自动改分页：22MB 的单档在手机上要解析很久、页面长时间停在「正在载入章节数据…」，
 # 甚至被浏览器拖死；切成几个文件后每个都秒开。`--inline-max <MB>` 可放宽（想硬要单档就调大）。
-PLAIN_INLINE_MAX = 20 * 1024 * 1024     # 判定线：单文件内嵌数据估算超它 → 不再出单档
-PLAIN_SPLIT_TARGET = 6 * 1024 * 1024    # 自动分页时**每份**的目标体量（手机解析 6MB 约 2~3s；20MB 要 10s+）
+PLAIN_HINT_BYTES = 20 * 1024 * 1024     # 只用来打一行「体积较大」提示，不影响产物（不自动分页）
 # 体量估算系数（见 plain_data_estimate；改这几个值要同步 scripts/tests/test_gen_html_plain.py）
 PLAIN_EST_RATIO = 0.28
 PLAIN_EST_FIXED = 1536 * 1024
@@ -1756,8 +1779,7 @@ def plain_data_estimate(cfg, chapters):
     """单文件内嵌数据的**估算**字节数 = Σ 汉化 txt 字节 × PLAIN_EST_RATIO + PLAIN_EST_FIXED。
 
     实测比值（やる夫は供給源になるようです 71 章）：汉化 txt 84.28MB → 内嵌 20.21MB = 0.240；
-    小作品比值略高（不幸の催眠 24 章 ≈ 0.27，固定开销占比大）。这里取 0.28 + 1.5MB 偏保守：
-    宁可多切一个文件，也不吐一个手机上打不开的单档。
+    小作品比值略高（不幸の催眠 24 章 ≈ 0.27，固定开销占比大）。只用来打一行提示，不参与任何产物决策。
     """
     txt = 0
     for f in chapters:
@@ -1769,7 +1791,7 @@ def plain_data_estimate(cfg, chapters):
 
 
 def _gen_plain(cfg, site, chapters, tpl, css, title, source, desc_zh, split, tr_only,
-               out_dir_override=None, font_mode="auto", font_stack=None, inline_max=None):
+               out_dir_override=None, font_mode="auto", font_stack=None):
     """「仅 HTML 文件」：按分页计划逐个写出自包含 .html，返回写出的路径列表。
 
     落在**交付 HTML 目录**（`--out-dir` 可改）= 交付夹的父目录，即 `aaManga/交付HTML/`。
@@ -1778,19 +1800,12 @@ def _gen_plain(cfg, site, chapters, tpl, css, title, source, desc_zh, split, tr_
     plan = plain_plan(cfg, chapters, split)
     if not plan:
         raise SystemExit("没有章节可生成")
-    # ── 单文件体量闸门：估算超上限 → 自动分页（用户选了「全部」也一样，手机打不开等于没交付）──
-    limit = PLAIN_INLINE_MAX if inline_max is None else int(inline_max)
-    if len(plan) == 1 and len(chapters) > 1 and limit > 0:
+    # 体量只**提示**、不自动分页（2026-10-11 用户口径：不要自动分页；大文件手机上多等几秒也能读）
+    if len(plan) == 1 and len(chapters) > 1:
         est = plain_data_estimate(cfg, chapters)
-        if est > limit:
-            # 每份按「手机友好的目标体量」切（不是贴着上限切）：8MB/份 ≈ 手机上 2~4s 打开
-            target = min(limit, PLAIN_SPLIT_TARGET)
-            per = max(1, int(len(chapters) * float(target) / est))
-            plan = plain_plan(cfg, chapters, per)
-            print("[plain] 内嵌数据估算 %.1f MB 超过单文件上限 %.0f MB → **自动分页**：每 %d 章一个文件"
-                  "（共 %d 个，每份约 %.0f MB）。想要单个大文件：--inline-max <MB> 放宽上限；"
-                  "想自己定章数：生成时选「自定义」"
-                  % (est / 1048576.0, limit / 1048576.0, per, len(plan), est / float(len(plan)) / 1048576.0))
+        if est > PLAIN_HINT_BYTES:
+            print("[plain] 提示：单文件内嵌数据估算 %.1f MB —— 手机上首次打开要解析更久；"
+                  "想更快可改选分页（每 50/100 章一个文件）" % (est / 1048576.0,))
     out_dir = out_dir_override or os.path.dirname(deliver_dir(cfg))
     if not out_dir:
         raise SystemExit("无法确定输出目录（作品未配置 html_out）")
@@ -1963,8 +1978,7 @@ def main(work=None):
     # ── 分支：「仅 HTML 文件」简版（自包含 .html，可能分页成多个文件）─────────────
     if plain:
         return _gen_plain(cfg, site, chapters, tpl, css, title, source, desc_zh, split, tr_only,
-                          out_dir_override=out_dir_val, font_mode=font_mode, font_stack=font_stack,
-                          inline_max=inline_max)
+                          out_dir_override=out_dir_val, font_mode=font_mode, font_stack=font_stack)
 
     # 交付文件夹（--one 时写 work/单章渲染_<base>/，不覆盖正式合集）
     if one:

@@ -15,7 +15,9 @@
 正文等价性：切片渲染不得改变正文 —— 单独渲染同一章 vs 分页文件里的那一章必须逐字节相同。
 """
 import base64
+import contextlib
 import glob
+import io
 import gzip
 import json
 import os
@@ -292,13 +294,13 @@ class TestPlainCleanupAndGuard(unittest.TestCase):
             gen_aa_html.main("fukou")
 
 
-class TestPlainSizeGuard(unittest.TestCase):
-    """单文件体量闸门：内嵌数据估算超上限 → 自动分页（否则手机上会长时间停在「正在载入…」）。"""
+class TestPlainSizeHint(unittest.TestCase):
+    """体量：**只提示不自动分页**（2026-10-11 用户口径）；载入条自述体量 + 看门狗 + boot 兜底。"""
 
     @classmethod
     def setUpClass(cls):
         from _work_guard import work_cfg
-        cls.cfg = work_cfg("fukou", ("aa_dir", "out_dir"), "体量闸门用例")
+        cls.cfg = work_cfg("fukou", ("aa_dir", "out_dir"), "简版体量用例")
         cls.tmp = tempfile.mkdtemp(prefix="hermes-test-plain-sz-")
         cls._orig_out = cls.cfg["html_out"]
         cls.cfg["html_out"] = os.path.join(cls.tmp, "不幸の催眠_汉化合集")
@@ -309,51 +311,65 @@ class TestPlainSizeGuard(unittest.TestCase):
         cls.cfg["html_out"] = cls._orig_out
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
+    def _gen(self, sub, extra=()):
+        out = os.path.join(self.tmp, sub)
+        os.makedirs(out, exist_ok=True)
+        sys.argv = ["x", "fukou", "--plain", "--tr-only", "--out-dir", out] + list(extra)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            files = gen_aa_html.main("fukou")
+        return files, buf.getvalue()
+
     def test_估算函数(self):
         chapters = gen_aa_html.chapter_order(self.cfg["out_dir"], self.cfg.get("name_style"),
                                              self.cfg.get("work_dir"))
         est = gen_aa_html.plain_data_estimate(self.cfg, chapters)
         txt = sum(os.path.getsize(f) for f in chapters)
         lin = est - gen_aa_html.PLAIN_EST_FIXED          # 去掉固定开销看线性部分
-        self.assertGreaterEqual(lin, txt * 0.24, "线性估算低于实测比值 0.24 → 会漏判、吐超大单档")
-        self.assertLessEqual(lin, txt * 0.40, "线性估算高得离谱 → 会无谓地多切文件")
-        self.assertTrue(1024 * 1024 <= gen_aa_html.PLAIN_EST_FIXED <= 3 * 1024 * 1024,
-                        "固定开销（字体+骨架）应在 1~3MB")
-        # 超限判定要用**实测**比值兜底：供給源 71 章实测内嵌 20.2MB，估算必须也判「超上限」
-        self.assertGreater(est, txt * 0.24)
+        self.assertGreaterEqual(lin, txt * 0.24, "线性估算低于实测比值 0.24 → 提示会漏报")
+        self.assertLessEqual(lin, txt * 0.40, "线性估算高得离谱")
+        self.assertTrue(1024 * 1024 <= gen_aa_html.PLAIN_EST_FIXED <= 3 * 1024 * 1024)
+        self.assertEqual(gen_aa_html.plain_data_estimate(self.cfg, []), gen_aa_html.PLAIN_EST_FIXED)
 
-    def test_超上限自动分页且带看门狗(self):
-        """`--inline-max 0.6`（0.6MB）→ 24 章被切成多个文件，每份都自带载入条体量说明与看门狗。"""
-        out = os.path.join(self.tmp, "out")
-        os.makedirs(out, exist_ok=True)
-        sys.argv = ["x", "fukou", "--plain", "--tr-only", "--inline-max", "0.6", "--out-dir", out]
-        files = gen_aa_html.main("fukou")
-        self.assertGreater(len(files), 1, "超过单文件上限却没自动分页")
-        self.assertEqual(sorted(os.path.basename(f) for f in files),
-                         sorted(os.path.basename(f) for f in
-                                glob.glob(os.path.join(out, "【机翻】不幸の催眠_*.html"))))
-        # 分页范围连续、覆盖全部 24 章
-        rngs = [re.search(r"_(\d+)-(\d+)\.html$", f).groups() for f in files]
-        self.assertEqual(int(rngs[0][0]), 1)
-        self.assertEqual(int(rngs[-1][1]), 24)
-        for (a1, b1), (a2, b2) in zip(rngs, rngs[1:]):
-            self.assertEqual(int(b1) + 1, int(a2), "分页范围不连续")
-        self.assertTrue(all(os.path.getsize(f) < 2.5 * 1024 * 1024 for f in files),
-                        "自动分页后每份都该是小文件（1.3MB 字体 + 少量数据）")
+    def test_选全部就只有一个文件_再大也不自动分页(self):
+        """用户口径：不要自动分页。`--inline-max` 只影响交付夹那条路，简版「全部」恒为单文件。"""
+        files, out = self._gen("all", ("--inline-max", "0.6"))
+        self.assertEqual(len(files), 1, "简版选「全部」必须出单文件（不自动分页）")
+        self.assertEqual(os.path.basename(files[0]), "【机翻】不幸の催眠_001-024.html")
+
+    def test_体量大只打提示(self):
+        saved = gen_aa_html.PLAIN_HINT_BYTES
+        gen_aa_html.PLAIN_HINT_BYTES = 1024          # 假装阈值 1KB → 必然触发提示
+        try:
+            files, out = self._gen("hint")
+        finally:
+            gen_aa_html.PLAIN_HINT_BYTES = saved
+        self.assertEqual(len(files), 1, "提示不影响产物")
+        self.assertIn("[plain] 提示：单文件内嵌数据估算", out)
+        self.assertIn("想更快可改选分页", out)
+
+    def test_载入条自述体量与看门狗(self):
+        files, _ = self._gen("wd")
         html = open(files[0], encoding="utf-8", newline="").read()
-        self.assertIn("正在载入章节数据…（本文件内嵌约", html)      # 载入条自述体量
-        self.assertIn("载入看门狗", html)                          # 解析/执行出问题时给可操作提示
-        self.assertIn("重新生成时选「分页」", html)
-        self.assertIn("window.__aaReady = 1;", html)               # boot 成功后关掉看门狗
-        self.assertIn("function boot0()", html)                    # boot 已包 try/catch
+        self.assertIn("正在载入章节数据…（本文件内嵌约", html)   # 载入条自述体量
+        self.assertIn("载入看门狗", html)                       # 卡住时给可操作提示
+        self.assertIn("window.__aaReady = 1;", html)            # boot 成功后关掉看门狗
+        self.assertIn("function boot0()", html)                 # boot 已包 try/catch
         self.assertIn("载入失败：", html)
 
-    def test_提高上限仍可强制单文件(self):
-        out = os.path.join(self.tmp, "out1")
-        os.makedirs(out, exist_ok=True)
-        sys.argv = ["x", "fukou", "--plain", "--tr-only", "--inline-max", "500", "--out-dir", out]
-        files = gen_aa_html.main("fukou")
-        self.assertEqual(len(files), 1, "--inline-max 放大后应能出单文件")
+    def test_内嵌两个字体且AA度量体在Sarasa之前(self):
+        """手机端不「错位」的关键：与 PGothic 度量一致的 aahub 排在 Sarasa 之前、PGothic 之后。"""
+        files, _ = self._gen("aa")
+        html = open(files[0], encoding="utf-8", newline="").read()
+        self.assertEqual(html.count("@font-face"), 2, "应内嵌 AA 度量字体 + Sarasa 两个")
+        self.assertIn("font-family:'AA-Aahub'", html)
+        stack = re.search(r"pre\.aa\{font-family:([^;}]*)", html.split("@font-face")[-1]).group(1)
+        self.assertIn("'AA-Aahub', 'AA-SarasaMono'", stack)      # 顺序不能反
+        self.assertTrue(stack.strip().startswith('"ＭＳ Ｐゴシック"'), "PC 仍以 PGothic 为准")
+        # 手机端行高比 = 桌面 15/17（AA 纵向连续性靠这个比例）
+        self.assertIn("font-size:15px;line-height:17px", html)          # 桌面（saki/fc2 系）
+        self.assertIn("font-size:11.5px;line-height:13px", html)        # 手机覆盖（CSS_UI）
+        self.assertNotIn("line-height:14px", html, "手机行高比必须跟桌面一致，旧值 14px 会让画上下错位")
 
 
 class TestMakeHtmlRoute(unittest.TestCase):

@@ -1,0 +1,16 @@
+aahub 字体（fonts/aahub.ttf，Version 0.3.0）
+
+用途：交付 HTML 的 AA 显示字体。**与 MS PGothic 度量一致**，所以在没有 MS PGothic 的设备
+（Android / iOS / macOS / Linux）上渲染 AA 时列位与 PC 一致（见 scripts/common/aa_font.py 注释与
+doc/接口文档.md；实测 157 个 AA 常用字符 |aahub−PGothic| 平均 0.0106em、最大 0.0859em，
+垂直度量 ascent/descent = 0.859em / -0.1406em 与 MS PGothic 完全相同）。
+
+来源：yaruobook.jp 自带（https://yaruobook.jp/assets/aahub.woff2 / .ttf，2026-10-11 取得）。
+      该站点正是用它在手机端渲染 AA（其 CSS：`.single .entry-content div { font-family: …
+      IPAMonaPGothic, "aahub", Mona, Monapo, Saitamaar, sans-serif }`）。
+系谱：名称表 nameID 11 = http://monafont.sourceforge.net/ （**モナーフォント / Mona**），
+      致谢 "Thanks to Yasuyuki Furukawa, /efont/ project, NAGAO Sadakazu, Toshiyuki Imamura,
+      HANATAKA Shinya, Odajima Katsuya, Kano Hiroki, 18, and lots of 2-channelers!"。
+      モナーフォント 是 2ch AA 社区的自由字体（可自由分发/改変），本仓库仅把 ttf 作为**子集化源**
+      随交付内嵌（子集只含该作品语料真正用到的字符）。
+若日后要换成别的 AA 字体：`AA_AA_FONT_AA_FILE=<ttf路径>` 覆盖，或 `AA_AA_FONT_AA=0` 关掉这个字体。
