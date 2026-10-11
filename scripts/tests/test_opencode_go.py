@@ -303,6 +303,8 @@ class TestChainBackendRegistrations(unittest.TestCase):
     ② `aa_config.model_env()` 专属模型 env（缺 → 落到 AA_MODEL）
     ③ `_call_named` 分发（缺 → “未知后端” 抛错）
     ④ `selection._call_fn` 划词分发（缺 → 该候选被静默跳过，2026-10-10 事故）
+    ⑤ `refine_aa._norm_backend` 校对链解析（缺 → `AA_REFINE_BACKEND` 里该项被**丢掉**、
+       静默掉回 deepseek+deepinfra，2026-10-11 修）
     """
 
     @repo_only("按生成者 TOML 链枚举后端名")
@@ -328,6 +330,8 @@ class TestChainBackendRegistrations(unittest.TestCase):
                         dispatched.add(sub.comparators[0].value)
 
         old = os.environ.get("AA_BACKEND")
+        sys.path.insert(0, os.path.join(_SCRIPTS, "fix"))
+        import refine_aa as RA            # noqa: PLC0415 （⑤ 校对链解析，按需导入）
         try:
             for n in sorted(names):
                 os.environ["AA_BACKEND"] = n
@@ -336,6 +340,9 @@ class TestChainBackendRegistrations(unittest.TestCase):
                 self.assertNotEqual(AC.model_env(n), "AA_MODEL",
                                     f"{n}: model_env() 缺专属 env → 落到 AA_MODEL")
                 self.assertIn(n, dispatched, f"{n}: _call_named 缺分发")
+                self.assertTrue(RA._norm_backend(n),
+                                f"{n}: refine_aa._norm_backend 缺 → AA_REFINE_BACKEND 里该项被丢掉"
+                                "（静默掉回 deepseek,deepinfra）")
         finally:
             if old is None:
                 os.environ.pop("AA_BACKEND", None)

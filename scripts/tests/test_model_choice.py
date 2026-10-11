@@ -3,7 +3,7 @@
 
 覆盖四层：
   ① aa_config.chain_catalog / refine_catalog —— 界面端点清单 + 默认勾选集
-  ② aa_config.backend_chain 的 `AA_CHAIN` 过滤（保持链序 / 全不可用回退整链）
+  ② aa_config.backend_chain 的 `AA_CHAIN` 过滤（保持链序；**选不中抛 ChainUnavailable，不回退整链**）
   ③ main._chain_env —— 勾选集=默认集不写 env（旧行为不变）；不同则 AA_CHAIN / AA_REFINE_BACKEND
   ④ estimate.estimate(models=...) —— 金额按勾选的主力端点（第一个 cache=true）算，链内区间
 零依赖（unittest + 临时目录），不起服务器、不调 API。
@@ -137,11 +137,14 @@ class ChainOverrideTest(_IsolatedEnv):
             got = [b for b, _m in AC.backend_chain(False)]
         self.assertEqual(got, names)
 
-    def test_unknown_name_falls_back_to_full_chain(self):
-        full = self._names()
+    def test_unknown_name_raises_not_full_chain(self):
+        """未识别的选择 → **明确报错，不回退整条链**（2026-10-11「手动选择即不降级」）。
+
+        旧行为是静默换成整条链 → 用户以为自己选的模型在跑，实际在用没勾的端点。
+        """
         with mock.patch.dict(os.environ, {"AA_CHAIN": "no-such-backend"}):
-            got = self._names()
-        self.assertEqual(got, full, "全不可用时应回退整条链，不静默断链")
+            with self.assertRaises(AC.ChainUnavailable):
+                AC.backend_chain(False)
 
     def test_blank_means_full_chain(self):
         full = self._names()
@@ -234,14 +237,14 @@ class EntryIdTest(unittest.TestCase):
         self.assertEqual(len(got), len(entries))
 
     @repo_only("断言生成者的链条目表")
-    def test_未识别选择回退整链(self):
-        with mock.patch.dict(os.environ, {"AA_CHAIN": ""}):
-            full = AC.backend_chain(False)
+    def test_未识别选择不回退整链(self):
+        """选中的条目一个都不匹配 → 抛 ChainUnavailable（**不回退整条链**，2026-10-11）。"""
         with mock.patch.dict(os.environ, {"AA_CHAIN": "nope|x"}):
-            got = AC.backend_chain(False)
-        self.assertTrue(full)
-        self.assertEqual([b for b, _m in got], [b for b, _m in full],
-                         "全匹配不上 → 回退整条链")
+            with self.assertRaises(AC.ChainUnavailable) as cm:
+                AC.backend_chain(False)
+        msg = str(cm.exception)
+        self.assertIn("nope|x", msg)
+        self.assertIn("手动选择不降级", msg)
 
 
 class ChainSelectionTest(_IsolatedEnv):

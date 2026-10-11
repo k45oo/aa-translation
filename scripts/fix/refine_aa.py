@@ -140,7 +140,13 @@ _GLM_MODEL = "zai-org/GLM-5.3-Flash"             # 显式钉 GLM（R18 大尺度
 
 
 def _norm_backend(p):
-    """后端名/别名 → 规范后端名（未识别返回 None）。"""
+    """后端名/别名 → 规范后端名（未识别返回 None）。
+
+    2026-10-11: 认不出的再查 TOML `[backend.*]` 表 —— 旧表漏了 `opencode_go`/`opencode_zen`，
+    于是 `AA_REFINE_BACKEND=opencode_go|deepseek-v4.1-flash`（设置页保存的链）**整项被丢掉** →
+    静默掉回 `deepseek,deepinfra`（用户以为在用自己选的模型，实际跑别的；实测 usage 里 refine
+    全是 deepseek 就是这么来的）。查表兜底让「新后端只加 TOML 也能被选集选中」。
+    """
     p = (p or "").strip().lower()
     if p in ("deepinfra", "glm", "di", "dinfra", "glm-5.3-flash"):
         return "deepinfra"
@@ -150,7 +156,45 @@ def _norm_backend(p):
         return "mimo"
     if p in ("commandcode", "cc", "muse", "muse-spark"):
         return "commandcode"
+    if p in ("opencode_go", "opencode-go", "ocgo"):
+        return "opencode_go"
+    if p in ("opencode_zen", "opencode-zen", "oczen"):
+        return "opencode_zen"
+    try:
+        import aa_config as AC
+        if p in (AC.load().get("backend") or {}):
+            return p
+    except Exception:
+        pass
     return None
+
+
+class _NeverRaised(Exception):
+    """占位异常：aa_config 里没有 `ChainUnavailable`（老版本/剥离环境）时用它，except 分支永不命中。"""
+
+
+def _chain_unavailable_cls():
+    """`aa_config.ChainUnavailable`（手动选择全不可用）——与主翻译同源，避免两处口径漂移。"""
+    try:
+        import aa_config as AC
+        return getattr(AC, "ChainUnavailable", _NeverRaised)
+    except Exception:
+        return _NeverRaised
+
+
+def _chain_unavailable(msg):
+    return _chain_unavailable_cls()(msg)
+
+
+def _any_recognized(raw):
+    """链串里至少有一项后端名能被 `_norm_backend` 认出来（用于「写错就报错」判定）。"""
+    for part in (raw or "").split(","):
+        s = part.strip()
+        if not s:
+            continue
+        if _norm_backend(s.split("|", 1)[0].strip()):
+            return True
+    return False
 
 
 def _parse_refine_entries(raw):
@@ -220,6 +264,13 @@ def refine_chain(work=None):
     """
     env = os.environ.get("AA_REFINE_BACKEND")
     if env:
+        # 2026-10-11 手动选择即不降级：整串后端名都认不出（写错名 / 该后端不在 TOML）→ 明确报错。
+        # 旧行为是 `_parse_refine_entries` 静默掉回 `deepseek,deepinfra`——用户以为在用自己选的
+        # 模型，实际跑别的（只有 usage 记录能看出来）。
+        if not _any_recognized(env):
+            raise _chain_unavailable(
+                "AA_REFINE_BACKEND 里的后端名都认不出: %r —— 手动选择不降级，"
+                "请到设置页 / 校对控制台重新勾选" % env)
         return _parse_refine_entries(env)
     spec = None
     try:
@@ -231,9 +282,11 @@ def refine_chain(work=None):
         return _parse_refine_entries(spec)
     try:
         import aa_config as AC
-        ch = AC.backend_chain(_work_r18(work))
+        ch = AC.backend_chain(_work_r18(work))    # AA_CHAIN 手动选择全不可用 → ChainUnavailable
         if ch:
             return [(b, (m or None)) for b, m in ch]
+    except _chain_unavailable_cls():
+        raise                     # 手动选择不降级：不许静默掉回下面的默认链
     except Exception:
         pass
     return _parse_refine_entries(DEFAULT_REFINE_CHAIN)
@@ -305,6 +358,8 @@ def _set_chain_for_work(work):
     global _REFINE_ENTRIES, _REFINE_CHAIN, _REFINE_CHAIN_MODELS, _REFINE_MDLSEQ
     try:
         ch = refine_chain(work)
+    except _chain_unavailable_cls():
+        raise            # 手动选择全部不可用 → 明确失败（静默沿用旧链 = 换了模型而用户不知道）
     except Exception:
         return _REFINE_CHAIN
     if ch:

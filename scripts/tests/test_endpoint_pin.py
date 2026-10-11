@@ -42,8 +42,8 @@ class _Recorder:
 
 class TestPinCacheableEndpoint(unittest.TestCase):
     def setUp(self):
-        self._osc = {k: os.environ.get(k) for k in ("AA_PIN_CACHE_ENDPOINT", "AA_FREE_MODE", "AA_BACKEND", "AA_REFINE_BACKEND")}
-        for k in ("AA_PIN_CACHE_ENDPOINT", "AA_FREE_MODE", "AA_BACKEND"):
+        self._osc = {k: os.environ.get(k) for k in ("AA_PIN_CACHE_ENDPOINT", "AA_FREE_MODE", "AA_BACKEND", "AA_REFINE_BACKEND", "AA_CHAIN")}
+        for k in ("AA_PIN_CACHE_ENDPOINT", "AA_FREE_MODE", "AA_BACKEND", "AA_CHAIN"):
             os.environ.pop(k, None)
         self._chain_fn = C.backend_chain
         C.backend_chain = lambda work_r18: list(CHAIN)
@@ -151,8 +151,8 @@ class TestFallbackOnlyEndpoint(unittest.TestCase):
     CH = [("deepseek", "deepseek-flash"), ("deepinfra", "m1"), ("commandcode", "muse")]
 
     def setUp(self):
-        self._osc = {k: os.environ.get(k) for k in ("AA_PIN_CACHE_ENDPOINT", "AA_FREE_MODE", "AA_BACKEND")}
-        for k in ("AA_PIN_CACHE_ENDPOINT", "AA_FREE_MODE", "AA_BACKEND"):
+        self._osc = {k: os.environ.get(k) for k in ("AA_PIN_CACHE_ENDPOINT", "AA_FREE_MODE", "AA_BACKEND", "AA_CHAIN")}
+        for k in ("AA_PIN_CACHE_ENDPOINT", "AA_FREE_MODE", "AA_BACKEND", "AA_CHAIN"):
             os.environ.pop(k, None)
         self._chain_fn = C.backend_chain
         self._fb_fn = C.fallback_only_names
@@ -234,8 +234,8 @@ class TestAutoBackendDoesNotOverrideChain(unittest.TestCase):
 
     def setUp(self):
         self._osc = {k: os.environ.get(k) for k in
-                     ("AA_PIN_CACHE_ENDPOINT", "AA_FREE_MODE", "AA_BACKEND", "AA_BACKEND_AUTO")}
-        for k in ("AA_PIN_CACHE_ENDPOINT", "AA_FREE_MODE", "AA_BACKEND", "AA_BACKEND_AUTO"):
+                     ("AA_PIN_CACHE_ENDPOINT", "AA_FREE_MODE", "AA_BACKEND", "AA_BACKEND_AUTO", "AA_CHAIN")}
+        for k in ("AA_PIN_CACHE_ENDPOINT", "AA_FREE_MODE", "AA_BACKEND", "AA_BACKEND_AUTO", "AA_CHAIN"):
             os.environ.pop(k, None)
         self._chain_fn = C.backend_chain
         self._fb_fn = C.fallback_only_names
@@ -308,6 +308,73 @@ class TestAutoBackendDoesNotOverrideChain(unittest.TestCase):
             with open(p, encoding="utf-8") as f:
                 src = f.read()
             self.assertIn("AA_BACKEND_AUTO", src, f"{rel} 自动设了 AA_BACKEND 却没打 AUTO 标记")
+
+
+class TestManualSelectionNoDegrade(unittest.TestCase):
+    """手动选择（`AA_CHAIN`）即不降级（2026-10-11 用户口径「只使用选择和设置保存的模型」）。
+
+    链本身由 `aa_config.backend_chain` 收窄到勾选集（选不中会抛 `ChainUnavailable`，
+    见 `test_model_choice.ChainOverrideTest`）；这里守 `call_with_fallback` 的第二层：
+    **不许用「显式 AA_BACKEND 组前置」把链外端点插进来**。实测症状（修复前）：
+    `AA_CHAIN=opencode_go|…` + .env 里遗留 `AA_BACKEND=deepinfra` → 首个候选失败即降级到没勾的端点。
+    """
+
+    CH = [("opencode_go", "deepseek-v4.1-flash")]        # 只勾了 1 个模型
+    SEL = ["opencode_go|deepseek-v4.1-flash"]
+
+    def setUp(self):
+        self._osc = {k: os.environ.get(k) for k in
+                     ("AA_PIN_CACHE_ENDPOINT", "AA_FREE_MODE", "AA_BACKEND", "AA_BACKEND_AUTO")}
+        for k in self._osc:
+            os.environ.pop(k, None)
+        self._chain_fn = C.backend_chain
+        self._sel_fn = C.chain_names_override
+        self._fb_fn = C.fallback_only_names
+        C.backend_chain = lambda work_r18: list(self.CH)
+        C.chain_names_override = lambda: list(self.SEL)
+        C.fallback_only_names = lambda work_r18: set()
+        self._call_named = AB._call_named
+        self._round_i = AB._chain_round["i"]
+        AB.reset_preferred_backend()
+
+    def tearDown(self):
+        C.backend_chain = self._chain_fn
+        C.chain_names_override = self._sel_fn
+        C.fallback_only_names = self._fb_fn
+        AB._call_named = self._call_named
+        AB._chain_round["i"] = self._round_i
+        for k, v in self._osc.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        C.reload()
+        AB.reset_preferred_backend()
+
+    def test_勾选单选时用户手写AA_BACKEND也不插队(self):
+        os.environ["AA_BACKEND"] = "deepseek"      # 环境里遗留的手写值（无 AUTO 标记、非勾选项）
+        rec = _Recorder()
+        AB._call_named = rec
+        AB.call_with_fallback(False, "sys", "b")
+        self.assertEqual([b for b, _ in rec.calls], ["opencode_go"],
+                         "链外端点被组前置插进来了 → 用户勾的模型不再是唯一候选")
+
+    def test_选中端点失败即抛_不换别的端点(self):
+        rec = _Recorder(fail={"opencode_go": RuntimeError("429 too many requests")})
+        AB._call_named = rec
+        with self.assertRaises(RuntimeError):
+            AB.call_with_fallback(False, "sys", "b")
+        self.assertEqual([b for b, _ in rec.calls], ["opencode_go"], "换到了没勾选的端点")
+
+    def test_未设AA_CHAIN时链内降级不变(self):
+        """没设 AA_CHAIN = 用整条链 → 链内降级语义**完全不变**（旧行为）。"""
+        C.chain_names_override = lambda: None
+        C.backend_chain = lambda work_r18: [("deepseek", "deepseek-flash"),
+                                            ("deepinfra", "deepseek-ai/DeepSeek-V4.1-Flash")]
+        rec = _Recorder(fail={"deepseek": RuntimeError("429 too many requests")})
+        AB._call_named = rec
+        _txt, used = AB.call_with_fallback(False, "sys", "b")
+        self.assertEqual(used, "deepinfra")
 
 
 if __name__ == "__main__":

@@ -227,6 +227,15 @@ def model_env(name):
     }.get(name, "AA_MODEL")
 
 
+class ChainUnavailable(RuntimeError):
+    """`AA_CHAIN` / `AA_REFINE_BACKEND` 手动选中的端点在链上一个都不可用（缺 key / 该链不含它）。
+
+    2026-10-11 用户口径「**手动选择即不降级**（只使用选择和设置保存的模型）」：
+    显式选择存在时不再回退整条链——旧行为会静默换成没勾选的模型（只有报表/stderr 看得出来）。
+    调用方要么让异常冒出去（任务明确失败 + 消息提示重新勾选），要么自己 try 住。
+    """
+
+
 def auto_backend(work_r18):
     """按作品 R18 属性自动选后端: 返回 (backend_name, model_override)。
     优先级: [default].r18_backends / [default].normal_backends(TOML 配置, 从高到低)。
@@ -243,13 +252,14 @@ def backend_chain(work_r18):
     """返回有序可用后端候选链 [(backend, model_override), ...]（供 call_api 自动降级）。
     与 auto_backend 同口径: 只含 key_env 存在 且(R18 作品) r18_safe 的后端，按配置顺序。
 
-    `AA_CHAIN=名字1,名字2`（工作台模型多选）→ 只保留选中的端点（**保持 TOML 顺序**，
-    链内降级语义不变）。选中的端点全都不可用（缺 key / R18 不安全）时不静默断链，
-    回退为整条链并在 stderr 提示一次。
+    `AA_CHAIN=名字1,名字2`（工作台模型多选 / 设置页保存的链）→ 只保留选中的端点
+    （**保持 TOML 顺序**，链内降级语义不变）。
+    **手动选择即不降级（2026-10-11 用户口径）**：选中的端点在该链上一个都不可用时
+    **不回退整条链**，抛 `ChainUnavailable`——旧行为会静默换成没勾选的模型。
     """
     table_key = "r18_backends" if work_r18 else "normal_backends"
     table = load().get("default", {}).get(table_key, [])
-    out = []
+    out, ids = [], []
     for item in table:
         name = item.get("backend", "")
         cfg = load().get("backend", {}).get(name, {})
@@ -258,16 +268,20 @@ def backend_chain(work_r18):
         key_env = cfg.get("key_env", "")
         if key_env and not _env_key_exists(key_env):
             continue
-        out.append((name, item.get("model") or cfg.get("model", "")))
+        mdl = item.get("model") or cfg.get("model", "")
+        out.append((name, mdl))
+        # 条目 id 带 item（TOML 显式 `id=` 才算得对；否则 <backend>|<model>）
+        ids.append(entry_id(name, mdl, item))
     sel = chain_names_override()
     if sel:
-        picked = [x for x in out
-                  if any(selector_match(s, x[0], entry_id(x[0], x[1])) for s in sel)]
+        picked = [x for x, eid in zip(out, ids)
+                  if any(selector_match(s, x[0], eid) for s in sel)]
         if picked:
             return picked
-        import sys as _sys
-        print("[aa_config] AA_CHAIN=%s 选中的端点都不可用 → 回退整条链" % ",".join(sel),
-              file=_sys.stderr)
+        raise ChainUnavailable(
+            "AA_CHAIN 选中的端点都不可用（缺 key / 该链不含它）: %s；本链可用: %s"
+            " —— 手动选择不降级，请重新勾选或清空 AA_CHAIN 用整条链"
+            % (",".join(sel), ", ".join("%s|%s" % (b, m) for b, m in out) or "无"))
     return out
 
 

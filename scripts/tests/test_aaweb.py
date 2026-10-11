@@ -759,8 +759,8 @@ class TestEstimate(Fixture):
         self.assertTrue(r["ok"])
         self.assertEqual((r["chapters"], r["skipped"]), (1, 0))
         self.assertEqual(r["chars"], 1000)
-        self.assertEqual(r["prompt"], 800)       # 1000 × 0.80
-        self.assertEqual(r["completion"], 190)   # 1000 × 0.19
+        self.assertEqual(r["prompt"], 360)       # 1000 × 0.36（2026-10-11 重标定）
+        self.assertEqual(r["completion"], 120)   # 1000 × 0.12
         self.assertTrue(r["priced"])
         self.assertGreater(r["cost"], 0)
         self.assertGreaterEqual(r["cost_peak"], r["cost"])          # 高峰 ≥ 基础

@@ -141,6 +141,74 @@ class TestFollowPaidChain(unittest.TestCase):
             R._follow_paid_chain = _orig
 
 
+class TestManualSelectionStrict(unittest.TestCase):
+    """手动选择（`AA_REFINE_BACKEND`）即不降级（2026-10-11 用户口径「只使用选择和设置保存的模型」）。
+
+    两个真实踩过的坑：
+      ① `_norm_backend` 漏登记 `opencode_go`/`opencode_zen` → 设置页保存的
+         `AA_REFINE_BACKEND=opencode_go|deepseek-v4.1-flash` **整项被丢掉** → 静默掉回
+         `deepseek,deepinfra`（实测 usage 里 refine 全是 deepseek，就是这么来的）。
+      ② 整串后端名都认不出（写错名）→ `_parse_refine_entries` 静默掉回默认链，用户以为在用自己选的。
+    """
+
+    def setUp(self):
+        self._env = os.environ.get("AA_REFINE_BACKEND")
+        self._chain = list(R._REFINE_CHAIN)
+        self._chain_models = dict(R._REFINE_CHAIN_MODELS)
+        self._entries = list(R._REFINE_ENTRIES)
+        self._mdlseq = list(R._REFINE_MDLSEQ)
+
+    def tearDown(self):
+        if self._env is None:
+            os.environ.pop("AA_REFINE_BACKEND", None)
+        else:
+            os.environ["AA_REFINE_BACKEND"] = self._env
+        R._REFINE_CHAIN = self._chain
+        R._REFINE_CHAIN_MODELS = self._chain_models
+        R._REFINE_ENTRIES = self._entries
+        R._REFINE_MDLSEQ = self._mdlseq
+
+    def test_两门后端名都能被认出来(self):
+        self.assertEqual(R._norm_backend("opencode_go"), "opencode_go")
+        self.assertEqual(R._norm_backend("OPENCODE_GO"), "opencode_go")
+        self.assertEqual(R._norm_backend("opencode_zen"), "opencode_zen")
+        self.assertIsNone(R._norm_backend("no-such-backend"))
+
+    @repo_only("断言生成者的链首后端名（包里默认链不同）")
+    def test_链首后端能被选中_不再掉回默认链(self):
+        os.environ["AA_REFINE_BACKEND"] = "opencode_go|deepseek-v4.1-flash"
+        self.assertEqual(R.refine_chain(None), [("opencode_go", "deepseek-v4.1-flash")])
+        self.assertEqual(R._set_chain_for_work(None), ["opencode_go"])
+        self.assertEqual(R._REFINE_MDLSEQ, ["deepseek-v4.1-flash"])
+
+    def test_全认不出则报错_不回退默认链(self):
+        os.environ["AA_REFINE_BACKEND"] = "no-such-backend|x"
+        with self.assertRaises(R._chain_unavailable_cls()) as cm:
+            R.refine_chain(None)
+        self.assertIn("认不出", str(cm.exception))
+        with self.assertRaises(R._chain_unavailable_cls()):
+            R._set_chain_for_work(None)      # 不许被 `_set_chain_for_work` 的 except 吞掉
+
+    def test_单个选中失败即抛_不换模型(self):
+        """单条目链 → `_call_glm` 只试这一个，失败直接抛（不降级到别的模型）。"""
+        _set_chain([("opencode_go", "deepseek-v4.1-flash")])
+        import aa_backend as AB
+        _orig = AB.call_opencode_go
+        _seen = []
+
+        def boom(*a, **kw):
+            _seen.append(kw.get("model"))
+            raise RuntimeError("boom 429")
+
+        AB.call_opencode_go = boom
+        try:
+            with self.assertRaises(RuntimeError):
+                R._call_glm("S", "B")
+        finally:
+            AB.call_opencode_go = _orig
+        self.assertEqual(_seen, ["deepseek-v4.1-flash"], "没按勾选模型调用 / 或换了模型")
+
+
 class TestFallback(unittest.TestCase):
     """链首失败 → 自动降级下一个端点（deepinfra 失败 → 官网 deepseek-flash）。"""
 

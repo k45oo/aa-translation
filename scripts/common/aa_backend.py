@@ -797,7 +797,14 @@ def call_with_fallback(work_r18, system, body, max_tokens=16384, timeout=180, lo
     #   `aa_prompt_prefix` 早就是同口径(自动值不参与拼接), 这里补齐。
     _auto_bk = os.environ.get("AA_BACKEND_AUTO") in ("1", "true", "True")
     _user_explicit = bool(explicit) and explicit.lower() not in ("cloud", "") and not _auto_bk
-    if _user_explicit:
+    # 2026-10-11 用户口径「**手动选择即不降级**（只使用选择和设置保存的模型）」：
+    #   `AA_CHAIN`（控制台勾选 / 设置页保存的链）非空 = 用户显式选择 → 整轮调度只在这批端点内：
+    #     ① 链已被 backend_chain 收窄到勾选集（选不中会抛 ChainUnavailable，**不回退整条链**）；
+    #     ② **不参与下面的「显式 AA_BACKEND 组前置」**——那会把链外端点插到最前面，实测症状：
+    #        `AA_CHAIN=opencode_go|…` + .env 里遗留 `AA_BACKEND=deepinfra` → 失败后降级到没勾选的端点。
+    #   未设 AA_CHAIN = 用整条链 → 链内降级语义完全不变（旧行为）。
+    _sel = aa_config.chain_names_override()
+    if _user_explicit and not _sel:
         if not low_r18:
             # 低含量 R18 的 yes 章(low_r18=True)忽略显式 AA_BACKEND——否则 R18 作品的
             # auto_backend 会把 normal 链首提到链首覆盖章节级选择(2026-09-07: 原 zhipu
