@@ -257,8 +257,29 @@ description: Use when 开发/修改本地 FastAPI web 应用，浏览成品AA漫
 - **保存只提交改动项**：密钥输入框留空 = 不改（清除要显式点按钮）；**绝不做整表重写** —— 掩码回读当新值提交会把 key 写坏（等同术语表整表覆盖事故）。密钥只回尾 4 位掩码 + 来源层。
 - **保存即生效**（写盘 + `load_dotenv(force=True)` + `aa_config.reload()`），已在跑的任务不受影响；因此**改设置后无需重启工作台**，但**改 `main.py` 路由仍需重启**。
 - 勾选集为空或等于默认集 → 删 env（保住 `fallback_only` 兜底端点）；模型选择单位是**链条目 id**（见 aa-model-chain-ops）。
+- **控制台模型多选的「默认勾选」= 设置页保存的链**：`aa_config.chain_selection(env, entries, default)` 是「当前生效勾选集」的**唯一口径**——设置页状态与 `GET /api/work/<id>/models` 的 `selected` 都调它，前端渲染复选框取 `j.selected`（**不是** `j.default` = 整条链），`head`/主力端点也按生效链（链序 ∩ 勾选集）取第一个可缓存端点。别让「设置页存的」和「控制台显示的」由两套代码各算一遍：口径一旦分叉，用户改了设置在控制台看不见，每次开任务都得手点一遍同样的取消勾选。选择项落在该作品链外（如给 R18 作品选了不接 R18 的端点）→ 交集为空回 `default`，与 `backend_chain` 的回退同语义。
 - 每个 key 行配「测试连接」（最小请求，错误分类成 401/402/403/429/超时/SSL），代理区块配「测试代理」（端口可连 / 不走代理能否到付费端点 / 经代理能否到）——**界面状态看不出「key 错 or 欠费 or 没走代理」，本地探针必须真连一次**。
 - **验设置页绝不动用户正在跑的实例**：另起临时实例到别的端口（scheduler 是单例 pid 锁，会自动退出不双跑），`AA_ENV_PATH` 指向临时 .env 做写入隔离，先用注释+无关键打底、测完 grep 断言原样保留；起后台、测完按 session 杀（**别按端口杀**）。`.venv` 无 httpx → 端点验收**直调路由函数**、模板用 jinja2 直接 render，别上 TestClient。
+
+## 给手册/交付说明截图（干净实例 + 脚本化截图）
+
+**目标 = 图里不带任何生成者本机信息，且图必须是「要出的那份代码」画出来的。**
+
+- **干净实例 = 发行包的一份副本**：`cp -r 导出/AA翻译_发行包_<日期>/. <演示目录>/`（删掉 exe 省空间），另起端口
+  （`AA_PORT=8777`，**别用 8765**——那是用户正在跑的实例）。数据根 = 副本目录（**不要设 `AA_BASE`**），于是首页只有示例作品。
+- **启动器必须先清环境**（在 `import aa_web_app.main` 之前）：`for k in list(os.environ): if k.endswith("_API_KEY") or k.startswith("AA_"): os.environ.pop(k)`。
+  否则 `aa_env` 的只读兜底会命中生成者本机的档案 `.env` → 设置页把**真 key 的尾 4 位**渲染进截图（实测踩到，必须重拍）。
+- **演示目录放中性路径**（如 `F:\AA翻译_发行包_20261010`，别用 `%TEMP%\<用户名>\…`）：设置页顶部把 `.env` 的**绝对路径明文**显示出来。
+- **截图用 playwright + 系统自带 Edge 无头**（Hermes 的 python 已装 playwright，不必 `playwright install`）：
+  `sync_playwright().chromium.launch(channel="msedge", headless=True)` + `new_page(viewport={"width":1440,"height":900})` + `page.screenshot(path=...)`。
+  比交互式浏览器工具更适合「一个脚本连拍 8 个页面/状态」；中途可 `page.evaluate` 摆状态、`scrollToLine`、点元素。
+- **多状态页先摆状态再截**：
+  - 揭示板「＋ 添加/更新揭示板」表单在 `<details>` 里（默认折叠）→ `document.querySelectorAll('details').forEach(d => d.open = true)`。
+  - 阅读器要从章首截：先删数据根的 `.aaweb_progress.json` + `aa_web_app/data/read_state.json`（否则续读跳到上次那行、页脚还带「已续读到第 N 行」）。
+  - 行编辑面板：`window.__aaWin.scrollToLine(n)` 后点行号——`.lc-no` 文本形如 `10826◆⚙`（带台词/修改标记），匹配用 `textContent.trim().startsWith(String(n))`，`===` 永不命中。
+- **图必须与要出的代码同源**：演示副本比工作区旧时（模板/静态文件改了但还没重出包）先 `cp` 那几个文件进副本——**Jinja 自动重载模板，改模板无需重启**；改动落在 `main.py`/`logic.py` 才要重启实例。
+- **收工看图为先**：每张图都过一眼（布局、key 掩码、本机路径、未加载空白），别只看「文件已生成」。打包侧的规定（手册复制到包根、图片链接前缀改写、二进制图不过文本门禁）见 `aa-release-packaging`。
+- 骨架可直接拷改：`templates/demo_launcher.py`（清洁启动器）、`templates/shoot_pages.py`（连拍脚本）。
 
 ## 图片漫画列表 = main.py 的 `IMAGE_MANGA` 注册表（不是扫目录）
 
@@ -268,6 +289,7 @@ description: Use when 开发/修改本地 FastAPI web 应用，浏览成品AA漫
 - **改注册表属改 `main.py` → 必须重启工作台才生效**（`scripts/tools/restart_workbench.py` 触发 bat，别自己 kill）；改完先 `py_compile` + 跑 `test_aaweb`（它覆盖不到 `/manga` 数据源，表格行数要自己拉页面确认）。
 
 ## 坑（追加）
+- **「点击有效但样式/提示没变」= UI 更新函数只在初始化调了一次，没挂进状态回调列表**：正文由 state 驱动重渲染、而按钮高亮/角标/提示文本另有更新函数时，漏注册就表现为「内容确实切了、按钮仍亮着旧项」。本工程阅读器 = `WIN.onMode(fn)`（`setMode()` 逐个回调，`applyModeUi()` 曾只在 `WIN.ready` 里调一次 → 点「原文」正文切了、按钮与 `#mode-hint` 不动）。新增任何「state 一变就要更新某处 UI」的函数，先问它挂在哪条回调链上；只在 `ready`/`init` 里调一次的都是潜伏 bug。
 - **mock main.py 内函数级 import 的模块必须 patch 模块方法非 main 属性（2026-09-06 test_candidates 实测）**：main.py 路由里 `import work_memory as _WM`（函数内 import）每次执行从 sys.modules 取模块赋局部名——`mock.patch("aa_web_app.main.work_memory")` 在 main 模块设属性**不被函数内 import 读取** → mock 无效、测试真写盘。**正确姿势**：mock 模块方法本身 `mock.patch("work_memory.load_knowledge")` + `mock.patch("work_memory.save_knowledge")`；且 mock.patch 解析模块名时 sys.path 必须含该模块目录（tools/works），否则 `ModuleNotFoundError`。同规则适用函数内 `from aa_web_app.logic import save_work_glossary` → mock `aa_web_app.logic.save_work_glossary`（模块属性，from-import 从模块取）。函数级 API 测试前先看被测函数是顶层 import 还是函数内 import，决定 mock 路径。
 - **browser_console 长表达式被截断报 "Unexpected end of input"（2026-09-02 实测）**：浏览器验证脚本拆成多次小段 evaluate（每段 ~2KB 内），勿一次塞几千字的大 IIFE——中文/模板字符串/箭头函数本身没问题，纯粹是传输长度截断。
 - **弹窗遮罩点击关闭必须 mousedown+click 双判（2026-09-01，详情弹窗误关 bug）**：`modal.addEventListener('click', e => { if (e.target === modal) close(); })` 有浏览器规则坑——**按下/松开在不同元素时 click 落在最近公共祖先（=遮罩）上** → 弹窗内按住拖选文字、弹窗外松开即误关。修法：另挂 `mousedown` 记录按下目标，`e.target === modal && downTarget === modal` 才关。已修 5 处：index.html 详情/更新/添加作品弹窗、glossary.js rolesModal、reader.js editsModal（变量名 `_dmDown/_updDown/_awDown/_rmDown/_emDown`）。**新增任何遮罩关闭弹窗时照此双判**。验证套路（browser_console）：dispatchEvent MouseEvent mousedown(box)+mouseup(modal)+click(modal) → 应保持打开；mousedown(modal)+click(modal) → 应关闭。
@@ -304,6 +326,8 @@ description: Use when 开发/修改本地 FastAPI web 应用，浏览成品AA漫
 - **整函数替换的补丁脚本勿把 docstring 抄进锚点（2026-09-02 两次踩爆）**：用 python 改 CRLF main.py 时锚点若含函数 docstring 全文，手写重述与磁盘逐字不一致（哪怕只改措辞/补注释）→ `count==1` assert 0 命中。**改整函数 = 用结构性起止标记**（`find('def _split_summary(s):')` 起 + `find('    return s, ""\n')` 止做切片替换），锚点只含签名与代码首行，绝不含 docstring；写完先 `grep -n` 核对落盘行号再跑 py_compile。
 - **terminal `cd` 后 patch/read_file 的相对路径基准会变（2026-09-02）**：一次 terminal cd 到 `aa_web_app/` 后，patch 用相对路径 `aa_web_app/templates/reader.html` 解析成 `.../aa_web_app/aa_web_app/...` 报 No such file——工具间 cwd 共享，跨工具调用一律绝对路径或 F:/ 风格，别依赖上一次 cd。
 - **混合工作区状态（main 旧平铺 + feat 重构目录并存）会污染测试**：main 的 `test_manual_fix.py`/`test_line_meta.py` 把 `scripts/` 插到 sys.path[0] 后 `import aa_translate` → 加载**旧平铺版**（无 CHAPTER_WORKERS）→ sys.modules 污染 → 全量 discover 时 test_pipeline 2 用例失败（单独跑即 OK，非 app 问题）；验证时按子集跑（test_aaweb/test_aa_common/test_gen_html/test_extract = 61 项）。
+
+- **改完代码的验收纪律**（新增脚本重跑 inventory/docs、测试失败归属判断、路由打桩不碰真作品、前端 UI 的浏览器验收套路）→ `references/dev-verification-discipline.md`。
 
 ## 项目事实（已查证，实现时直接引用）
 - **Git（2026-08-10 改本地全数据）**：纯本地仓库（无 GitHub remote），origin=`../aa-translation/`（<repo-bare> 裸仓库）——**2026-10-10 起它托管的是「脱敏代码镜像」**（单提交快照，只含代码/文档，无数据/无 legacy；`python scripts/tools/push_code_mirror.py` 推送 + `--check` 校验一致；**GitHub 同源镜像 = `--remote https://github.com/k45oo/aa-translation.git`（私有库，同一份快照、同一个 commit sha）**）；本仓历史仍含全数据提交 `61668b2`（4761 文件：各作品 raw/aa/汉化/work、交付HTML(含图片导出)、scripts 全部、doc/temp/fonts/acgn_）；忽略仅 AAhub/（词典 2.3G）、manhuagui_/（图片漫画 4.4G）、tmp_mobile_test/（浏览器测试 1.2G）、.venv、__pycache__、运行时状态（.aaweb_progress.json）。大树提交（5GB 级）`git add -A` 需数分钟 → 后台跑；提交会触发 auto-gc 也需数分钟。

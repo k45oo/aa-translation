@@ -17,7 +17,9 @@ for _p in (os.path.dirname(_SCRIPTS), _SCRIPTS, os.path.join(_SCRIPTS, "common")
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import contextlib        # noqa: E402
 import aa_backend as AB   # noqa: E402
+import aa_translate as ABA   # noqa: E402  （顶层 aa_translate：云端直连路径回归）
 from _work_guard import repo_only   # noqa: E402
 
 
@@ -218,6 +220,156 @@ class TestZenRetriesBudget(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             AB.call_opencode_go("s", "u", max_tokens=8, timeout=5, key="test-key")
         self.assertEqual(len(self.calls), 3, "整章链上的默认仍是 3 次")
+
+
+class TestBackendAliasAndCloudFallback(unittest.TestCase):
+    """2026-10-11 事故回归：`AA_BACKEND=opencode_go` 必须被 `aa_backend.backend()` 认出。
+
+    漏登记 → backend() 返回 "cloud" → `aa_translate.call_api` 走云端直连
+    (gateway=commandcode, model=AA_MODEL 里的 opencode 裸模型名 `deepseek-v4.1-flash`)
+    → 网关回 400 unsupported_model、每块重试 5 次后失败 → **整章静默留日文**
+    （实测 3 个作品 254 块全灭：供給源 217 / ハーレム大王国 26 / ドスケベナイト 11）。
+    """
+
+    def setUp(self):
+        self._env = {k: os.environ.get(k) for k in
+                     ("AA_BACKEND", "AA_BACKEND_AUTO", "AA_MODEL", "AA_OCGO_MODEL",
+                      "OPENCODE_GO_API_KEY", "AA_FREE_MODE", "AA_OCGO_URL", "AA_CHAIN",
+                      "AA_PIN_CACHE_ENDPOINT", "AA_COMMON_PREFIX", "AA_USAGE_FILE",
+                      "AA_USE_PROXY")}
+        self._orig_urlopen = AB.urllib.request.urlopen
+        AB.reset_preferred_backend()
+        os.environ.pop("AA_FREE_MODE", None)
+
+    def tearDown(self):
+        for k, v in self._env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        AB.urllib.request.urlopen = self._orig_urlopen
+        AB.reset_preferred_backend()
+        ABA._WARNED_UNKNOWN_BACKEND.clear()
+
+    def test_backend别名认出opencode两门(self):
+        for val in ("opencode_go", "opencode-go", "ocgo"):
+            os.environ["AA_BACKEND"] = val
+            self.assertEqual(AB.backend(), "opencode_go", f"{val} → opencode_go")
+        for val in ("opencode_zen", "opencode-zen", "oczen"):
+            os.environ["AA_BACKEND"] = val
+            self.assertEqual(AB.backend(), "opencode_zen", f"{val} → opencode_zen")
+
+    def test_两门有专属模型env(self):
+        import aa_config as AC
+        self.assertEqual(AC.model_env("opencode_go"), "AA_OCGO_MODEL",
+                         "缺项会回 AA_MODEL(=云端直连的模型名), 把 opencode 裸模型名漏给错了网关")
+        self.assertEqual(AC.model_env("opencode_zen"), "AA_OCZEN_MODEL")
+
+    def test_自动后端模型env不落AA_MODEL(self):
+        """translate_runner 的 `setdefault(model_env(链首), 模型)` 不得写进 AA_MODEL。"""
+        import aa_config as AC
+        for r18 in (False, True):
+            b, m = AC.auto_backend(r18)
+            self.assertNotEqual(AC.model_env(b), "AA_MODEL",
+                                f"链首 {b} 的 model_env 回落到 AA_MODEL → 会覆盖云端直连模型名")
+
+    def test_AA_BACKEND_opencode_go时不走云端直连(self):
+        """真发一次 call_api（urlopen 假体）：必须打到 Go 门，而不是 commandcode 云端直连。"""
+        seen = {}
+
+        def fake(req, timeout=None):
+            seen["url"] = req.full_url
+            seen["model"] = json.loads(req.data.decode("utf-8"))["model"]
+            return _FakeResp({"choices": [{"message": {"content": "1|好"},
+                                           "finish_reason": "stop"}],
+                              "usage": {"prompt_tokens": 1, "completion_tokens": 1}})
+
+        AB.urllib.request.urlopen = fake
+        os.environ["AA_BACKEND"] = "opencode_go"
+        os.environ["AA_OCGO_MODEL"] = "deepseek-v4.1-flash"   # runner setdefault 写进来的那个值
+        os.environ["OPENCODE_GO_API_KEY"] = "test-key"
+        os.environ["AA_CHAIN"] = "opencode_go"   # 钉住端点：否则端点轮询会先试别的候选(顺序不定)
+        os.environ["AA_USAGE_FILE"] = os.devnull
+        ABA.call_api("sys", "1|テスト", max_tokens=16, timeout=5)
+        self.assertIn("/zen/go/v1/chat/completions", seen.get("url", ""))
+        self.assertNotIn("commandcode", seen.get("url", ""))
+        self.assertEqual(seen.get("model"), "deepseek-v4.1-flash")
+
+
+class TestChainBackendRegistrations(unittest.TestCase):
+    """链条目上的后端名必须**三处齐备**，只改一处就是静默坏：
+
+    ① `aa_backend.backend()` 别名表（缺 → 回落云端直连，见上）
+    ② `aa_config.model_env()` 专属模型 env（缺 → 落到 AA_MODEL）
+    ③ `_call_named` 分发（缺 → “未知后端” 抛错）
+    ④ `selection._call_fn` 划词分发（缺 → 该候选被静默跳过，2026-10-10 事故）
+    """
+
+    @repo_only("按生成者 TOML 链枚举后端名")
+    def test_链上每个后端三处齐备(self):
+        import ast
+        import aa_config as AC
+        names = set()
+        for r18 in (False, True):
+            for it in AC.chain_catalog(r18)[0]:
+                names.add(it["backend"])
+        for it in AC.selection_catalog()[0]:
+            names.add(it["backend"])
+        self.assertTrue(names)
+
+        with open(os.path.join(_SCRIPTS, "common", "aa_backend.py"), encoding="utf-8") as _f:
+            src = _f.read()
+        dispatched = set()
+        for node in ast.walk(ast.parse(src)):
+            if isinstance(node, ast.FunctionDef) and node.name == "_call_named":
+                for sub in ast.walk(node):
+                    if isinstance(sub, ast.Compare) and sub.comparators and \
+                            isinstance(sub.comparators[0], ast.Constant):
+                        dispatched.add(sub.comparators[0].value)
+
+        old = os.environ.get("AA_BACKEND")
+        try:
+            for n in sorted(names):
+                os.environ["AA_BACKEND"] = n
+                self.assertEqual(AB.backend(), n,
+                                 f"{n}: backend() 别名表缺 → 会静默回落云端直连(400+整章留日文)")
+                self.assertNotEqual(AC.model_env(n), "AA_MODEL",
+                                    f"{n}: model_env() 缺专属 env → 落到 AA_MODEL")
+                self.assertIn(n, dispatched, f"{n}: _call_named 缺分发")
+        finally:
+            if old is None:
+                os.environ.pop("AA_BACKEND", None)
+            else:
+                os.environ["AA_BACKEND"] = old
+
+    def test_未知AA_BACKEND会喊一次(self):
+        """未知后端名字要 stderr 提醒（否则只能靠翻日志反推“为什么打到别家网关”）。"""
+        ABA._WARNED_UNKNOWN_BACKEND.clear()
+        _bak = {k: os.environ.get(k) for k in ("AA_BACKEND", "AA_USE_PROXY")}
+        os.environ["AA_BACKEND"] = "nope_backend"
+        os.environ["AA_USE_PROXY"] = "0"        # 只走 urlopen 那一路，避免真发代理请求
+        err = io.StringIO()
+        orig_open, orig_sleep = ABA.urllib.request.urlopen, ABA.time.sleep
+
+        def boom(*a, **k):
+            raise RuntimeError("no network")
+
+        ABA.urllib.request.urlopen = boom
+        ABA.time.sleep = lambda *a: None
+        try:
+            with contextlib.redirect_stderr(err):
+                with self.assertRaises(RuntimeError):
+                    ABA.call_api("s", "1|x", max_tokens=8, timeout=1)
+        finally:
+            ABA.urllib.request.urlopen = orig_open
+            ABA.time.sleep = orig_sleep
+            for k, v in _bak.items():           # 全量还原（含 AA_USE_PROXY，否则污染 test_stability）
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+            ABA._WARNED_UNKNOWN_BACKEND.clear()
+        self.assertIn("nope_backend", err.getvalue())
 
 
 if __name__ == "__main__":

@@ -12,6 +12,31 @@ description: Use when 镜像站收录不全需回原始揭示板下载/解析2ch
 - 典型：`akari_kurutta_mura`（紲星あかりは狂った村）r401 cid=25548 只到第10话，
   但正篇连载到第15话+，作者=コンプレックス◆JWKY.d5ark，揭示板=yarufox.sakura.ne.jp(/FOX)。
 
+## 本项目已落地：`scripts/runner/board_runner.py`（首选，别再手写爬虫）
+```
+python scripts/runner/board_runner.py --board FOX --match <标题关键词> [--author <trip>]
+    [--dir <作者_作品短名>] [--title <作品名>] [--work <作品id>] [--label <连载标签>]
+    [--host http://xxx] [--kako-from 1746] [--kako-to 1774] [--scan-kako] [--force] [--allow-mixed] [--json out.json]
+```
+- 落盘 `揭示板/<目录>/<N>スレ目_<eid>.dat`（UTF-8 重写）+ `index.json`
+  （`slaves[] = {label,eid,title,res,bytes,ts,file,url,note,src}`，口径 = 工作台 `logic.board_slaves`）。
+- 发现顺序：`subject.txt`（活跃）→ `index.json` 里已知 eid（贴变归档后 **eid 不变**，直构造 kako 路径重抓）→
+  `--scan-kako`/本地无 index.json 时扫 kako 索引；HTTP 走磁盘缓存 `揭示板/.cache/<board>/`（TTL `AA_BOARD_CACHE_TTL` 默认 24h）
+  → 重跑/断点续跑几乎零请求；**顺序抓 + 间隔**（`AA_BOARD_DELAY` 默认 0.3s）。
+- 工作台：`/board` 首页「＋ 添加 / 更新揭示板」表单 + 每行/作者页「↻ 更新」按钮（入队 `board` 任务，进度就地显示）。
+- **范围**：`--kako-from/--kako-to` 是 **eid 前 4 位**（dir1）；新作首次收录要按作品起始时间估区间
+  （`datetime.fromtimestamp(eid)`；实测 2025-04→2026-03 的 47 贴落在 dir1 1746~1774，扫 29 个 dir1 ≈ 2 分钟含缓存）。
+
+### ⚠ 同一作者多作品必须各占一个目录（实测事故）
+NEO坊 ◆LXwkncCAp. 在 FOX 有《この素晴らしいシンオウに祝福を！》(120 贴) 与《ポケの子（？）》(47 贴)。
+第二次用**同一个 `揭示板/◆LXwkncCAp/`** 跑 ポケの子 → 旧 120 贴被**重新编号**（标签 1スレ目… 被 ポケの子 的贴占用，
+原 `前スレ（キャラ作成〜第8話）` 等标签丢失）、`index.json` 被覆盖（靠旧文件名 + dat 才复原）。
+- 目录命名：`<作者trip>_<作品短名>`（如 `◆LXwkncCAp_ポケの子`）。
+- runner 现有三道闸（`--allow-mixed` 才放行）：
+  ① 目录里有不属于本次范围的 `.dat` → 拒；② 新标签与已有贴重名（不同 eid）→ 拒；
+  ③ `index.json` 记的 `match`/`work_title` 与本次不同 → 拒。
+- 已知 eid **沿用文件名里的原标签**（勿按命中顺序重编号）；标签来自标题假名编号，解析不出才用顺序兜底。
+
 ## 站型识别
 yarufox.sakura.ne.jp 是 **zerochan 系 BBS**（页脚 `READ.CGI - 0ch+ BBS 0.7.4 20131106`）。
 板路径 `/FOX/`。数据源两种：
@@ -94,8 +119,8 @@ yarufox.sakura.ne.jp 是 **zerochan 系 BBS**（页脚 `READ.CGI - 0ch+ BBS 0.7.
 7スレ目=1633000872                                 14スレ目=1761748367 (活跃贴, 2115 res)
 ```
 - 每个已归档贴 **5001 res**（reveal板 1000 res/页 分页，0001-1000 / 1001-2000 / ... 拼成整贴）。
-- 落盘建议：`<作品>/揭示板/<作者名>/<Nスレ目>_<eid>.dat`（UTF-8 重写，易检索）
-  + 同目录 `index.json`（eid↔スレ号↔首帖时间↔res数）。
+- 落盘（本项目口径）：`揭示板/<作者或 <作者>_<作品短名>>/<N>スレ目_<eid>.dat`（UTF-8 重写，易检索）
+  + 同目录 `index.json`（eid↔スレ号↔首帖时间↔res数）——工作台 `logic.board_slaves` 直接读它（`slaves[]` + `label/eid/res/ts/file`）。
 
 ## 正篇章节→貼 定位（后续步骤）
 雑談所贴内**不直接写「第N話」章节标题**（正文搜不到「第11話」等），作者把正篇

@@ -126,6 +126,12 @@ description: Use when 在 AA 翻译链上增删/替换模型或后端（配置�
   全部选不中就回退整条链（并在 stderr 提示一次），不要静默断链。新增/改动链选择 env 时照此二者兼容。
 - `chain_catalog()` 的 `default` 集 = 条目 id；界面勾选（`app.js` 模型多选）、`estimate._chain_head(models=)`、
   `estimate` 的 `models_sel`、工作台 `_chain_env` 写进 env 的值全部按 id 对齐。
+- **「当前生效勾选集」只有一份实现**：`aa_config.chain_selection(env_name, entries, default_ids)`
+  → 设置页 `models_view`、控制台 `GET /api/work/<id>/models` 的 `selected`/`custom` 都调它；
+  控制台多选**默认勾选 = 设置页保存的链**（别再拿 `chain_catalog` 的 `default` 当勾选态：
+  那 = 整条链，设置页改过的选择在控制台看不见，用户得每次手点取消勾选）。选择项不在本作品链上
+  （给 R18 作品选了不接 R18 的端点）→ 交集为空回 `default`，与 `backend_chain` 的回退同语义。
+  `head`（主力端点）也要按**生效链**（链序 ∩ 勾选集）取第一个可缓存端点，摘掉链首时显示得跟着变。
 - 校对链的存储形态 = `_REFINE_CHAIN`（后端名序列，旧接口）+ `_REFINE_MDLSEQ`（**按位**模型覆盖，与链等长）
   + `_REFINE_CHAIN_MODELS`（折叠表，兼容旧调用方）；`_call_glm` 按位取模型，只在外部**只改** `_REFINE_CHAIN`
   （长度不等）时回退折叠表。
@@ -133,6 +139,33 @@ description: Use when 在 AA 翻译链上增删/替换模型或后端（配置�
   而链条目自带模型且优先级更高（`model=(m if m else _model_for_backend(b, m))`）⇒ 在链上设 `AA_DI_MODEL` 是**静默无效**的空操作。
 - **改链的存储形态/选择口径前先扫测试树**：手写 mock 会照旧形态重实现（直接改 `_REFINE_CHAIN`、用 `items[-1]["backend"]` 断言），
   改完它们要么失效要么静默指向真链——`search_files` 搜旧全局名与旧断言逐处更新，别等全套件里冒红。
+
+- **新增后端/换链首要扫「手写后端分发映射」**：链以外的调用点常按后端名 `dict` 分发（`aa_web_app/selection.py` 的
+  `_call_fn`、`refine_aa._call_glm`、`aa_backend._call_named`）——漏登记=该候选被**静默跳过**（无报错、无日志）。
+  症状是「链首配了却从不生效、每次都走第二候选」（2026-10-10 opencode_go 进划词链首：`via` 永远不是它）。
+  换链首后至少验证：① 每个能进链的后端都有分发（加个「遍历 catalog 断言全有映射」的用例）；
+  ② 真跑一次看 `via`/日志里的实际后端名（别只看配置）；③ 同名模型挂多个后端时，显示/日志要带**后端名**
+  （只显示模型名分不出走了哪条）。
+- **runner 自动设的 `AA_BACKEND` 会盖过 `AA_CHAIN` 勾选集**（2026-10-11 修）。`call_with_fallback` 对「显式
+  `AA_BACKEND`」做**组前置 + 缺则插头**，而 `translate_runner` / `aa_translate --work` / `refix_mixed_segs`
+  在用户没设时会把 `AA_BACKEND` 设成**自动选出的链首**——那不是用户选择，却因此把链首强行插到最前：
+  ① 定时任务（`AA_CHAIN=mimo` + 00:00-08:00 折扣）实测从 opencode_go 起步，折扣白等；② 控制台取消勾选链首
+  （`AA_CHAIN=deepinfra+deepseek`）实测 `[deepseek, opencode_go, deepinfra]`，被取消的端点照样被用。
+  **修法**：`AA_BACKEND_AUTO=1`（三个自动选点都要打这个标记）⇒ 不组前置、也不把该端点从 `fallback_only`
+  兜底位提出来；`aa_prompt_prefix` 早就是同口径。**加新「自动选后端」的地方必须补 `AA_BACKEND_AUTO=1`**，
+  否则又会盖过勾选集（用例 `test_endpoint_pin.TestAutoBackendDoesNotOverrideChain`，含「三个自动选点都打了标记」的静态断言）。
+  注意：健康态端点轮询（`_chain_round` 全局指针）本身就会旋转链序，所以「组前置」只在无轮询（有 pin/降级记忆）时可见效果；
+  端点在 `AA_CHAIN` 过滤后**不在链上**时，旧逻辑是真把它**插入**链里——这类用例断言「用了哪些端点」而不是「谁是第一个」。
+- **别名表漏登记比漏分发更狠：静默回落「云端直连」**（2026-10-11 opencode_go 事故）。`aa_backend.backend()` 是
+  **手写 alias 表**，认不出 `AA_BACKEND` 就返回 `"cloud"` → `aa_translate.call_api` 改走云端直接模式
+  （`gateway=[default].gateway`、`model=AA_MODEL`），把**端点专属裸模型名**（如 opencode 的 `deepseek-v4.1-flash`）
+  发给别家网关 → `400 unsupported_model`、每块重试 5 次后失败 → **整章静默留日文**（实测 3 作品 254 块全灭，
+  93% 台词行没译）。触发条件很隐蔽：只在你**没显式**设 `AA_BACKEND`、由 runner `auto_backend()` 自动选链首时发生——
+  换链首（或任何认证新端点进链）后必查这四处：`backend()` 别名表 / `aa_config.model_env()`（漏回 `AA_MODEL`，
+  把端点专属模型名漏给云端直连）/ `_call_named()` 分发 / `selection._call_fn`。守卫用例
+  `scripts/tests/test_opencode_go.py::TestChainBackendRegistrations`（遍历 normal/r18/划词链 catalog 断言四处齐备）。
+  诊断口子：`call_api` 云端直连现在会在 stderr 喊一次「AA_BACKEND=X 未被识别 → 已回落云端直连」，
+  且失败消息带网关正文与 `gateway=/model=`。
 
 **旧坑（已修，别退回去）**：同一后端在链上出现两条（不同模型）时，**按后端名索引**的代码路径会重复或折叠**：
   预估/链上选择集（`estimate._chain_head` 的 `sel`）会出现同名两项、校对链模型表 `{后端:模型}` 折叠取后者，

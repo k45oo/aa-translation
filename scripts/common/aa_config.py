@@ -220,6 +220,10 @@ def model_env(name):
         "runinfra": "AA_RI_MODEL", "openrouter": "AA_OR_MODEL",
         "deepseek": "AA_DS_MODEL", "deepinfra": "AA_DI_MODEL",
         "dashscope": "AA_QS_MODEL",
+        # 2026-10-11: opencode 两门必列——缺项会回 "AA_MODEL"(=云端直连模型名),
+        # 而 "AA_MODEL" 存的是**端点专属模型名**(如 opencode 的 `deepseek-v4.1-flash`,
+        # 裸名不带 vendor 前缀)。后果见 aa_backend.backend() 同名注释。
+        "opencode_go": "AA_OCGO_MODEL", "opencode_zen": "AA_OCZEN_MODEL",
     }.get(name, "AA_MODEL")
 
 

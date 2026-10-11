@@ -20,7 +20,7 @@ grep -rn "<函数名>(" scripts/tests aa_web_app
 
 ## 3. 全量测试报失败：先判归属，再决定改谁
 
-1. **单跑该模块**：`.venv/Scripts/python.exe -m unittest scripts.tests.<mod> -v`。顺序/时间依赖或进程相关的用例（任务管理器/调度器类）单跑常自愈。
+1. **单跑该模块**：`.venv/Scripts/python.exe -m unittest discover -s scripts/tests -p "<mod>.py" -v`。**别写 `-m unittest scripts.tests.<mod>`**——那条路不把 `scripts/tests` 放进 `sys.path`，凡 `from _work_guard import repo_only` 的模块当场 ImportError（`ModuleNotFoundError: No module named '_work_guard'`），看起来像「测试文件坏了」其实是调用方式错；全量走 `discover -s scripts/tests`（也才带上玩具夹具路径）。顺序/时间依赖或进程相关的用例（任务管理器/调度器类）单跑常自愈。
 2. **要对照纯净版本**：`git worktree add --detach <scratch> HEAD` 后**只跑该模块**。别拿 worktree 跑全量 `discover`——`aaManga/`、`交付HTML/` 已被 `git rm --cached`，数据缺失会产生十几例与代码无关的假错误（`test_gen_html` 快照、`test_line_meta` 作品表等）。
 3. **并行会话的未提交改动**：`scripts/config/model_config.toml`、`glossary.json` 等常被其他会话改（例如给同一端点加第二条模型会让按后端名索引的用例常败）。`git diff` 看一眼，再判断是不是自己的锅——别去改别人正在改的文件。
 
@@ -62,3 +62,13 @@ r = M.api_replace_apply("e2e", M.ReplacePairsBody(pairs=[["a", "b"]], scope="all
 - **分开「崩溃」与「跑完但 0 结果」**：`全量完成 ✓` / `筛选 0 条` 是正常结局（语料空、无候选），
   失败必然带 traceback 或非 0 退出码。只看「没产出」会把正常结局当 bug 去修。
 - 包装脚本把崩溃报成成功（「无进度文件 = 已完成」）会让上一条更难判——排查时**退出码与产物两条都要对得上**。
+
+## 7. 前端 UI 改动的浏览器验收（别信代码，也别信旧 ref）
+
+- **两层证据都要有**：先用宿主 python/curl 直连接口证明后端按新口径返回（如 `GET /api/work/<id>/models` 的 `selected`/`head`），再用浏览器证明页面按这份数据渲染。只做一层时「后端对了前端没接」与「前端对了数据不对」长得一模一样。
+- **静态 JS/CSS 改了先 bump 模板里的 `?v=`** 再验，否则看到的可能是旧文件；改 `main.py` 路由要重启工作台，改模板/静态文件不用（Jinja 热加载 + `?v=` 变更即拉新）。
+- **点元素用页面内 `el.click()`，别用快照 ref**：`browser_console` 里写 `document.querySelector('#src-toggle .seg-btn[data-mode="src"]').click()`。快照 ref 可能对应上一轮页面状态，`browser_click` 会点到别的元素（实测点阅读器「原文」却跳去了首页作品列表）。
+- **一次 eval 内「点 → 等 → 读」**：切换/保存是异步的（先改 state、再 fetch 重渲染），点完立刻同步读 `dataset.mode`/行 HTML 会拿到旧值。用 async IIFE：`(async () => { const el = document.querySelector(...); el.click(); await new Promise(r => setTimeout(r, 400)); return {...}; })()`——`await` 一个 setTimeout promise 是可用的，读状态前必须先等渲染完。
+- **断言要读到 computed style，不能只看 class**：「点击有效但样式没变」类报障本质是 class 加了而 CSS 没生效/被覆盖，所以断言 `getComputedStyle(activeEl).backgroundColor/fontWeight` 与预期一致，并同时读该状态对应的 DOM 标记（如 `pre.dataset.mode`）与页面提示文本——三者一致才算改完。
+- **顺手看 console**：不传表达式的 `browser_console` 会回 console 消息与未捕获异常——一个 IIFE 抛错会让该页后续脚本整段不执行，症状正是「元素在、点了没反应」。
+- **验证跑完 `git status`**：真点按钮/真保存会写真实数据（edits.jsonl、sfx 标记、.env），要么走只看不改的路径，要么按留档还原；console 表达式写坏时还可能在仓库根留下残片文件。

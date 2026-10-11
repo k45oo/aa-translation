@@ -50,6 +50,8 @@ AA_DIR = os.path.join(ROOT, "aaManga", "白头与染灰魔女", "aa")
 OUT_DIR = os.path.join(ROOT, "aaManga", "白头与染灰魔女", "汉化")
 WORK_DIR = os.path.join(ROOT, "aaManga", "白头与染灰魔女", "work")
 WORK_ID = ""   # 2026-08-24: registry 模式下的作品 id（--work 传入），供章节级 R18 判定
+# 2026-10-11: AA_BACKEND 写了别名表不认识的名字时, 只在 stderr 提醒一次（否则每块都刷）
+_WARNED_UNKNOWN_BACKEND = set()
 
 
 FLAG_PER_CHUNK = 50          # flagged lines per API call
@@ -1018,6 +1020,16 @@ def call_api(system, body, max_tokens=MAX_OUT_TOKENS, timeout=400, work_r18=None
         sys.path.insert(0, os.path.join(_THIS_DIR, "common"))
         import aa_backend
         b = aa_backend.backend()
+        _bk_env = (os.environ.get("AA_BACKEND") or "").strip()
+        if _bk_env and _bk_env.lower() != "cloud" and b == "cloud":
+            # 2026-10-11: AA_BACKEND 是非 cloud 值但别名表不认 → 本函数静默改走云端直连
+            #   (gateway/model 取 [default], 与用户指定的端点无关)。症状: 块级 400 +
+            #   整章静默留日文(opencode_go 漏登记事故)。必须喊出来, 否则只能翻日志反推。
+            if _bk_env not in _WARNED_UNKNOWN_BACKEND:
+                _WARNED_UNKNOWN_BACKEND.add(_bk_env)
+                print(f"[warn] AA_BACKEND={_bk_env!r} 未被 aa_backend.backend() 识别 → 已回落**云端直连**"
+                      f"(gateway={_gateway()} model={_model()}), 并非你指定的端点；"
+                      f"要真的走它需在 aa_backend.backend() 别名表登记", file=sys.stderr, flush=True)
         # 2026-08-26 免费模式: 即使 AA_BACKEND 未设(cloud)也强制走 call_with_fallback
         # (免费链 + 无限重试); 否则 cloud 分支会走付费云端直接模式。
         _free_mode = os.environ.get("AA_FREE_MODE") in ("1", "true", "True")
@@ -1086,10 +1098,20 @@ def call_api(system, body, max_tokens=MAX_OUT_TOKENS, timeout=400, work_r18=None
                        u.get("output_tokens") or u.get("completion_tokens") or 0,
                        u=u, model=_CFG.get("default", "model"), backend="cloud")
             return out
+        except urllib.error.HTTPError as e:
+            # 2026-10-11: 旧实现直接把 HTTPError 拼进消息 → 只剩「HTTP Error 400: Bad Request」,
+            #   网关正文里的 {"code":"unsupported_model"} 这类可诊断信息全丢(排查只能靠猜)。
+            _detail = ""
+            try:
+                _detail = e.read().decode("utf-8", "replace").strip()[:300]
+            except Exception:
+                pass
+            last_err = RuntimeError(f"HTTP {e.code}: {_detail}") if _detail else e
         except Exception as e:
             last_err = e
         time.sleep(2 * (attempt + 1))
-    raise RuntimeError(f"API failed after retries: {last_err}")
+    raise RuntimeError(f"API failed after retries: {last_err} "
+                       f"[云端直连 gateway={_gateway()} model={_model()}]")
 
 def parse_result(text):
     res = {}
@@ -2685,14 +2707,10 @@ def main():
                         import aa_config as _CFG2
                         _b, _m = _CFG2.auto_backend(bool(cfg.get("r18")))
                         os.environ["AA_BACKEND"] = _b
-                        # 各后端 call_* 用专用 env(AA_QWEN_VL_MODEL/AA_ZP_MODEL/...), 按后端映射
-                        _model_env = {
-                            "qwen-vl": "AA_QWEN_VL_MODEL",
-                            "siliconflow": "AA_SF_MODEL", "commandcode": "AA_CC_MODEL",
-                            "mimo": "AA_MIMO_MODEL", "minimax": "AA_MM_MODEL",
-                            "runinfra": "AA_RI_MODEL", "openrouter": "AA_OR_MODEL",
-                        }.get(_b, "AA_MODEL")
-                        os.environ.setdefault(_model_env, _m)
+                        # 各后端 call_* 用专用 env(AA_QWEN_VL_MODEL/AA_OCGO_MODEL/...), 映射**唯一来源**
+                        # = aa_config.model_env（2026-10-11 收敛：此处曾自带一份手写 dict，
+                        #   新增 opencode_go 时漏项 → 回 "AA_MODEL" → 云端直连 400，见 aa_backend.backend() 注释）
+                        os.environ.setdefault(_CFG2.model_env(_b), _m)
                         _r18tag = "R18" if cfg.get("r18") else "非R18"
                         print(f"[auto-backend] {wid} {_r18tag} -> {_b} / {_m}", flush=True)
                     else:
@@ -2721,6 +2739,10 @@ def main():
                             print(f"[auto-backend] {wid} {_level}/章节级判定 -> {_b3}/{_m3}(r18链首, 防cloud直连mimo漏译)", flush=True)
                 except Exception as _e:
                     print(f"[auto-backend] 自动选择失败({_e}), 用默认后端", flush=True)
+                # 2026-10-11: 上面设的是**自动**选的后端(非用户手写) → 打标记:
+                #   aa_backend 的「组前置」/章内 pin/公共前缀都据此让位(链序以 AA_CHAIN 为准)。
+                if os.environ.get("AA_BACKEND"):
+                    os.environ["AA_BACKEND_AUTO"] = "1"
         pilot = None
         for j, a in enumerate(argv):
             if a.startswith("--pilot"):

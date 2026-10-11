@@ -1,6 +1,6 @@
 ---
 name: aa-site-parsers
-description: Use when 新增/扩展AA站点解析器(FC2帖头双格式/R18年龄门/add_work注册).
+description: Use when 新增/扩展AA站点解析器或登记同作异站镜像(FC2帖头双格式/R18年龄门/add_work注册).
 ---
 
 # AA 站点解析器开发（新增站点/扩展下载）
@@ -60,6 +60,10 @@ FC2 R18 博客（如 mukankei769.blog114.fc2.com）有年龄确认页：
 
 **登记后校验**（全零 token）：`py_compile scripts/works/registry.py`；`git diff --stat` 应只多自己那一条；`grep -cP '\r[^\n]'` 应 0——registry 是 CRLF，**用 python 重写它必须 `open(..., newline="")` 读写**（默认 text 模式把 `\r\n` 读成 `\n`、写回整文件变 LF）；下载后抽一章核 `帖头数 / 作者帖数 / [?] 数`（`[?]` 应 0；少量「非作者帖」是 `名無しさん＠狐板`，正常）+ `chapter_order.json` 正序。
 
+**清单/顺序文件由下载任务自动落盘**：r401 系新作品只要有 `r401_cid`，下载后 `work/chapters.json`（440 条）+ `work/chapter_order.json`（原站正序）就已在位，不必手工生成。
+
+**`aa_web_app/data/work_meta.json` 插入新作品条目**：整文件一个作品一个 key、**CRLF**——插入做文本级（锚在参照作品条目结束处 `\r\n  },\r\n` 之后），别 `json.dump` 整文件（会把全文件换成 LF，diff 满屏）。改完 `json.load` 校验 + 数 `\r\n`；同作异站要**沿用同一 `pipeline`**（`pipeline=pokemon` 作品的新站副本别写成 generic，否则 runner 走错链 / 被拒跑），`author`/简介/`关联度` 照旧作抄。
+
 ## 帖头格式变体速查（FC2 系实测）
 
 | 变体 | 示例 | 处理 |
@@ -75,6 +79,13 @@ FC2 R18 博客（如 mukankei769.blog114.fc2.com）有年龄确认页：
 
 ## 正文容器变体速查
 
+- 裸 `<div>` + 纯 `<br>`（无 dl/dt/dd、无 class 的 FC2 博客，如 `inzainewtown.blog.fc2.com`）：整篇 AA 塞在一个 `<div style="font-size: medium;">` 里，行程间只有 `<br>`；帖头 `NNN 名前：作者 [] 投稿日：YYYY/MM/DD(…) HH:MM:SS ID:xxx [n/m]`。**模板直接抄 `sites/yaruocheck.py`**：`extract_article` 命中 `<div class="entry_body">`，截断标记补 `fc2_footer` / `relate_dl`（正文后紧跟 fc2button 分享块，不截会把按钮 HTML 当正文行），`parse_posts` 的「单 `<br>` = 模板空行跳过、连续 2+ `<br>` = 分镜空行保留」正合用；禁改成整段 `clean()`（见下节丢空行坑）。
+
+  抄 `yaruocheck` 时三个必改点（不改都**静默丢帖**，只有全库自检能发现，单章抽查看不出）：
+  1. **帖头判定必须容许行首 ASCII 空白**：部分章节整篇带 `&nbsp; &nbsp; ` 模板缩进 → `clean()` 后帖头行以空格开头，`^\d+\s*名前：` 漏判 → 整帖被并进上一帖（实测 3 章丢 42 帖）。判定写 `^[ \t]*(?:\d+[ \t]*)?名前：[^\n]{0,80}?投稿日：`；**U+3000 绝不能用 `str.strip()` / `lstrip()` 无参处理**——全角空格是 AA 对齐字符，会被一起吃掉、列位全错，只允许 `lstrip(' \t')` / `rstrip(' \t')`。
+  2. **帖头要当行界预断行**：该站有的日子把每帖包进独立 `<div>`/`<p>`，`</p><div><span>NNN 名前：…` 直接续在上一行正文后面（中间没有 `<br>`）→ 逐 `<br>` 切分的循环根本看不到帖头。切分前先 `seg = re.sub(r'(?<!\d)(?=[ \t]*\d+[ \t]*名前：)', '\n', seg)`；**`(?<!\d)` 负向后顾不能省**——漏了会在数字串内部插换行，`10 名前：` 被拆成 `1` + `0 名前：`（全库 440 章当场全坏，靠 sha1 快照 diff 才发现）。
+  3. **原站自带缺楼号的帖头**（`名前：NEO坊 ◆… 投稿日：… ID:…`，整部只有 2 处但要认）：判定正则楼号段可缺省（同上），`render_header` 的 `HEADER_RE` 楼号段写 `\d*`；否则该行既不被当帖头、渲染又返回 None（会被当正文行送模型）。
+  行级口径：含标签的碎片按 `\n` 逐行判定帖头、逐行 `lstrip(' \t')` + `rstrip(' \t')`（与 `_base.clean` 的 per-line rstrip 同口径，ASCII 尾空白可去、U+3000 不动）；纯文本碎片原样保留。
 - `iitokolo_fc2`：`<div class="article">` 直排（无 dl/dt/dd），`</div><div>` 包行先转 `<br>`。
 - `mukankei_fc2`：老式表格模板，`<p class="FontTitle">■日期　<a id="EID">标题` 起——**页面顶部有同 class 导航 FontTitle，必须用 id=eid 锚点**；截到 fc2_footer/relate_dl，`rfind('<div', i, k)` 找标签边界不留半个标签。
 - 评论 `<a name="commentNNNN">` 在 relate_dl **之后** = 博客评论非原スレ对话，不保留（对比 fc2.py 的 comment_cut 是原スレ对话必须保留）。
@@ -184,6 +195,17 @@ r401 分类页/镜像站常把**同一作者的同一批帖子**在多个站各�
 4. 保留章体检：帖头数、`[?]`=0、`# 原帖地址` 抓一条应 200。
 5. 回复里写清：备份路径 + 判据（覆盖率）+ 每个被删章对应的旧作章节，让用户能复核而不是只能相信结论。
 
+### 同一作品的另一站点（新站镜像）：先判同一性，再定名字（绝不混进已有汉化的作品）
+
+用户丢来「某作品在另一个站点」的分类页时按序做：
+
+1. **拿新站清单**：`python scripts/common/r401_index.py category <cid> --all --json <原生路径>.json`。
+   `--all` 必须带——不加只回分类页**一页 40 条**（页尾「共 40 条」，看着像全集）；**未知参数会被当 cid 拿去 fetch**（回 urllib 404 traceback，别误判成站点挂了）。JSON 结构 `{title, site_link, entries:[{eid,title,url,date,arcid}]}`，条目**新→旧**倒序（`dl_runner.load_entries` 自己 reverse）。JSON 写到 bash `$TMPDIR`/`/tmp` 后原生 python 读不到（MSYS `/tmp` ≠ Windows 临时目录），一律给 `F:/...` 原生路径或 `$LOCALAPPDATA/Temp`。
+2. **判同一性：比帖头，不看标题**。取本地任一章 `aa/*.txt` 的帖头与新站任一页的帖头，比 **res 号 + `投稿日` 时间戳 + `ID:`** —— 三项全同即同一篇帖子（同作异站）。一条 `search_files`（terminal 里 `grep` 亦可）定案，零下载，别抓全文、别用 tavily 抽正文。
+3. **镜像的章号不可信**：实测 yaruobook 镜像的「第1話/第2話」与 r401/原站的「第一話/第二話」整体错位（本地「第2話」的 res 1 = 原站「第一話」的 res 1，本地「第1話」却是 res 353-680 一段）⇒ **禁按话数标签做跨站章节映射**，两侧话数差也不能当「新站多/少 N 话」报给用户。
+4. **归属决策交用户**：同作异站一律**独立作品 id**，绝不与已有汉化/交付物的作品共目录（否则 ckpt/术语表/交付夹互相污染）。给 2~4 个候选（独立目录 `<作品>_<站点>` / 同目录 + `_fc2` 子目录 / 反向占名让旧版改名）+ 推荐在前 + 一句理由，等回话再建 registry/work_meta/chapters.json。先例：`saki_fc2` = 同目录 + `aa_fc2`/`work_fc2`/`raw_fc2` 子目录；`jikan_yaluo`（r401 19401）vs `jikan_teishi` = 两个独立目录。
+5. 落地照「分类页直连登记」六步走；下载仍走 `python aa_web_app/task_manager.py enqueue --type download --work <id> --chapters all`（硬约束），零 token。
+
 ## 铁律四：存量 r401 作品的 site 可能错配 → 原文 txt 全 0KB
 
 **r401 多站分类的存量作品（非本次新加）可能 registry `site` 标错**（当时注册默认 yaruobook），而真实来源是别的站。症状：**aa/ 目录所有 txt 均为 0KB**（extract_all 用错解析器 → 0 行），但 raw html 大小正常。
@@ -202,7 +224,7 @@ Python 源码字符串字面量里，**路径反斜杠必须写成 2 个**（`\\
 
 诊断：import registry 后 `[(i,hex(ord(c))) for i,c in enumerate(raw_dir) if ord(c)==13]` 有 CR，但磁盘 hex `od` 是 `5c 72 61 77`（\raw）——**源码 1 反斜杠 → 运行时 CR**。其他字段（aa_dir/out_dir/work_dir）都是 `\\` 双反斜杠正常成 `\\`（1 字面）——唯独 raw_dir 若写 1 反斜杠就中招。
 
-修复：字节级替换 `name_b + b"\\raw'"`（1 反斜杠）→ `name_b + b"\\raw'"`（2 反斜杠）。**改含 `\r` 路径的代码用 python 脚本字节替换（勿用 patch 工具/heredoc）**，改完 `py_compile` + `od -c` 校验。
+修复：字节级替换 `name_b + b"\\raw'"`（1 反斜杠）→ `name_b + b"\\raw'"`（2 反斜杠）。**改含 `\r` 路径的代码用 python 脚本字节替换（勿用 patch 工具/heredoc）**，改完 `py_compile` + `od -c` 校验；**落盘后最快的体检是 `grep -nP '\r[^\n]' scripts/works/registry.py`（应 0 行）**。注意 patch 工具本身也是触发点：`new_string` 里的 `\r` 段（`\raw`、`\release`、`\renamed`…）经参数层解码就成真 CR，写前就该把它写成双反斜杠或改用 python 写文件。
 
 ## 验证清单（新增解析器后）
 
@@ -211,6 +233,10 @@ Python 源码字符串字面量里，**路径反斜杠必须写成 2 个**（`\\
 3. 微小文件（<5 行）排查：非正文页 vs 解析遗漏。
 4. `extract_all.py --work <id>` 全量重提 + 帖头/行数统计。
 5. dl_runner 端到端（先 `--chapters` 2 章验证年龄门/解析，再全量）。
+6. **全库结构自检（零 token，必跑）**：逐章断言 `"\n".join(site.extract(raw))` == 存的 `aa/*.txt`（逐字节）+ `帖头数(raw 全文件) == 帖头数(txt 行首)`。任一处不等 = 漏帖/漏行；上面两个丢帖 bug 只有这一条抓得出来。
+7. **跨镜像逐帖比对当保真判据**：同作若另有镜像（yaruobook 等），按 `res 号 + ID:` 配对同一帖、正文逐字节比——一致率≈100% 才叫解析对了；镜像自己插的分隔线（`━━━` 之类）差 1~2 处属正常。比「话数/标题」毫无意义（章号跨站错位）。
+8. **改解析器后重提全库前先存 sha1 快照**，重提后 diff 只应列出预期文件；一次改动波及全部文件 = 断行/切分位置写错（如漏写负向后顾），立刻回退再改。
+9. **新增 `scripts/` 下任何 `.py` 后必须重跑生成物**：`python scripts/tools/gen_inventory.py` + `python scripts/tools/gen_interface_docs.py`。否则 `.venv` 全量测试必红两条 `test_interface_docs`（inventory 缺文件 / 接口文档过期）——这不是环境问题，是门禁，别去改用例。
 
 ## 作品发现搜索（aa_search.py，2026-09-01 新增 / 09-03 增强）
 

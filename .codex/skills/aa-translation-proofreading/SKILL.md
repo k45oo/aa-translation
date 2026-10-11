@@ -225,6 +225,17 @@ call_api 在 AA_BACKEND 未设时走**云端直接模式**（commandcode 网关�
 - 脚本：`temp/repair_refine_regress.py <work> [--write] [--fix-pairs "点数=信用点"]`（dry-run 默认；写盘前自动备份 `work/backup_refine_regress_<ts>/`）。**step1 回填会带回当时的专名写法**（如 やる夫），若之后跑过术语替换（tr_replace_history.json）要补应用同款替换，否则等于回退用户的术语决定（本会话实踩）。
 - **验收**：`scan_width --work <id>`（width 0 且 art-align 不新增）+ 重跑脚本应报「仍带伤 0 行」。
 
+## 半译行 / 艺术段：现行两条判据的结构性盲区（改判据前先读）
+> 归因方法（用 `work/edits.jsonl` 当标注集 + 备份快照归因 + 阈值标定曲线）→ `bulk-pipeline-changes/references/edit-log-forensics.md`。
+
+- **一行里「部分段没翻」全链无人接手 = 成品残留日文的最大来源**（实测占某作人工修正 42.6%）。根因：`refine_aa._is_real_missed` 判据②写的是「TR 台词区**任一**段含中文汉字 = 已翻」→ 行里只要有一段中文，整行就被判「已翻」跳过，剩下的日文段永久留下（实测 `那也太——　って思って`、`我觉得那边更好　皆喜んでるよ` 型：该行返回 False，而 `_tail_dial_seg` 明明定位得到那段日文）。而主链段级协议末轮「接受部分成功」正是把失败段退回原文（有意设计，比整行丢弃好）→ 两条叠起来 = 半译行必落成品。
+  - 检测口径：**逐段**判「该段内容是否原样出现在产物行里」（不要用序列比对的 changed 块找它，残留区间是 equal 块；也不要用「整行是否含中文」判）。再按段的 `confidence` 分档报：`conf<0.65` 的段主链不送、refine 又要段宽≥6 → 两头都不发，是永久残留。
+  - 修法方向：`_is_real_missed` 改逐段判定 + 低置信但有决定性证据的段纳入补译目标。
+- **写死的 ART_KATA/ART_HIRA 追不上具体作品**：作品把 ア/イ/キ/ト/セ/フ/ニ 当笔画用时（不在表内），`_art_kana_only` / `_rule_dialogue_run_ok`（尤其「≥2 汉字且无相邻重复字即台词」这条）会把它们判成台词送模型 → 变成 `ア→啊`、`キト→基特`、`ノイ→不要`、`笏外→抱歉`。实测该条判据命中的段里 **84% 是艺术**。正解是按**交付语料标定**（产物行逐字节 == 源 的行当艺术真值，统计每字符/片段的艺术比，随作品落盘，与旧表取并集；阈值-拦截率-误杀率曲线见上述 references §4）。
+- **装饰段只在「译文更宽」时被否**：`aa_translate.translate_lines_mixed._mixed_seg_verdict` 对「无真实假名、无汉字」的段只拒 `disp_width(译文) > disp_width(源段)` → **等宽中文替换艺术笔画判 ok 直接落盘**（`ア　　`→`啊`、`ﾆﾆ`→`嗯嗯`）。段级校验要改成「艺术段必须**逐字原样保留**」，不是只比宽度。
+- **refine 现场重判 `segment_line` 是对的，但必须同时接行级艺术否决**：refine 不信磁盘 `meta.kind`（元数据会误判），纯艺术行也重判 → 一条 `kind=art`/无 segments 的图形行会被切出 text 段送 swallow「补译」而改坏画面（实测某批艺术损伤 **76% 由 refine 引入**，行级 `art_line_veto` 在 refine 里没接线）。**改 refine 判据时，行级否决与段级判据必须同一套口径。**
+- **改了 `tools/line_classify_v2.py` 必须为每个作品重生 `work/line_meta_v2/`（零 API）**：它是主链选段的输入，不重生则改动对主链完全无效（诊断：比 meta 文件 mtime vs 脚本 mtime）。refine 现场重判不受影响 → 会呈现「refine 改善了、主链一点没变」的假象，容易误判成「改判据没用」。
+
 ## refine_aa 已知缺陷（2026-09-06 17810 用户14行黄金样本）
 - **逐字空格版台词提取失败**：主流程整行翻译产物把台词写成 `这 次 听 说 国 王…`(字间空格) + U+3000 垫宽，`fix_mixed_drift.extract_translations` 的 `_CJK` 正则不含空格 → 只抓到单字(害/。)，rebuild 回填残缺。修复方向：正则允许字间空格 `[CJK]+(?:[ \u3000][CJK]+)*`，artset 过滤前剥空格。
 - **kind=text 错位行被 refine 跳过**：SRC 行首 art(房子/立绘)被 meta 切成 conf<0.65 text 碎段或 kind=art，line_kind=text → refine 主循环 `kind!='mixed': continue` → 错位不修。修复方向：text 行含 art 段且 `_verify_art_alignment` False 也走 rebuild。

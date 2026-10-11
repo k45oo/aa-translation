@@ -244,6 +244,7 @@
      "tests.test_manual_fix",
      "tests.test_mixed_seg_rule",
      "tests.test_mixed_segments",
+     "tests.test_opencode_go",
      "tests.test_pipeline",
      "tests.test_pokemon_fixed",
      "tests.test_pre_terms",
@@ -565,8 +566,10 @@
     "AA_MIMO_MODEL",
     "AA_MIMO_URL",
     "AA_MM_MODEL",
+    "AA_OCGO_MODEL",
     "AA_OCGO_SESSION",
     "AA_OCGO_URL",
+    "AA_OCZEN_MODEL",
     "AA_OCZEN_URL",
     "AA_OLLAMA_MODEL",
     "AA_OLLAMA_URL",
@@ -832,6 +835,7 @@
      "common.aa_backend",
      "common.aa_config",
      "tests.test_aa_env",
+     "tests.test_model_choice",
      "tests.test_settings_page",
      "tests.test_stability",
      "tools.aa_web",
@@ -2770,6 +2774,7 @@
      "tests.test_manual_fix",
      "tests.test_mixed_seg_rule",
      "tests.test_mixed_segments",
+     "tests.test_opencode_go",
      "tests.test_pipeline",
      "tests.test_pokemon_fixed",
      "tests.test_pre_terms",
@@ -7970,6 +7975,7 @@
     "imports": [
      "_work_guard",
      "aa_config",
+     "aa_env",
      "aa_web_app",
      "json",
      "os",
@@ -7998,6 +8004,7 @@
    "cli": "no-cli",
    "argparse": [],
    "env_vars": [
+    "AA_BACKEND",
     "AA_OCGO_SESSION"
    ],
    "refs": {
@@ -8005,6 +8012,9 @@
      "_work_guard",
      "aa_backend",
      "aa_config",
+     "aa_translate",
+     "ast",
+     "contextlib",
      "io",
      "json",
      "os",
@@ -8012,7 +8022,9 @@
      "unittest",
      "urllib"
     ],
-    "subprocess": [],
+    "subprocess": [
+     "aa_backend.py"
+    ],
     "referenced_by": [],
     "webapp": [],
     "docs": []
@@ -8691,11 +8703,15 @@
    "grade": "test",
    "cli": "no-cli",
    "argparse": [],
-   "env_vars": [],
+   "env_vars": [
+    "AA_SEL_CHAIN"
+   ],
    "refs": {
     "imports": [
      "aa_backend",
      "aa_config",
+     "contextlib",
+     "io",
      "os",
      "selection",
      "sys",
@@ -10918,6 +10934,7 @@
     "--branch",
     "--check",
     "--dry-run",
+    "--history",
     "--keep",
     "--max-mb",
     "--remote"
@@ -10926,6 +10943,7 @@
     "--branch",
     "--check",
     "--dry-run",
+    "--history",
     "--keep",
     "--max-mb",
     "--remote"
@@ -10941,6 +10959,7 @@
      "subprocess",
      "sync_codex_skills",
      "sys",
+     "tarfile",
      "tempfile",
      "time",
      "works"

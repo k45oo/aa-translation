@@ -276,6 +276,16 @@ def backend():
             return "deepinfra"
         if vl in ("dashscope", "ds2", "aliyun", "qwen-cn", "阿里"):
             return "dashscope"
+        # 2026-10-11: opencode 两门（Go 门 / Zen 门）——**漏登记 = 静默回落云端直连**：
+        #   AA_BACKEND=opencode_go 时 backend() 返回 "cloud" → aa_translate.call_api 走
+        #   云端直接模式(gateway=[default].gateway=commandcode, model=AA_MODEL)，把
+        #   opencode 专属裸模型名 `deepseek-v4.1-flash` 发给 commandcode →
+        #   400 unsupported_model、每个块重试 5 次后失败 → **整章静默留日文**
+        #   (2026-10-10/11 三个作品 254 个块全灭：供給源/ハーレム大王国/ドスケベナイト)。
+        if vl in ("opencode_go", "opencode-go", "ocgo", "opencode go"):
+            return "opencode_go"
+        if vl in ("opencode_zen", "opencode-zen", "oczen", "opencode zen"):
+            return "opencode_zen"
     # 未设 → cloud(原语义: 走 call_api 自带的云端直接模式, gateway/model/key 从配置 [default] 读)
     return "cloud"
 
@@ -609,7 +619,8 @@ def call_opencode_zen(system, body, max_tokens=16384, timeout=180, temperature=0
     url = os.environ.get("AA_OCZEN_URL") or _url(
         "opencode_zen", "https://opencode.ai/zen/v1/chat/completions")
     k = _zen_free_key() if key == "FREE" else (_zen_key() if key is None else key)
-    return _zen_chat(system, body, url, k, "opencode_zen", "mimo-v2.5-free", model=model,
+    return _zen_chat(system, body, url, k, "opencode_zen",
+                     os.environ.get("AA_OCZEN_MODEL") or "mimo-v2.5-free", model=model,
                      temperature=temperature, max_tokens=max_tokens, timeout=timeout,
                      retries=retries, tag=tag)
 
@@ -629,7 +640,9 @@ def call_opencode_go(system, body, max_tokens=16384, timeout=180, temperature=0.
         "opencode_go", "https://opencode.ai/zen/go/v1/chat/completions")
     key_env = _backend_cfg("opencode_go").get("key_env") or "OPENCODE_GO_API_KEY"
     k = key or _read_env_key(key_env, _env_file_paths()) or _zen_key()
-    mdl = model or _model("opencode_go", "deepseek-v4.1-flash")
+    # 2026-10-11: 支持 AA_OCGO_MODEL(与 call_deepseek 的 AA_DS_MODEL 同口径)——链条目 model
+    #   优先级最高, 这里只是给「直接调 call_opencode_go 不带 model」的场景一个显式覆盖口。
+    mdl = model or os.environ.get("AA_OCGO_MODEL") or _model("opencode_go", "deepseek-v4.1-flash")
     return _zen_chat(system, body, url, k, "opencode_go", "deepseek-v4.1-flash", model=mdl,
                      temperature=temperature, max_tokens=max_tokens, timeout=timeout,
                      need_session=True, retries=retries, tag=tag)
@@ -759,6 +772,9 @@ def call_with_fallback(work_r18, system, body, max_tokens=16384, timeout=180, lo
 
     - 显式设 AA_BACKEND=N 时: 从 N 开始, 失败后按配置链依次尝试其后候选
       (配置链按 work_r18 取 r18_backends/normal_backends)。
+    - **AA_BACKEND_AUTO=1(runner 自动选的链首)例外**: 那只是代码默认, 不参与「组前置」——
+      链序/勾选集以 `AA_CHAIN` 为准(2026-10-11, 否则定时任务的 AA_CHAIN=mimo 与控制台取消
+      勾选链首都会被盖过)。用户手写的 AA_BACKEND 照旧组前置。
     - 未设时: 从配置链第一个可用的开始。
     - 记住当前可用后端(_PREFERRED_BACKEND), 后续调用优先复用, 避免每次从链头重试已坏的。
     - low_r18(2026-08-25): 低含量 R18 作品的 yes 章——忽略显式 AA_BACKEND(防 normal
@@ -771,7 +787,17 @@ def call_with_fallback(work_r18, system, body, max_tokens=16384, timeout=180, lo
         return _call_free_chain(system, body, max_tokens=max_tokens, timeout=timeout)
     chain = [t for t in aa_config.backend_chain(work_r18)]
     explicit = os.environ.get("AA_BACKEND")
-    if explicit and explicit.lower() not in ("cloud", ""):
+    # 2026-10-11: 区分「用户显式指定」与「runner 自动选出的链首」(AA_BACKEND_AUTO=1)。
+    #   自动选出的是**代码的默认**, 不是用户选择 → 不参与下面的「组前置」, 否则会把链首强行插到
+    #   最前面, 盖过 AA_CHAIN 勾选集。实测症状(修复前):
+    #     ① 定时任务只写 AA_CHAIN=mimo → 实际尝试顺序 [opencode_go, mimo]（「只走小米 + 00:00-08:00
+    #        折扣时段」被绕过, 白等折扣）
+    #     ② 控制台取消勾选链首(AA_CHAIN=deepinfra+deepseek) → [deepseek, opencode_go, deepinfra],
+    #        被取消的 opencode_go 照样被用
+    #   `aa_prompt_prefix` 早就是同口径(自动值不参与拼接), 这里补齐。
+    _auto_bk = os.environ.get("AA_BACKEND_AUTO") in ("1", "true", "True")
+    _user_explicit = bool(explicit) and explicit.lower() not in ("cloud", "") and not _auto_bk
+    if _user_explicit:
         if not low_r18:
             # 低含量 R18 的 yes 章(low_r18=True)忽略显式 AA_BACKEND——否则 R18 作品的
             # auto_backend 会把 normal 链首提到链首覆盖章节级选择(2026-09-07: 原 zhipu
@@ -801,7 +827,7 @@ def call_with_fallback(work_r18, system, body, max_tokens=16384, timeout=180, lo
         _bottom = aa_config.fallback_only_names(work_r18)
     except Exception:
         _bottom = set()
-    if explicit and explicit.lower() in _bottom:
+    if _user_explicit and explicit.lower() in _bottom:
         _bottom = _bottom - {explicit.lower()}
     _rot = [t for t in chain if t[0] not in _bottom] if _bottom else chain
 
@@ -813,7 +839,6 @@ def call_with_fallback(work_r18, system, body, max_tokens=16384, timeout=180, lo
     # 而健康态旧逻辑"每次调用都轮询"会把同一章打散到零命中的网关 → 白丢 79% 输入折扣。
     # 显式 AA_BACKEND(非 cloud) 是用户的手动选择 → 不抢着 pin（否则 AA_BACKEND=deepinfra 会被钉回官网）。
     _explicit_bk = (os.environ.get("AA_BACKEND") or "").lower()
-    _auto_bk = os.environ.get("AA_BACKEND_AUTO") in ("1", "true", "True")
     if aa_config.pin_cache_endpoint() and (not _explicit_bk or _explicit_bk == "cloud" or _auto_bk):
         _pin = _cacheable_endpoint(_rot)
         if _pin:

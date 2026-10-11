@@ -220,5 +220,95 @@ class TestFallbackOnlyEndpoint(unittest.TestCase):
         self.assertNotIn("deepseek", self._fb_fn(False))
 
 
+class TestAutoBackendDoesNotOverrideChain(unittest.TestCase):
+    """runner 自动选出的 AA_BACKEND（`AA_BACKEND_AUTO=1`）**不得**参与「组前置」（2026-10-11）。
+
+    它只是代码默认（链首），不是用户选择；一旦组前置就会盖过 `AA_CHAIN` 勾选集，实测症状：
+      · 定时任务（`AA_CHAIN=mimo` + 折扣时段）实际从链首 opencode_go 起步 → 折扣白等
+      · 控制台取消勾选链首（`AA_CHAIN=deepinfra+deepseek`）→ 被取消的端点照样被用
+    用户**手写**的 AA_BACKEND 仍照旧组前置（`test_用户手写仍组前置` 守着这条不被改坏）。
+    """
+
+    # 模拟 `AA_CHAIN` 过滤后的链：自动链首 opencode_go 已被排除在外
+    CH = [("mimo", "mimo-v2.6-flash"), ("deepseek", "deepseek-flash")]
+
+    def setUp(self):
+        self._osc = {k: os.environ.get(k) for k in
+                     ("AA_PIN_CACHE_ENDPOINT", "AA_FREE_MODE", "AA_BACKEND", "AA_BACKEND_AUTO")}
+        for k in ("AA_PIN_CACHE_ENDPOINT", "AA_FREE_MODE", "AA_BACKEND", "AA_BACKEND_AUTO"):
+            os.environ.pop(k, None)
+        self._chain_fn = C.backend_chain
+        self._fb_fn = C.fallback_only_names
+        C.backend_chain = lambda work_r18: list(self.CH)
+        C.fallback_only_names = lambda work_r18: set()
+        self._call_named = AB._call_named
+        self._round_i = AB._chain_round["i"]     # 端点轮询指针是模块级共享状态：本类多发了几次调用
+        AB.reset_preferred_backend()             # 就会让下游用例的起始端点错位（如 pin 类那条
+                                                 # test_explicit_backend_not_hijacked_by_pin）→ 用完还原
+
+    def tearDown(self):
+        C.backend_chain = self._chain_fn
+        C.fallback_only_names = self._fb_fn
+        AB._call_named = self._call_named
+        AB._chain_round["i"] = self._round_i
+        for k, v in self._osc.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        C.reload()
+        AB.reset_preferred_backend()
+
+    def _sweep(self, n=3):
+        rec = _Recorder()
+        AB._call_named = rec
+        for _ in range(n):
+            AB.call_with_fallback(False, "sys", "b")
+        return [b for b, _ in rec.calls]
+
+    def test_自动选的后端不被塞进链(self):
+        os.environ["AA_BACKEND"] = "opencode_go"
+        os.environ["AA_BACKEND_AUTO"] = "1"
+        used = self._sweep()
+        self.assertNotIn("opencode_go", used,
+                         "自动选的后端被组前置/插头 → 盖过 AA_CHAIN 勾选集(定时 mimo/取消勾选链首都因此失效)")
+        self.assertTrue(set(used) <= {"mimo", "deepseek"})
+
+    def test_控制台勾选集全落空也只用勾选内的端点(self):
+        """AA_CHAIN=deepinfra+deepseek（取消勾选链首）→ 自动链首不得混进来。"""
+        C.backend_chain = lambda work_r18: [("deepseek", "deepseek-flash"),
+                                            ("deepinfra", "deepseek-ai/DeepSeek-V4.1-Flash")]
+        os.environ["AA_PIN_CACHE_ENDPOINT"] = "0"   # 关 pin 看端点轮询（pin 会把整章钉在一个端点）
+        os.environ["AA_BACKEND"] = "opencode_go"
+        os.environ["AA_BACKEND_AUTO"] = "1"
+        used = self._sweep(4)
+        self.assertNotIn("opencode_go", used)
+        self.assertEqual(set(used), {"deepseek", "deepinfra"})
+
+    def test_用户手写仍组前置(self):
+        """没有 AA_BACKEND_AUTO 标记 = 用户手写 → 照旧组前置（行为不能被这次改动改坏）。"""
+        os.environ["AA_BACKEND"] = "opencode_go"
+        used = self._sweep(3)
+        self.assertIn("opencode_go", used)
+
+    def test_自动值不会把兜底端点提上来(self):
+        """AA_BACKEND 自动选到兜底端点也不能让它进健康态轮询（fallback_only 语义优先）。"""
+        CH = [("deepseek", "deepseek-flash"), ("commandcode", "muse")]
+        C.backend_chain = lambda work_r18: list(CH)
+        C.fallback_only_names = lambda work_r18: {"commandcode"}
+        os.environ["AA_BACKEND"] = "commandcode"
+        os.environ["AA_BACKEND_AUTO"] = "1"
+        used = self._sweep(4)
+        self.assertNotIn("commandcode", used)   # 只留链尾降级, 不参与轮询
+
+    def test_自动标记写在三个自动选点(self):
+        """所有「代码自己选后端」的地方都要打 AUTO 标记，否则组前置又会复活。"""
+        for rel in ("runner/translate_runner.py", "aa_translate.py", "fix/refix_mixed_segs.py"):
+            p = os.path.join(SCRIPTS, rel)
+            with open(p, encoding="utf-8") as f:
+                src = f.read()
+            self.assertIn("AA_BACKEND_AUTO", src, f"{rel} 自动设了 AA_BACKEND 却没打 AUTO 标记")
+
+
 if __name__ == "__main__":
     unittest.main()

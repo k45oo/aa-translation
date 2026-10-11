@@ -171,12 +171,30 @@ python scripts/tools/build_release.py [--out DIR] [--no-exe] [--keep-stage] [--n
 | 随包 wiki 素材 | `build_release.WIKI_*`（只带翻译必需的 JSON，**不带 `_raw/` 抓取缓存与 `index.html`**） |
 | 作品痕迹清空范围 | `write_skeletons()`：`glossary.json`（作品/角色/替换对/**`known_names` 残留白名单**）与 `roles.json` **随包给真表**（用户指定，开箱即用）；`work_meta.json` 只留示例作品 |
 | 顶层白名单 | `build_release.TOP_ENTRIES`（多一个条目就拒出包） |
+| 随包图文手册 | `build_release.stage_manual()`（复制到包根 + 图片链接前缀改写为 `doc/使用说明图/`）；`TOP_ENTRIES` 与 `gates()` 的 `must` **两处都要加** |
 | 起子任务前缀 | `scripts/common/aa_spawn.py`（`py_prefix`/`child_env`）；新增 spawn 点别漏 |
 | exe 依赖清单 | `build_workbench_exe._scan_third_party()`（问 staging 的 `check_imports.scan()`）+ `COLLECT_SUBMODULES`/`COLLECT_DATA` |
 | exe 数据根持久化 | `aa_web_exe._bootstrap_registry()`（registry 落数据根 + sys.path 优先；**须在任何分支前**，`--cli` 也要） |
 | registry 归属自检 | `scripts/tools/check_registry.py`（`--cli` 子进程实际命中哪份 registry） |
 | 图片漫画注册表 | `transform_image_manga()`（清空 `IMAGE_MANGA`——表里是生成者本机图片目录；硬门禁断言空表，exe 探测断言 `/manga` 0 行） |
 | 脱敏规则 / 豁免目录 | `release_common.DESENS` / `NO_DESENS_DIRS` / `LEFTOVER` |
+
+## 随包图文用户手册
+
+- **源文件放仓库 `doc/<手册>.md`，出包时复制到包根**（与 `README.md` 并排，使用者解包就看得到），配图留在包内 `doc/使用说明图/`。
+  手册里的图片链接按**自身相对路径**写（`使用说明图/xxx.png`），复制到包根时改写前缀为 `doc/使用说明图/xxx.png`——
+  同一个 md 在仓库与包内两个基准目录下都能解析。
+- **`TOP_ENTRIES` 与 `gates()` 的 `must` 都要加**：只加白名单 → 门禁拦不住漏带；只加 `must` → 直接拒出包。
+  配图目录也进 `must`（目录存在性判据），拦住「干净但东西没进去」。包内 README 里加一行指路。
+- **图必须来自干净实例、且与本次要出的代码同源**（做法见 `aa-web-review-app`「给手册/交付说明截图」节）。
+  **二进制图不过脱敏/残留门禁**（`release_common.DESENS_EXT` 只收文本后缀，`.png` 直接跳过）——图里的 key 掩码、本机路径、
+  作品清单只能靠**人眼看图**拦，别指望门禁。
+- **手册里的按钮名/下拉项/站点清单必须从代码校对**：可见文案用 `search_files`（内容搜索，底层 rg）从 `aa_web_app/templates/*.html` 取，
+  支持站点表用 `add_work.YARUOBOOK_DOMAINS` / `SUPPORTED_EXLINK_DOMAINS`——别凭记忆写（界面文案一改，手册就成假说明书）。
+  按钮/链接分布别猜：先拿 `search_files` 把 `<(button|a|label|summary)[^>]*>[^<]{1,60}` 的实际文案倒出来。
+- **出包后必查三件**：① 包内手册与仓库源文件除链接前缀外**逐字节一致**（`diff` 一次）；② 手册里每个 `](相对路径)` 在包内都能解析
+  （一条 python 循环，漏改前缀就是断链）；③ zip 里手册 + 全部配图都在。
+
 
 ## 验收标准（自检不过就别外发）
 
@@ -213,6 +231,7 @@ python scripts/tools/build_release.py [--out DIR] [--no-exe] [--keep-stage] [--n
 **先冻结代码，再出最后一次包**：`build_release.py` / `build_workbench_exe.py` / 自检工具本身**也在包里**，
 出包之后对它们的任何改动都不进包（zip 里是旧那份，甚至与包内 exe 的行为不自洽）。要么把所有编辑做完再出包，
 要么承认这轮产物滞后、用同步脚本补进实例并明确告诉使用者 zip 是旧的。
+**staging 在构建一开始就整体快照**：出包途中改 `doc/` 里的手册/文档同样要重跑一轮（先出包再改手册 = 白跑一次 6 分钟）。
 **迭代要挑便宜的档**：试机制/守卫/变换 → `--no-exe --no-verify`（一两分钟）或直接在沙箱目录上跑；
 只动 exe → `build_workbench_exe.py --stage <现成 staging> --out <路径>`（~3 分钟，本技能「单独用 exe 打包器」节）；
 完整出包 ~3~4 分钟（包内千例单测 + 7 项 exe 探测）—— 别每轮都跑满，一轮一轮攒起来就是十几分钟。
