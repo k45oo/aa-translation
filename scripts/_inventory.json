@@ -1,12 +1,12 @@
 {
  "generated_at": null,
  "stats": {
-  "total": 319,
+  "total": 320,
   "legacy": 108,
   "core": 75,
   "tool": 61,
   "deprecated_candidate": 3,
-  "test": 72,
+  "test": 73,
   "hardcoded": 30,
   "top_consts": 49,
   "dup_function_counts": {
@@ -239,6 +239,7 @@
      "tests.test_art_kana",
      "tests.test_art_veto",
      "tests.test_backup_prune",
+     "tests.test_endpoint_pin",
      "tests.test_fix_lead_kanji",
      "tests.test_line_meta",
      "tests.test_manual_fix",
@@ -2554,7 +2555,9 @@
      "time"
     ],
     "subprocess": [],
-    "referenced_by": [],
+    "referenced_by": [
+     "tests.test_endpoint_pin"
+    ],
     "webapp": [],
     "docs": [
      "AGENTS.md",
@@ -6281,6 +6284,7 @@
      "scan_width.py"
     ],
     "referenced_by": [
+     "tests.test_endpoint_pin",
      "tests.test_refine_stream",
      "tests.test_runner_entries",
      "works.pokemon_runner"
@@ -7612,10 +7616,15 @@
      "sys",
      "unittest"
     ],
-    "subprocess": [],
+    "subprocess": [
+     "aa_translate.py",
+     "fix/refix_mixed_segs.py",
+     "runner/translate_runner.py"
+    ],
     "referenced_by": [],
     "webapp": [],
     "docs": [
+     "AGENTS.md",
      "doc/方案归档/token成本优化方案_2026-09-15.md"
     ]
    },
@@ -7874,6 +7883,43 @@
    "has_main_guard": true,
    "docstring": "P0-C 人工修复保护（M0）单元测试。零依赖 unittest。\n运行：cd scripts/tests && python -m unittest test_manual_fix -v"
   },
+  "scripts/tests/test_mirror_incremental.py": {
+   "path": "scripts/tests/test_mirror_incremental.py",
+   "grade": "test",
+   "cli": "argv-manual",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "contextlib",
+     "io",
+     "json",
+     "os",
+     "push_code_mirror",
+     "shutil",
+     "subprocess",
+     "sys",
+     "tempfile",
+     "unittest"
+    ],
+    "subprocess": [
+     "a.py",
+     "push_code_mirror.py",
+     "scripts/a.py"
+    ],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": [
+     "AGENTS.md"
+    ]
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "push_code_mirror 增量推送单测（2026-10-11 用户指定：后续线上同步增量提交）。"
+  },
   "scripts/tests/test_mirror_message.py": {
    "path": "scripts/tests/test_mirror_message.py",
    "grade": "test",
@@ -8027,7 +8073,9 @@
     ],
     "referenced_by": [],
     "webapp": [],
-    "docs": []
+    "docs": [
+     "AGENTS.md"
+    ]
    },
    "dup_of": null,
    "hardcoded_path": false,
@@ -10934,6 +10982,7 @@
     "--branch",
     "--check",
     "--dry-run",
+    "--full",
     "--history",
     "--keep",
     "--max-mb",
@@ -10943,6 +10992,7 @@
     "--branch",
     "--check",
     "--dry-run",
+    "--full",
     "--history",
     "--keep",
     "--max-mb",
@@ -10953,6 +11003,7 @@
     "imports": [
      "argparse",
      "io",
+     "json",
      "os",
      "re",
      "shutil",
@@ -10968,6 +11019,7 @@
      "_base.py"
     ],
     "referenced_by": [
+     "tests.test_mirror_incremental",
      "tests.test_mirror_message"
     ],
     "webapp": [],

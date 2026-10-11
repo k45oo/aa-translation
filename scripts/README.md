@@ -165,7 +165,7 @@ scripts/
 | `line_classify.py` / `line_classify_v2.py` | 行分类器 v1 / v2（meta 生成，零 API） |
 | `vision_annotate.py` / `vision_classify.py` / `vision_review.py` | 视觉辅助分类 |
 | `sync_codex_skills.py` | ★ `.codex/skills/` 技能副本重建：从技能库生成 Codex 兼容格式（frontmatter 只留 name/description）+ 本机信息占位符化 + 残留门禁（有残留拒出包）；`--check` 只校验。`.codex/skills/README.md` 说明生成规则 |
-| `push_code_mirror.py` | ★ **代码同步推送**：按白名单构建（代码/文档，无数据/无 legacy/无构建产物）→ 本机信息占位符化 → 门禁（残留路径/密钥形状/体积上限/`.py` 语法，命中 rc=2 拒推）→ 单提交 force-push 到远端仓库（默认 `origin`；GitHub 用 `--remote <url>`）；`--check` 只校验并与远端比对、`--dry-run` 提交不推 |
+| `push_code_mirror.py` | ★ **代码同步推送**：按白名单构建（代码/文档，无数据/无 legacy/无构建产物）→ 本机信息占位符化 → 门禁（残留路径/密钥形状/体积上限/`.py` 语法，命中 rc=2 拒推）→ 推送远端仓库（默认 `origin`；GitHub 用 `--remote <url>`）。**默认增量**：只重放镜像还没有的提交（底座位 `temp/mirror_state.json`，丢了用说明+时间对号 + 树校验；认不出回退全量重建），门禁只对新提交跑、fast-forward 推送；`--full` 强制全量重建历史、`--history N/0` 定重建条数或回单提交快照；`--check` 只校验并与远端比对、`--dry-run` 提交不推 |
 | ~~`proofread.py`~~ | 误译复审（**已废弃**，词级替换顶歪 art 段事故 → 已入 `legacy/`；漏译清理统一走 `fix/refine_aa.py`） |
 | `gen_inventory.py` | ★ P1 盘点生成器（scripts/_inventory.json，AST 静态） |
 | `gen_interface_docs.py` | ★ P6 接口文档生成器（doc/接口文档.md，AST 静态） |

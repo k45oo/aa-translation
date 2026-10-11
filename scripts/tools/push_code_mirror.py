@@ -5,27 +5,36 @@ r"""生成「脱敏代码镜像」并推送到裸仓库（默认 `origin`，即 
 一个**全新历史**的快照，脱敏后 force-push 到镜像仓库。镜像里没有数据，
 所以它天然免疫「历史里删不掉的数据对象」与「旧提交里的本机路径」。
 
-**2026-10-10 起默认走「历史重放」**：不再是一条合成的单提交快照，而是把工作库最近的 N 条提交
-**逐条重放**成脱敏提交（`--history N`，默认 20）——真实提交说明、真实作者与提交时间、每条提交的树
-= 该时点的脱敏内容。同一个本地提交 + 同一份脱敏规则 → 两处镜像重放出的 sha 相同（仍可交叉核对）。
+**2026-10-10 起默认走「历史重放」**：不再是一条合成的单提交快照，而是把工作库的提交
+**逐条重放**成脱敏提交（真实提交说明、真实作者与提交时间、每条提交的树 = 该时点的脱敏内容）。
+同一个本地提交 + 同一份脱敏规则 → 两处镜像重放出的 sha 相同（仍可交叉核对）。
 `--history 0` 回到旧行为（单提交快照，提交时间固定为当天 00:00，说明由 `mirror_message()` 生成）。
+
+**2026-10-11 起默认增量**：只重放「镜像还没有的提交」，叠在镜像现有 tip 之上（`--full` 强制全量重建）。
+原因：全量重建每条提交要「导出 → 脱敏重写整棵快照 → 门禁全量扫 → 提交」，实测 ≈20s/条
+（426 文件/56MB × N 条），而多数提交上次已推过、内容没变，重跑纯属浪费。
+底座识别 = 状态文件（`temp/mirror_state.json`，不进镜像）→ 否则拿镜像 tip 的
+(脱敏说明, 作者/提交时间) 对号 + **树逐文件校验**（不一致就回退全量重建，兼容本地 rebase/amend）。
+门禁只对**新提交**跑；push 用普通 fast-forward（非 ff 就报错让重跑，不静默覆盖）。
 
 用法（从仓库根运行）：
     python scripts/tools/push_code_mirror.py --check     # 只构建 + 跑门禁 + 与镜像比 blob（rc=2 落后）
-    python scripts/tools/push_code_mirror.py             # 历史重放 + 门禁 + 单提交/多提交 + force push
-    python scripts/tools/push_code_mirror.py --history 5 # 只重放最近 5 条
+    python scripts/tools/push_code_mirror.py             # 增量：只推镜像还没有的提交（快）
+    python scripts/tools/push_code_mirror.py --full      # 全量重建（重放最近 --history 条，force push）
+    python scripts/tools/push_code_mirror.py --history 5 # 全量重建时只重放最近 5 条
     python scripts/tools/push_code_mirror.py --remote <url|path> --branch main --keep
         --keep    保留构建目录（排查用）；默认删
         --dry-run 构建 + 门禁 + 本地提交，但不 push
 
 快照内容 = 下面的 INCLUDE 白名单 − EXCLUDE 规则；wiki 目录只取「生成物 + 手改源」（不含 `_raw/`）。
 门禁（命中即 rc=2 拒推）：未脱敏路径 / 用户名 / 密钥形状 / 体积上限；`.py` 额外要求进程内编译全过；
-重放模式下**每条提交**都要过门禁，提交说明同样脱敏 + 过残留检查。
+重放模式下**每条提交**都要过门禁（增量模式只对本次新增的提交跑），提交说明同样脱敏 + 过残留检查。
 历史重放还有一道自检：镜像 tip 的树必须与「最后一条被重放的提交」的脱敏快照逐文件相同，否则拒推。
 镜像内容 = **已提交**内容：工作区里未提交的改动不进镜像（只打印一行提示）。
 """
 import argparse
 import io
+import json
 import os
 import re
 import shutil
@@ -364,6 +373,53 @@ def dirty_mirrored():
     return bad
 
 
+def _replay_one(dst, c, max_mb):
+    """重放一条提交：导出该提交的白名单内容 → 脱敏重写整棵快照 → 门禁 → 提交。
+
+    返回 (ok, 短 head 或 门禁错误列表, 构建文件数, 实进索引文件数)。
+    """
+    ex = tempfile.mkdtemp(prefix="aa_mirror_ex_")
+    try:
+        _export_commit(c["sha"], ex)
+        _clear_tree(dst)
+        nfiles, _per = _write_snapshot(dst, ex)
+    finally:
+        shutil.rmtree(ex, ignore_errors=True)
+    errors, _warns, _total = gates(dst, max_mb)
+    if errors:
+        return False, errors, nfiles, 0
+    subprocess.run(["git", "add", "-A"], cwd=dst, check=True)
+    msg = _scrub_message(((c["subject"] + "\n\n" + c["body"]).strip() + "\n"))
+    env = dict(os.environ, GIT_AUTHOR_DATE=c["author_date"], GIT_COMMITTER_DATE=c["commit_date"])
+    subprocess.run(["git", "-c", f"user.name={c['author']}", "-c", f"user.email={c['email']}",
+                    "commit", "-q", "--allow-empty", "-F", "-"], cwd=dst, check=True, env=env,
+                   input=msg.encode("utf-8"))
+    idx = subprocess.run(["git", "ls-files"], cwd=dst, capture_output=True, text=True).stdout
+    n_idx = len([x for x in idx.splitlines() if x.strip()])
+    head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=dst,
+                          capture_output=True, text=True).stdout.strip()
+    return True, head, nfiles, n_idx
+
+
+def _tip_check(dst, last_sha):
+    """一致性自检：镜像 tip 的树必须 == 该提交的脱敏快照（防导出/顺序出错）。
+
+    返回 (不一致清单, 期望树)。
+    """
+    ex2 = tempfile.mkdtemp(prefix="aa_mirror_chk_src_")
+    chk = tempfile.mkdtemp(prefix="aa_mirror_chk_")
+    try:
+        _export_commit(last_sha, ex2)
+        _write_snapshot(chk, ex2)
+        want = local_tree(chk, "aa-mirror-chk")
+    finally:
+        shutil.rmtree(ex2, ignore_errors=True)
+        shutil.rmtree(chk, ignore_errors=True)
+    have = commit_tree(dst, "HEAD")
+    diff = sorted(set(want) ^ set(have)) + [k for k in sorted(set(want) & set(have)) if want[k] != have[k]]
+    return diff, want
+
+
 def push_history(dst, remote, branch, n, max_mb, dry_run=False):
     """把最近 n 条本地提交逐条重放成脱敏提交并 force-push。返回 (ok, 说明)。"""
     commits = commit_list(n)
@@ -372,45 +428,20 @@ def push_history(dst, remote, branch, n, max_mb, dry_run=False):
     print(f"历史重放：最近 {len(commits)} 条提交（真实提交说明 + 真实时间）")
     subprocess.run(["git", "init", "-q", "-b", branch], cwd=dst, check=True)
     for c in commits:
-        ex = tempfile.mkdtemp(prefix="aa_mirror_ex_")
-        try:
-            _export_commit(c["sha"], ex)
-            _clear_tree(dst)
-            nfiles, _per = _write_snapshot(dst, ex)
-        finally:
-            shutil.rmtree(ex, ignore_errors=True)
-        errors, _warns, _total = gates(dst, max_mb)
-        if errors:
+        ok, res, nfiles, n_idx = _replay_one(dst, c, max_mb)
+        if not ok:
             print(f"\n❌ 门禁失败（提交 {c['sha'][:7]} {c['subject'][:40]}）:", file=sys.stderr)
-            for e in errors[:10]:
+            for e in res[:10]:
                 print("   " + e, file=sys.stderr)
             return False, c["sha"]
-        subprocess.run(["git", "add", "-A"], cwd=dst, check=True)
-        msg = _scrub_message(((c["subject"] + "\n\n" + c["body"]).strip() + "\n"))
-        env = dict(os.environ, GIT_AUTHOR_DATE=c["author_date"], GIT_COMMITTER_DATE=c["commit_date"])
-        subprocess.run(["git", "-c", f"user.name={c['author']}", "-c", f"user.email={c['email']}",
-                        "commit", "-q", "--allow-empty", "-F", "-"], cwd=dst, check=True, env=env,
-                       input=msg.encode("utf-8"))
-        idx = subprocess.run(["git", "ls-files"], cwd=dst, capture_output=True, text=True).stdout
-        n_idx = len([x for x in idx.splitlines() if x.strip()])
-        head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=dst,
-                              capture_output=True, text=True).stdout.strip()
         warn = "" if n_idx == nfiles else f"  ⚠️ 构建 {nfiles} / 进快照 {n_idx}"
-        print(f"   {head}  {c['commit_date'][:19]}  {c['subject'][:52]}{warn}")
+        print(f"   {res}  {c['commit_date'][:19]}  {c['subject'][:52]}{warn}")
     head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=dst,
                           capture_output=True, text=True).stdout.strip()
+    full = subprocess.run(["git", "rev-parse", "HEAD"], cwd=dst,
+                          capture_output=True, text=True).stdout.strip()
     # 一致性自检：镜像 tip 的树必须 == 「最后一条被重放的提交」的脱敏快照（防导出/顺序出错）
-    ex2 = tempfile.mkdtemp(prefix="aa_mirror_chk_src_")
-    chk = tempfile.mkdtemp(prefix="aa_mirror_chk_")
-    try:
-        _export_commit(commits[-1]["sha"], ex2)
-        _write_snapshot(chk, ex2)
-        want = local_tree(chk, "aa-mirror-chk")
-    finally:
-        shutil.rmtree(ex2, ignore_errors=True)
-        shutil.rmtree(chk, ignore_errors=True)
-    have = commit_tree(dst, "HEAD")
-    diff = sorted(set(want) ^ set(have)) + [k for k in sorted(set(want) & set(have)) if want[k] != have[k]]
+    diff, want = _tip_check(dst, commits[-1]["sha"])
     if diff:
         print("❌ 镜像 tip 与「最后一条重放提交」的快照不一致（%d 处），拒绝推送:" % len(diff),
               file=sys.stderr)
@@ -431,6 +462,196 @@ def push_history(dst, remote, branch, n, max_mb, dry_run=False):
         subprocess.run(["git", "symbolic-ref", "HEAD", f"refs/heads/{branch}"], cwd=remote)
         print(f"镜像仓库 HEAD → refs/heads/{branch}")
     print(f"\n✅ 已推送 {len(commits)} 条提交（HEAD={head}）→ {remote} ({branch})")
+    _save_state(remote, branch, commits[-1]["sha"], full)
+    return True, head
+
+
+# ---------------------------------------------------------------------------
+# 增量推送（2026-10-11 用户指定）：只重放「镜像还没有的提交」，叠在镜像现有历史之上。
+#
+# 为什么要：全量重建时**每条提交**都要「导出 → 脱敏重写整棵快照（426 文件/56MB）→ 门禁全量扫
+# （读所有文本 + 编译所有 .py）→ 提交」，实测 ≈20s/条，默认 20 条 ⇒ 约 7 分钟（超过前台上限）；
+# 而其中大多是上次已推过、内容没变的历史，重跑纯属浪费。
+#
+# 底座怎么认：镜像里的提交保留**原提交说明与作者/提交时间**（脱敏后），所以拿远端 tip 的
+# (脱敏说明, 提交时间) 去本地历史对号，再**用树逐文件比对**确认（远端树 vs 该提交的脱敏快照）；
+# 对不上就回退全量重建（本地 rebase/amend 过 → 自愈）。命中后记 `temp/mirror_state.json`
+# （不进镜像），下次直接命中，0 秒认底座。
+# 门禁只对**新提交**跑（旧提交当初推送时已过门禁）；push 走普通 fast-forward，**不用 --force**
+# （镜像被别处改过就报错让重跑，不静默覆盖；真要重建用 --full）。
+# ---------------------------------------------------------------------------
+
+def _state_path():
+    return os.path.join(REPO, "temp", "mirror_state.json")
+
+
+def _load_state():
+    try:
+        with io.open(_state_path(), encoding="utf-8") as f:
+            return json.load(f) or {}
+    except Exception:
+        return {}
+
+
+def _save_state(remote, branch, local_sha, mirror_sha):
+    """记「本地某提交 ↔ 镜像某提交」的对应（增量对号用；temp/ 不进镜像）。"""
+    try:
+        p = _state_path()
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        st = _load_state()
+        st["%s#%s" % (remote, branch)] = {"local": local_sha, "mirror": mirror_sha,
+                                          "ts": int(time.time())}
+        tmp = p + ".tmp"
+        with io.open(tmp, "w", encoding="utf-8") as f:
+            json.dump(st, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, p)
+    except Exception as e:                     # 状态文件只是加速器，写失败不影响推送
+        print(f"ℹ️ 记增量状态失败（不影响推送）: {e}", file=sys.stderr)
+
+
+def _remote_tip(remote, branch):
+    """镜像分支当前 tip 的完整 sha（分支不存在/连不上 → None）。"""
+    r = subprocess.run(["git", "ls-remote", remote, "refs/heads/%s" % branch],
+                       capture_output=True, text=True,
+                       env=dict(os.environ, GIT_TERMINAL_PROMPT="0"))
+    if r.returncode or not r.stdout.strip():
+        return None
+    return r.stdout.split()[0].strip()
+
+
+def _remote_meta(remote, branch):
+    """镜像 tip 的 {sha, message, author_date, commit_date}（URL 远端走临时裸克隆）。"""
+    target = _probe(remote) if _is_url(remote) else remote
+    if not target:
+        return None
+    fmt = "%H%x1f%aI%x1f%cI%x1f%B%x1e"
+    r = subprocess.run(["git", "-C", target, "log", "-1", "--no-merges", "--format=" + fmt,
+                        "refs/heads/%s" % branch], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    if r.returncode or not r.stdout.strip():
+        return None
+    parts = r.stdout.split("\x1e")[0].split("\x1f")
+    if len(parts) < 4:
+        return None
+    return {"sha": parts[0].strip(), "author_date": parts[1].strip(),
+            "commit_date": parts[2].strip(), "message": parts[3].strip()}
+
+
+def _scrub_commit_msg(c):
+    """本地提交在镜像里的说明（与 _replay_one 写进去的同一口径）。"""
+    try:
+        return _scrub_message(((c["subject"] + "\n\n" + c["body"]).strip() + "\n")).strip()
+    except SystemExit:
+        return None
+
+
+def find_base(remote, branch, mirror_tip, scan=300):
+    """找「镜像 tip 对应的本地提交」。返回 (base_sha|None, 说明)。
+
+    顺序：状态文件（快） → (说明+提交时间) 对号 + **树逐文件校验**（准，约一条提交的成本）。
+    """
+    st = _load_state().get("%s#%s" % (remote, branch)) or {}
+    if st.get("mirror") == mirror_tip and st.get("local"):
+        if subprocess.run(["git", "-C", REPO, "cat-file", "-e", str(st["local"]) + "^{commit}"],
+                          capture_output=True).returncode == 0:
+            return st["local"], "状态文件命中"
+    meta = _remote_meta(remote, branch)
+    if not meta:
+        return None, "读不到镜像 tip 的元数据"
+    for c in reversed(commit_list(scan)):        # 新 → 旧
+        if c["commit_date"] != meta["commit_date"] or _scrub_commit_msg(c) != meta["message"]:
+            continue
+        if not meta["author_date"] == c["author_date"]:
+            continue
+        ex = tempfile.mkdtemp(prefix="aa_mirror_base_")
+        chk = tempfile.mkdtemp(prefix="aa_mirror_basechk_")
+        try:
+            _export_commit(c["sha"], ex)
+            _write_snapshot(chk, ex)
+            if local_tree(chk, "aa-mirror-basechk") == remote_tree(remote, branch):
+                return c["sha"], "说明+时间+树校验命中"
+        finally:
+            shutil.rmtree(ex, ignore_errors=True)
+            shutil.rmtree(chk, ignore_errors=True)
+        return None, "说明+时间对得上但树比对不一致（本地历史被改写过？）"
+    return None, "本地最近 %d 条历史里找不到镜像 tip 对应的提交" % scan
+
+
+def new_commits_after(base):
+    """base 之后（含）要重放的提交，按拓扑序旧 → 新。"""
+    r = subprocess.run(["git", "-C", REPO, "rev-list", "--reverse", "--no-merges",
+                        "%s..HEAD" % base], capture_output=True, text=True, encoding="utf-8")
+    if r.returncode:
+        return []
+    shas = [x.strip() for x in r.stdout.splitlines() if x.strip()]
+    if not shas:
+        return []
+    meta = {c["sha"]: c for c in commit_list(len(shas) + 5)}
+    return [meta[s] for s in shas if s in meta]
+
+
+def push_incremental(dst, remote, branch, max_mb, history, dry_run=False):
+    """增量：只重放镜像还没有的提交（叠在镜像现有 tip 上）。返回 (ok, 说明)。"""
+    mirror_tip = _remote_tip(remote, branch)
+    if not mirror_tip:
+        print("增量同步：镜像还没有 %s 分支 → 首次推送（全量重建）" % branch)
+        return push_history(dst, remote, branch, history, max_mb, dry_run=dry_run)
+    base, how = find_base(remote, branch, mirror_tip)
+    if not base:
+        print(f"增量同步：没找到底座（{how}）→ 回退全量重建（force push）")
+        return push_history(dst, remote, branch, history, max_mb, dry_run=dry_run)
+    print(f"增量同步：底座 = 本地 {base[:7]} ↔ 镜像 {mirror_tip[:7]}（{how}）")
+    todo = new_commits_after(base)
+    if not todo:
+        print(f"✅ 已是最新：镜像 tip {mirror_tip[:7]} 就是这个提交，无需推送")
+        return True, mirror_tip
+    print(f"要重放 {len(todo)} 条新提交（旧的 {history - len(todo) if history > len(todo) else 0} 条"
+          f"已推过，不再重跑）")
+    # 取镜像历史到 dst：新提交要叠在它上面（父提交 = 镜像 tip）
+    subprocess.run(["git", "init", "-q", "-b", branch], cwd=dst, check=True)
+    f = subprocess.run(["git", "fetch", "-q", "--no-tags", remote,
+                        "refs/heads/%s" % branch], cwd=dst, capture_output=True, text=True,
+                       env=dict(os.environ, GIT_TERMINAL_PROMPT="0"))
+    if f.returncode:
+        print("❌ 取镜像历史失败: " + (f.stderr or "")[:200], file=sys.stderr)
+        return False, ""
+    subprocess.run(["git", "reset", "-q", "--hard", "FETCH_HEAD"], cwd=dst, check=True)
+    for c in todo:
+        ok, res, nfiles, n_idx = _replay_one(dst, c, max_mb)
+        if not ok:
+            print(f"\n❌ 门禁失败（提交 {c['sha'][:7]} {c['subject'][:40]}）:", file=sys.stderr)
+            for e in res[:10]:
+                print("   " + e, file=sys.stderr)
+            return False, c["sha"]
+        warn = "" if n_idx == nfiles else f"  ⚠️ 构建 {nfiles} / 进快照 {n_idx}"
+        print(f"   {res}  {c['commit_date'][:19]}  {c['subject'][:52]}{warn}")
+    head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=dst,
+                          capture_output=True, text=True).stdout.strip()
+    full = subprocess.run(["git", "rev-parse", "HEAD"], cwd=dst,
+                          capture_output=True, text=True).stdout.strip()
+    diff, want = _tip_check(dst, todo[-1]["sha"])
+    if diff:
+        print("❌ 镜像 tip 与「最后一条重放提交」的快照不一致（%d 处），拒绝推送:" % len(diff),
+              file=sys.stderr)
+        for k in diff[:10]:
+            print("   " + k, file=sys.stderr)
+        return False, head
+    print(f"✅ 一致性自检：tip 与 {todo[-1]['sha'][:7]} 的脱敏快照逐文件相同（{len(want)} 文件）")
+    if dry_run:
+        print(f"\n--dry-run：未推送（本地已重放 {len(todo)} 条，HEAD={head}）")
+        return True, head
+    r = subprocess.run(["git", "push", remote, "%s:%s" % (branch, branch)], cwd=dst,
+                       capture_output=True, text=True, env=dict(os.environ, GIT_TERMINAL_PROMPT="0"))
+    print(r.stdout.strip() or r.stderr.strip())
+    if r.returncode:
+        print("❌ push 失败（非 fast-forward？镜像被别处改过——重跑一次，或用 --full 重建）",
+              file=sys.stderr)
+        return False, head
+    if os.path.isdir(os.path.join(remote, "refs")):        # 本地裸仓库：顺手把 HEAD 指到该分支
+        subprocess.run(["git", "symbolic-ref", "HEAD", f"refs/heads/{branch}"], cwd=remote)
+        print(f"镜像仓库 HEAD → refs/heads/{branch}")
+    print(f"\n✅ 已增量推送 {len(todo)} 条提交（HEAD={head}）→ {remote} ({branch})")
+    _save_state(remote, branch, todo[-1]["sha"], full)
     return True, head
 
 
@@ -640,8 +861,10 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="构建 + 提交，但不 push")
     ap.add_argument("--keep", action="store_true", help="保留构建目录（排查用）")
     ap.add_argument("--history", type=int, default=HISTORY_DEFAULT,
-                    help=f"历史重放：把最近 N 条本地提交逐条重放成脱敏提交（默认 {HISTORY_DEFAULT}，"
-                         f"真实提交说明 + 真实时间）；0 = 旧行为（单提交快照，时间固定为当天 00:00）")
+                    help=f"全量重建时重放最近 N 条本地提交（默认 {HISTORY_DEFAULT}）；"
+                         f"0 = 旧行为（单提交快照，时间固定为当天 00:00）")
+    ap.add_argument("--full", action="store_true",
+                    help="强制全量重建历史（默认**增量**：只重放镜像还没有的提交，叠在镜像现有 tip 上）")
     args = ap.parse_args()
 
     remote = _resolve_remote(args.remote)
@@ -683,8 +906,13 @@ def main():
             if dirty:
                 print("ℹ️ 工作区有未提交的「会进快照」的改动（不进本次镜像）："
                       + ", ".join(dirty[:6]) + ("…" if len(dirty) > 6 else ""))
-            ok, _head = push_history(dst, remote, args.branch, args.history, args.max_mb,
-                                     dry_run=args.dry_run)
+            if args.full:
+                ok, _head = push_history(dst, remote, args.branch, args.history, args.max_mb,
+                                         dry_run=args.dry_run)
+            else:
+                # 2026-10-11 起默认增量：只重放镜像还没有的提交（见 push_incremental 注释）
+                ok, _head = push_incremental(dst, remote, args.branch, args.max_mb, args.history,
+                                             dry_run=args.dry_run)
             return 0 if ok else 3
         # ---- 旧路径（--history 0）：单提交快照，时间固定为当天 00:00 ----
         subprocess.run(["git", "add", "-A"], cwd=dst, check=True)
