@@ -1185,6 +1185,12 @@ TAIL_JS = """</main>
   }
 
   function boot() {
+    try { boot0(); } catch (e) {          // 任何异常都要写出来，不能停在「正在载入章节数据…」
+      fail("载入失败：" + (e && e.message ? e.message : e) + "　（请把这句反馈）");
+    }
+  }
+
+  function boot0() {
     if (typeof DecompressionStream === "undefined") {
       fail("此浏览器不支持 DecompressionStream，无法解压章节数据。\\n请用较新的 Chrome / Edge / Firefox / Safari 打开。");
       return;
@@ -1206,6 +1212,7 @@ TAIL_JS = """</main>
     jump(n, true);
     var ld = el("loading");
     if (ld) ld.style.display = "none";
+    window.__aaReady = 1;                 // 载入看门狗据此判断「别再报超时了」
   }
 
   window.addEventListener("scroll", function () {
@@ -1711,6 +1718,14 @@ def _font_parts(cfg, chapters, aa_dir, out_dir, layout, font_mode="auto", font_s
 #   不带 exe / 编辑服务 / 手机阅读 bat / edit_meta / 源 txt.gz / data 目录
 #   仍带 译·原切换（`--tr-only` 关）、阅读进度、手机抽屉、跨文件「上次阅读」提示、上一/下一部分
 PLAIN_PREFIX = "【机翻】"
+# 「仅 HTML 文件」**单个文件**的内嵌数据上限（与交付夹「单档」同口径 20MB）。
+# 超了就自动改分页：22MB 的单档在手机上要解析很久、页面长时间停在「正在载入章节数据…」，
+# 甚至被浏览器拖死；切成几个文件后每个都秒开。`--inline-max <MB>` 可放宽（想硬要单档就调大）。
+PLAIN_INLINE_MAX = 20 * 1024 * 1024     # 判定线：单文件内嵌数据估算超它 → 不再出单档
+PLAIN_SPLIT_TARGET = 6 * 1024 * 1024    # 自动分页时**每份**的目标体量（手机解析 6MB 约 2~3s；20MB 要 10s+）
+# 体量估算系数（见 plain_data_estimate；改这几个值要同步 scripts/tests/test_gen_html_plain.py）
+PLAIN_EST_RATIO = 0.28
+PLAIN_EST_FIXED = 1536 * 1024
 _PLAIN_SUFFIXES = ("_汉化合集", "_汉化（机翻）合集")
 
 
@@ -1737,8 +1752,24 @@ def plain_plan(cfg, chapters, split):
     return out
 
 
+def plain_data_estimate(cfg, chapters):
+    """单文件内嵌数据的**估算**字节数 = Σ 汉化 txt 字节 × PLAIN_EST_RATIO + PLAIN_EST_FIXED。
+
+    实测比值（やる夫は供給源になるようです 71 章）：汉化 txt 84.28MB → 内嵌 20.21MB = 0.240；
+    小作品比值略高（不幸の催眠 24 章 ≈ 0.27，固定开销占比大）。这里取 0.28 + 1.5MB 偏保守：
+    宁可多切一个文件，也不吐一个手机上打不开的单档。
+    """
+    txt = 0
+    for f in chapters:
+        try:
+            txt += os.path.getsize(f)
+        except OSError:
+            pass
+    return int(txt * PLAIN_EST_RATIO) + PLAIN_EST_FIXED
+
+
 def _gen_plain(cfg, site, chapters, tpl, css, title, source, desc_zh, split, tr_only,
-               out_dir_override=None, font_mode="auto", font_stack=None):
+               out_dir_override=None, font_mode="auto", font_stack=None, inline_max=None):
     """「仅 HTML 文件」：按分页计划逐个写出自包含 .html，返回写出的路径列表。
 
     落在**交付 HTML 目录**（`--out-dir` 可改）= 交付夹的父目录，即 `aaManga/交付HTML/`。
@@ -1747,6 +1778,19 @@ def _gen_plain(cfg, site, chapters, tpl, css, title, source, desc_zh, split, tr_
     plan = plain_plan(cfg, chapters, split)
     if not plan:
         raise SystemExit("没有章节可生成")
+    # ── 单文件体量闸门：估算超上限 → 自动分页（用户选了「全部」也一样，手机打不开等于没交付）──
+    limit = PLAIN_INLINE_MAX if inline_max is None else int(inline_max)
+    if len(plan) == 1 and len(chapters) > 1 and limit > 0:
+        est = plain_data_estimate(cfg, chapters)
+        if est > limit:
+            # 每份按「手机友好的目标体量」切（不是贴着上限切）：8MB/份 ≈ 手机上 2~4s 打开
+            target = min(limit, PLAIN_SPLIT_TARGET)
+            per = max(1, int(len(chapters) * float(target) / est))
+            plan = plain_plan(cfg, chapters, per)
+            print("[plain] 内嵌数据估算 %.1f MB 超过单文件上限 %.0f MB → **自动分页**：每 %d 章一个文件"
+                  "（共 %d 个，每份约 %.0f MB）。想要单个大文件：--inline-max <MB> 放宽上限；"
+                  "想自己定章数：生成时选「自定义」"
+                  % (est / 1048576.0, limit / 1048576.0, per, len(plan), est / float(len(plan)) / 1048576.0))
     out_dir = out_dir_override or os.path.dirname(deliver_dir(cfg))
     if not out_dir:
         raise SystemExit("无法确定输出目录（作品未配置 html_out）")
@@ -1779,6 +1823,29 @@ def _gen_plain(cfg, site, chapters, tpl, css, title, source, desc_zh, split, tr_
         if next_name:
             nav += ('　' if nav else '') + f'<a href="{H.escape(next_name)}">下一部分 →</a>'
         range_txt = f"本文件：第 {s:03d}-{e:03d} 话 / 共 {total} 话"
+        data_mb = sum(len(x) for x in payloads) / 1048576.0
+        # 载入条自己说清体量：内嵌数据大时，浏览器要先把这一大段脚本解析完才会跑页面逻辑，
+        # 那段时间页面只会停在这行字上 —— 先告诉用户「在解析多少 MB」，再给看门狗兜底。
+        loading_html = ('<div id="loading">正在载入章节数据…（本文件内嵌约 %.0f MB，'
+                        '手机首次打开需要解析几秒，请稍等）</div>' % max(1, data_mb))
+        watchdog = ('<script>\n'
+                    '/* 载入看门狗：解析/执行内嵌数据出问题时，别让页面永远停在「正在载入章节数据…」 */\n'
+                    '(function () {\n'
+                    '  var t0 = Date.now(), MB = %d;\n'
+                    '  function upd(h) { var l = document.getElementById("loading"); if (l && !window.__aaReady) l.innerHTML = h; }\n'
+                    '  setTimeout(function () {\n'
+                    '    if (window.__aaReady) return;\n'
+                    '    upd("正在载入章节数据…（内嵌约 " + MB + " MB，还在解析，请稍等）");\n'
+                    '  }, 6000);\n'
+                    '  setTimeout(function () {\n'
+                    '    if (window.__aaReady) return;\n'
+                    '    upd("正在载入章节数据…（已等 " + Math.round((Date.now() - t0) / 1000) + " 秒仍未就绪）"\n'
+                    '      + "<br>本文件内嵌约 " + MB + " MB 数据。一直停在这里的话：<b>重新生成时选「分页」</b>"\n'
+                    '      + "（每 50 / 100 章一个文件），每部分单独成文件，手机上秒开；电脑上打开不受影响。"\n'
+                    '      + "<br>若电脑上也停在这行，请把这段提示截图反馈。");\n'
+                    '  }, 25000);\n'
+                    '})();\n'
+                    '</script>' % int(round(data_mb)))
         head = (f'<!DOCTYPE html>\n<html lang="zh-CN"><head><meta charset="utf-8">\n'
                 f'<meta name="viewport" content="width=device-width, initial-scale=1">\n'
                 f'<title>{H.escape(title)}</title>\n<style>\n{css}</style></head><body>\n'
@@ -1788,7 +1855,8 @@ def _gen_plain(cfg, site, chapters, tpl, css, title, source, desc_zh, split, tr_
                 + (f'<p class="work-desc">{H.escape(desc_zh)}</p>\n' if desc_zh else '')
                 + '</header>\n'
                 + f'<nav><span class="toc-label">目录：</span>' + toc_html + '</nav><main>')
-        font_parts = _font_parts(cfg, chapters, cfg["aa_dir"], out_dir, "inline", font_mode, font_stack)
+        # 字体子集只按**本份**的语料取（传全章会让每个分页文件都背着整部作品的字体，白重几百 KB~MB）
+        font_parts = _font_parts(cfg, chunk, cfg["aa_dir"], out_dir, "inline", font_mode, font_stack)
         inline_script = ("<script>\nwindow.AA_INLINE=1;\n"
                          + "\n".join(p.rstrip("\n") for p in payloads) + "\n</script>")
         tail = (TAIL_JS.replace("__KEY__", _js_str(cfg.get("title") or short))
@@ -1797,7 +1865,7 @@ def _gen_plain(cfg, site, chapters, tpl, css, title, source, desc_zh, split, tr_
                        .replace("__SELF__", _js_str(name))
                        .replace("__PLAIN__", "1")
                        .replace("__TRONLY__", "1" if tr_only else "0"))
-        doc = "\n".join([head, '<div id="loading">正在载入章节数据…</div>']
+        doc = "\n".join([head, loading_html, watchdog]
                         + sections + font_parts + [inline_script, tail])
         dst = os.path.join(out_dir, name)
         open(dst, "w", encoding="utf-8").write(doc)     # 不加 newline='' → CRLF（与历史交付一致）
@@ -1895,7 +1963,8 @@ def main(work=None):
     # ── 分支：「仅 HTML 文件」简版（自包含 .html，可能分页成多个文件）─────────────
     if plain:
         return _gen_plain(cfg, site, chapters, tpl, css, title, source, desc_zh, split, tr_only,
-                          out_dir_override=out_dir_val, font_mode=font_mode, font_stack=font_stack)
+                          out_dir_override=out_dir_val, font_mode=font_mode, font_stack=font_stack,
+                          inline_max=inline_max)
 
     # 交付文件夹（--one 时写 work/单章渲染_<base>/，不覆盖正式合集）
     if one:

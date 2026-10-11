@@ -2724,8 +2724,9 @@ def api_make_html(work: str, body: MakeHtmlBody = MakeHtmlBody()):
                        if f.startswith(pre) and f.endswith(".html"))
     except OSError:
         pass
+    note = next((l.strip() for l in (tail or "").splitlines() if l.startswith("[plain] ")), "")
     return {"ok": code == 0, "exit_code": code, "output": tail,
-            "dir": out_dir, "files": files}
+            "dir": out_dir, "files": files, "note": note}
 
 
 @app.post("/api/regenerate-all")

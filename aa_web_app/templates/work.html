@@ -129,6 +129,8 @@
       <label><input type="radio" name="mh-split" value="custom"> 自定义
         <input type="number" id="mh-split-n" min="1" value="30" style="width:66px"> 章</label>
     </div>
+    <p class="muted small">章数多时 <b>建议分页</b>：单个 .html 内嵌数据越大，手机解析越久（&gt;20MB 会长时间停在「正在载入章节数据…」）。
+      选「全部」时若内嵌数据超过 20MB，会 <b>自动分页</b>（每份约 6MB）并在结果里注明。</p>
     <p class="muted small">分页时文件名形如 <code>【机翻】&lt;标题&gt;_001-100.html</code>（每部分自带目录、上一/下一部分链接、跨文件续读提示）。</p>
     <div class="actions">
       <button id="mh-go" class="btn primary">开始生成</button>
@@ -176,7 +178,7 @@ document.getElementById('mh-go').addEventListener('click', async () => {
     });
     const j = await r.json();
     if (!j.ok) { mhMsg.textContent = '生成失败：' + (j.output || ''); return; }
-    mhMsg.textContent = '已生成 ' + j.files.length + ' 个文件 → ' + j.dir;
+    mhMsg.textContent = '已生成 ' + j.files.length + ' 个文件 → ' + j.dir + (j.note ? '　' + j.note : '');
     toast('仅 HTML 文件：已生成 ' + j.files.length + ' 个 ✓', true);
   } catch (err) {
     mhMsg.textContent = '失败：' + err;

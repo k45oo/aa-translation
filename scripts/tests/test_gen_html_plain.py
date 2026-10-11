@@ -292,6 +292,70 @@ class TestPlainCleanupAndGuard(unittest.TestCase):
             gen_aa_html.main("fukou")
 
 
+class TestPlainSizeGuard(unittest.TestCase):
+    """单文件体量闸门：内嵌数据估算超上限 → 自动分页（否则手机上会长时间停在「正在载入…」）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        from _work_guard import work_cfg
+        cls.cfg = work_cfg("fukou", ("aa_dir", "out_dir"), "体量闸门用例")
+        cls.tmp = tempfile.mkdtemp(prefix="hermes-test-plain-sz-")
+        cls._orig_out = cls.cfg["html_out"]
+        cls.cfg["html_out"] = os.path.join(cls.tmp, "不幸の催眠_汉化合集")
+        os.makedirs(cls.tmp, exist_ok=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.cfg["html_out"] = cls._orig_out
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_估算函数(self):
+        chapters = gen_aa_html.chapter_order(self.cfg["out_dir"], self.cfg.get("name_style"),
+                                             self.cfg.get("work_dir"))
+        est = gen_aa_html.plain_data_estimate(self.cfg, chapters)
+        txt = sum(os.path.getsize(f) for f in chapters)
+        lin = est - gen_aa_html.PLAIN_EST_FIXED          # 去掉固定开销看线性部分
+        self.assertGreaterEqual(lin, txt * 0.24, "线性估算低于实测比值 0.24 → 会漏判、吐超大单档")
+        self.assertLessEqual(lin, txt * 0.40, "线性估算高得离谱 → 会无谓地多切文件")
+        self.assertTrue(1024 * 1024 <= gen_aa_html.PLAIN_EST_FIXED <= 3 * 1024 * 1024,
+                        "固定开销（字体+骨架）应在 1~3MB")
+        # 超限判定要用**实测**比值兜底：供給源 71 章实测内嵌 20.2MB，估算必须也判「超上限」
+        self.assertGreater(est, txt * 0.24)
+
+    def test_超上限自动分页且带看门狗(self):
+        """`--inline-max 0.6`（0.6MB）→ 24 章被切成多个文件，每份都自带载入条体量说明与看门狗。"""
+        out = os.path.join(self.tmp, "out")
+        os.makedirs(out, exist_ok=True)
+        sys.argv = ["x", "fukou", "--plain", "--tr-only", "--inline-max", "0.6", "--out-dir", out]
+        files = gen_aa_html.main("fukou")
+        self.assertGreater(len(files), 1, "超过单文件上限却没自动分页")
+        self.assertEqual(sorted(os.path.basename(f) for f in files),
+                         sorted(os.path.basename(f) for f in
+                                glob.glob(os.path.join(out, "【机翻】不幸の催眠_*.html"))))
+        # 分页范围连续、覆盖全部 24 章
+        rngs = [re.search(r"_(\d+)-(\d+)\.html$", f).groups() for f in files]
+        self.assertEqual(int(rngs[0][0]), 1)
+        self.assertEqual(int(rngs[-1][1]), 24)
+        for (a1, b1), (a2, b2) in zip(rngs, rngs[1:]):
+            self.assertEqual(int(b1) + 1, int(a2), "分页范围不连续")
+        self.assertTrue(all(os.path.getsize(f) < 2.5 * 1024 * 1024 for f in files),
+                        "自动分页后每份都该是小文件（1.3MB 字体 + 少量数据）")
+        html = open(files[0], encoding="utf-8", newline="").read()
+        self.assertIn("正在载入章节数据…（本文件内嵌约", html)      # 载入条自述体量
+        self.assertIn("载入看门狗", html)                          # 解析/执行出问题时给可操作提示
+        self.assertIn("重新生成时选「分页」", html)
+        self.assertIn("window.__aaReady = 1;", html)               # boot 成功后关掉看门狗
+        self.assertIn("function boot0()", html)                    # boot 已包 try/catch
+        self.assertIn("载入失败：", html)
+
+    def test_提高上限仍可强制单文件(self):
+        out = os.path.join(self.tmp, "out1")
+        os.makedirs(out, exist_ok=True)
+        sys.argv = ["x", "fukou", "--plain", "--tr-only", "--inline-max", "500", "--out-dir", out]
+        files = gen_aa_html.main("fukou")
+        self.assertEqual(len(files), 1, "--inline-max 放大后应能出单文件")
+
+
 class TestMakeHtmlRoute(unittest.TestCase):
     """工作台路由：参数映射到生成器开关（不真跑生成器）。"""
 
@@ -330,6 +394,21 @@ class TestMakeHtmlRoute(unittest.TestCase):
         self.assertTrue(res["ok"])
         res2, seen2 = self._call(split=-5)                 # 负数归 0（全部一个文件）
         self.assertEqual(seen2["extra"], ["--plain", "--split", "0"])
+
+    def test_自动分页提示回传给前端(self):
+        """生成器打了 `[plain] …自动分页…` → 路由要在 note 里带回（前端显示「已自动分页」）。"""
+        from aa_web_app import main as M
+        orig = M.run_generator
+
+        def fake(work, extra=None, plain=False):
+            return 0, "chapters: 71\n[plain] 内嵌数据估算 27.3 MB 超过单文件上限 20 MB → **自动分页**\n[plain] 3 个自包含 HTML", ""
+        M.run_generator = fake
+        try:
+            res = M.api_make_html("fukou", M.MakeHtmlBody())
+        finally:
+            M.run_generator = orig
+        self.assertTrue(res["note"].startswith("[plain] 内嵌数据估算"))
+        self.assertIn("自动分页", res["note"])
 
 
 if __name__ == "__main__":
