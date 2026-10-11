@@ -726,27 +726,116 @@ def _log_tail(t, n=20):
 # usage.jsonl 是 append-only（aa_backend._log_usage open("a")），
 # 用 (mtime, size) 指纹 + 只读新增行增量聚合，避免每次全量解析。
 _USAGE_CACHE = {"key": None, "by_task": {}, "window": []}
+# 轮换文件（usage.jsonl.1/.2/.3）的预聚合缓存（2026-10-11）：内容只在 aa_usage 滚动时变
+_USAGE_ROT = {"keys": None, "by_task": None, "window": None}
+
+
+def _new_usage():
+    """usage 聚合累加器：{prompt, completion, total, calls, backends:set, tags:{tag:计数}}。"""
+    return {"prompt": 0, "completion": 0, "total": 0, "calls": 0, "backends": set(), "tags": {}}
+
+
+def _acc_usage(d, r):
+    """把一条 usage 行累加进聚合 dict（含按 tag 的明细）。"""
+    for k in ("prompt", "completion", "total"):
+        d[k] += int(r.get(k) or 0)
+    d["calls"] += 1
+    if r.get("backend"):
+        d["backends"].add(str(r["backend"]))
+    tg = str(r.get("tag") or "")
+    if tg:
+        t = d["tags"].setdefault(tg, {"prompt": 0, "completion": 0, "total": 0, "calls": 0})
+        for k in ("prompt", "completion", "total"):
+            t[k] += int(r.get(k) or 0)
+        t["calls"] += 1
+
+
+def _merge_usage(dst, src):
+    """把 src 聚合（_new_usage 形状）并进 dst（不改 src）。"""
+    for k in ("prompt", "completion", "total", "calls"):
+        dst[k] += src.get(k) or 0
+    dst["backends"] |= set(src.get("backends") or ())
+    for tg, t in (src.get("tags") or {}).items():
+        o = dst["tags"].setdefault(tg, {"prompt": 0, "completion": 0, "total": 0, "calls": 0})
+        for k in ("prompt", "completion", "total", "calls"):
+            o[k] += t.get(k) or 0
+
+
+def _rotated_index():
+    """轮换文件（usage.jsonl.1/.2/.3）的预聚合索引（2026-10-11）。
+
+    动机：_usage_index 只读主文件，而 aa_usage.rotate_if_needed 在 10MB 时把整份主文件
+    改名成 .1 —— **跨滚动的任务（翻译任务先翻译后校对）在任务卡上就只剩后半段的消耗**
+    （实测 t20260929-180702-bd35：翻译阶段 614 行落在 .1，界面只显示校对）。
+    这里把轮换文件读一次并按 task 预聚合（内容只在滚动时变 → 按 (path,mtime,size) 指纹缓存，
+    不至于每次轮询全量解析；预聚合而非留原始行，内存只有几十 KB）。
+
+    返回 (by_task, window)：by_task[tid] = _new_usage() 形状；
+    window = [(ts, prompt, completion, total, backend)]（无 task 归因的历史行，供时间窗兜底）。
+    """
+    uf = os.path.join(ROOT, "usage.jsonl")
+    keys = []
+    for i in (1, 2, 3):
+        p = f"{uf}.{i}"
+        try:
+            st = os.stat(p)
+            keys.append((p, st.st_mtime, st.st_size))
+        except OSError:
+            keys.append((p, None, None))
+    if _USAGE_ROT["keys"] == keys and _USAGE_ROT["by_task"] is not None:
+        return _USAGE_ROT["by_task"], _USAGE_ROT["window"]
+    by_task, window = {}, []
+    for p, mt, _sz in keys:
+        if mt is None:
+            continue
+        try:
+            with open(p, "rb") as f:
+                data = f.read().decode("utf-8", errors="replace")
+        except OSError:
+            continue
+        for line in data.split("\n"):
+            if not line.strip():
+                continue
+            try:
+                r = json.loads(line)
+            except Exception:
+                continue
+            tid = r.get("task")
+            if tid:
+                _acc_usage(by_task.setdefault(tid, _new_usage()), r)
+            else:
+                window.append((r.get("ts") or 0, int(r.get("prompt") or 0),
+                               int(r.get("completion") or 0), int(r.get("total") or 0),
+                               r.get("backend")))
+    _USAGE_ROT.update(keys=keys, by_task=by_task, window=window)
+    return by_task, window
 
 def _usage_index(force=False):
     """增量构建 usage 索引：{task_id: 聚合行列表}, window: 无 task 记录列表。
-    返回 (by_task, window)。"""
+    返回 (by_task, window)。
+
+    缓存键含**路径**（2026-10-11 修）：只有 (mtime,size) 时，换 ROOT/换文件（单测、
+    数据根切换）只要 mtime+size 撞上就会走增量分支、从旧 size 续读 → 静默丢掉前半段行。
+    """
     uf = os.path.join(ROOT, "usage.jsonl")
     try:
         st = os.stat(uf)
-        key = (st.st_mtime, st.st_size)
+        key = (uf, st.st_mtime, st.st_size)
     except OSError:
         return {}, []
     if not force and _USAGE_CACHE["key"] == key:
         return _USAGE_CACHE["by_task"], _USAGE_CACHE["window"]
     # 从头读（首次或文件变化）；只读新增行（若 key 变了但 size 增长则从旧 size 续读）
-    old_size = _USAGE_CACHE["key"][1] if _USAGE_CACHE["key"] else 0
-    by_task = _USAGE_CACHE["by_task"] if _USAGE_CACHE["key"] and key[1] >= old_size else {}
-    window = _USAGE_CACHE["window"] if _USAGE_CACHE["key"] and key[1] >= old_size else []
+    same_file = bool(_USAGE_CACHE["key"]) and _USAGE_CACHE["key"][0] == uf
+    old_size = _USAGE_CACHE["key"][2] if same_file else 0
+    keep = same_file and key[2] >= old_size
+    by_task = _USAGE_CACHE["by_task"] if keep else {}
+    window = _USAGE_CACHE["window"] if keep else []
     try:
         with open(uf, "rb") as f:
-            if old_size and key[1] > old_size:
+            if old_size and key[2] > old_size:
                 f.seek(old_size)
-            elif old_size and key[1] == old_size:
+            elif old_size and key[2] == old_size:
                 pass
             else:
                 f.seek(0)
@@ -772,8 +861,15 @@ def _usage_index(force=False):
 
 
 def aggregate_usage(t, _force=False):
-    """按 task 聚合 usage.jsonl；无 task 匹配时按时间窗兜底（approx，可能混入并行任务）。
-    返回 {prompt, completion, total, calls, backends:[去重后端]}。"""
+    """按 task 聚合 usage.jsonl（主文件 + 轮换文件 .1/.2/.3）；无 task 匹配时按时间窗兜底
+    （approx，可能混入并行任务）。
+
+    返回 {prompt, completion, total, calls, backends:[去重后端], tags:{tag:计数}}。
+    2026-10-11：**加 tags 分阶段明细** —— 翻译任务是「先翻译后校对」两个阶段、同一个 task id，
+    任务卡只给一个合计数时看不出翻译那半段（各分支写同一 task 字段，合计数本就是两阶段之和；
+    分阶段后「翻译 X · 校对 Y」一目了然，翻译阶段 0 也照实显示）。
+    另修：轮换文件（aa_usage 按 10MB 滚动）里的历史归因一并计入，否则跨滚动的任务只剩后半段。
+    """
     uf = os.path.join(ROOT, "usage.jsonl")
     if not os.path.exists(uf):
         return None
@@ -781,22 +877,39 @@ def aggregate_usage(t, _force=False):
     t0 = t.get("created_ts") or 0
     t1 = time.time() if t.get("status") not in _FINAL else (t.get("finished_ts") or time.time())
     by_task, window = _usage_index(force=_force)
+    rot_task, rot_window = _rotated_index()
     by_task_rows = by_task.get(tid) or []
-    # 时间窗兜底：只对无 task 记录的任务用（window 已含全部无 task 行，按时间过滤）
-    by_window = [r for r in window if t0 <= (r.get("ts") or 0) <= t1 + 5] if not by_task_rows else []
-    rows = by_task_rows or by_window
-    tot = {"prompt": 0, "completion": 0, "total": 0, "calls": len(rows)}
-    backends = set()
-    for r in rows:
-        for k in ("prompt", "completion", "total"):
-            tot[k] += int(r.get(k) or 0)
-        if r.get("backend"):
-            backends.add(str(r["backend"]))
-    if not by_task_rows:
-        tot["approx"] = True
-    if backends:
-        tot["backends"] = sorted(backends)
-    return tot
+    rot_agg = rot_task.get(tid)
+    acc = _new_usage()
+    approx = False
+    if by_task_rows or rot_agg:
+        for r in by_task_rows:
+            _acc_usage(acc, r)
+        if rot_agg:
+            _merge_usage(acc, rot_agg)
+    else:
+        # 时间窗兜底：只对无 task 记录的任务用（含轮换文件里无归因的历史行，按时间过滤）
+        for r in window:
+            if t0 <= (r.get("ts") or 0) <= t1 + 5:
+                _acc_usage(acc, r)
+        for ts, p, c, tot, bk in rot_window:
+            if t0 <= ts <= t1 + 5:
+                acc["prompt"] += p
+                acc["completion"] += c
+                acc["total"] += tot
+                acc["calls"] += 1
+                if bk:
+                    acc["backends"].add(str(bk))
+        approx = True
+    out = {"prompt": acc["prompt"], "completion": acc["completion"],
+           "total": acc["total"], "calls": acc["calls"]}
+    if approx:
+        out["approx"] = True
+    if acc["backends"]:
+        out["backends"] = sorted(acc["backends"])
+    if acc["tags"]:
+        out["tags"] = acc["tags"]
+    return out
 
 
 # ---------------------------------------------------------------- 调度器

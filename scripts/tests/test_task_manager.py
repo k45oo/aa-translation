@@ -379,6 +379,49 @@ class TestUsage(TMBase):
         self.assertEqual(u["total"], 5)
         self.assertTrue(u.get("approx"))
 
+    def test_tags_breakdown(self):
+        """分阶段明细（2026-10-11）：翻译任务先翻译后校对是**同一个 task id**，
+        合计数 = 两阶段之和，tags 给出各阶段自己的量（翻译 0 也照实记 0 次）。"""
+        now = time.time()
+        t = self._task("tt", status="done", created_ts=now - 100, finished_ts=now)
+        rows = [
+            {"tag": "translate", "ts": now - 90, "prompt": 100, "completion": 20,
+             "total": 120, "task": "tt", "backend": "opencode_go"},
+            {"tag": "refine", "ts": now - 50, "prompt": 300, "completion": 60,
+             "total": 360, "task": "tt", "backend": "deepseek"},
+            {"tag": "refine", "ts": now - 40, "prompt": 30, "completion": 6,
+             "total": 36, "task": "tt", "backend": "deepseek"},
+        ]
+        with open(os.path.join(TM.ROOT, "usage.jsonl"), "w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
+        u = TM.aggregate_usage(t)
+        self.assertEqual(u["total"], 516)            # 合计 = 翻译 120 + 校对 396
+        self.assertEqual(u["calls"], 3)
+        self.assertEqual(u["tags"]["translate"]["total"], 120)
+        self.assertEqual(u["tags"]["translate"]["calls"], 1)
+        self.assertEqual(u["tags"]["refine"]["total"], 396)
+        self.assertEqual(u["tags"]["refine"]["calls"], 2)
+        self.assertEqual(u["backends"], ["deepseek", "opencode_go"])
+
+    def test_rotated_file_rows_counted(self):
+        """滚动文件也要算（2026-10-11 修）：aa_usage 超 10MB 把主文件改名成 .1 ——
+        翻译阶段的归因会落在 .1，只读主文件的任务卡就"只剩校对消耗"。
+        实测 t20260929-180702-bd35 的 614 行翻译归因被 .1 吞掉。"""
+        now = time.time()
+        t = self._task("tr", status="done", created_ts=now - 100, finished_ts=now)
+        with open(os.path.join(TM.ROOT, "usage.jsonl.1"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"tag": "translate", "ts": now - 90, "prompt": 10,
+                                "completion": 1, "total": 11, "task": "tr"}) + "\n")
+        with open(os.path.join(TM.ROOT, "usage.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"tag": "refine", "ts": now - 50, "prompt": 20,
+                                "completion": 2, "total": 22, "task": "tr"}) + "\n")
+        u = TM.aggregate_usage(t)
+        self.assertEqual(u["total"], 33)
+        self.assertEqual(u["tags"]["translate"]["total"], 11)
+        self.assertEqual(u["tags"]["refine"]["total"], 22)
+        self.assertNotIn("approx", u)
+
 
     def test_env_passthrough_to_runner(self):
         """任务参数 env 透传(AA_FREE_MODE=1)应注入子进程环境。"""

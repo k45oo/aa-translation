@@ -60,6 +60,35 @@ function fmtTok(n){
   if (n >= 1e3) return (n/1e3).toFixed(1).replace(/\.0$/,'') + 'k';
   return String(n);
 }
+// 分阶段消耗明细（2026-10-11 用户要求）：翻译任务是「先翻译后校对」同一 task 的两阶段，
+// 只给一个合计看不出翻译那半段 → 卡片显示「翻译 X · 校对 Y」（翻译阶段 0 也照实显示）。
+// tag → 中文：translate=翻译阶段, refine=校对阶段（refine_aa），其余按 tag 原名列出。
+const TAG_CN = {translate:'翻译', refine:'校对', selection_translate:'划词',
+                vision:'视觉', summary:'简介', pokemon:'宝可梦', free:'免费链'};
+function usagePhases(t){
+  const u = t.usage || {};
+  const tags = u.tags || {};
+  const rows = [];
+  const push = (key, label) => {
+    const d = tags[key];
+    rows.push([label, d ? (d.total || 0) : 0, d ? (d.calls || 0) : 0]);
+  };
+  if (t.type === 'translate' || t.type === 'pokemon') {
+    push('translate', '翻译'); push('refine', '校对');   // 两阶段都列，缺哪个就是 0
+  } else if (t.type === 'proofread') {
+    push('refine', '校对');
+  }
+  const extra = Object.keys(tags).filter(k => k !== 'translate' && k !== 'refine');
+  extra.sort((a, b) => (tags[b].total || 0) - (tags[a].total || 0));
+  extra.forEach(k => rows.push([TAG_CN[k] || k, tags[k].total || 0, tags[k].calls || 0]));
+  return rows;
+}
+function usageBreakdown(t){
+  const rows = usagePhases(t);
+  if (rows.length < 2) return '';
+  const txt = rows.map(r => r[0] + ' ' + fmtTok(r[1])).join(' · ');
+  return ' <span class="muted" title="' + rows.map(r => r[0] + ' ' + r[1] + ' tok/' + r[2] + ' 次').join('；') + '">（' + txt + '）</span>';
+}
 
 // 卡片状态区 HTML（不含日志区）——分区刷新时只重建这里
 function statusHTML(t){
@@ -70,7 +99,11 @@ function statusHTML(t){
   const pct = hasCnt ? Math.round(idx/tot*100) : 0;
   const u = t.usage || {};
   let usagestr = '';
-  if (u.total != null) usagestr = ` · <b title="${u.total} tok">${fmtTok(u.total)}</b> tok` + (u.approx ? '≈' : '');
+  if (u.total != null) {
+    const phases = usagePhases(t);
+    const tip = [u.total + ' tok 合计'].concat(phases.map(r => r[0] + ' ' + r[1] + ' tok/' + r[2] + ' 次')).join('；');
+    usagestr = ` · <b title="${tip}">${fmtTok(u.total)}</b> tok` + (u.approx ? '≈' : '') + usageBreakdown(t);
+  }
   const free = t.free_mode;
   const badge = free ? '<span class="free-badge">免费链</span>' : '<span class="paid-badge">付费链</span>';
   let btns = '';

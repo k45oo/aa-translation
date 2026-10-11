@@ -32,7 +32,17 @@ class TestTasksCardDisplay(unittest.TestCase):
         self.assertIn("'M'", self.tpl)          # 百万
         self.assertIn("'k'", self.tpl)          # 千
         self.assertIn("fmtTok(u.total)", self.tpl)      # 实际用于 token 显示
-        self.assertIn('title="${u.total} tok"', self.tpl)  # 原值悬停
+        self.assertIn("u.total + ' tok 合计'", self.tpl)  # 原值悬停（合计 + 各阶段）
+
+    def test_usage_phase_breakdown(self):
+        """分阶段消耗（2026-10-11 用户要求）：翻译任务先翻译后校对 → 卡片除合计外还要列
+        「翻译 X · 校对 Y」；缺哪阶段显示 0；proofread 任务只列校对。"""
+        self.assertIn("function usagePhases(", self.tpl)
+        self.assertIn("function usageBreakdown(", self.tpl)
+        self.assertIn("const TAG_CN = {translate:'翻译', refine:'校对'", self.tpl)
+        self.assertIn("usageBreakdown(t)", self.tpl)             # 接入卡片
+        self.assertIn("push('translate', '翻译'); push('refine', '校对')", self.tpl)
+        self.assertIn("u.tags", self.tpl)                        # 读后端 aggregate_usage 的 tags
 
     def test_proofread_labels(self):
         self.assertIn("proofread:'校对'", self.tpl)      # TYPE_CN 支持校对任务
