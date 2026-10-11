@@ -15,6 +15,7 @@ import io
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -160,6 +161,41 @@ class TestMirrorIncremental(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("历史重放", out)                     # --full 走 push_history（不是增量）
         self.assertEqual(self._remote_log(), ["第一条提交"])
+
+    def test_rmtree能删只读文件(self):
+        """git 的 loose object 是只读的：普通 rmtree 删不动 → 每次推送都漏临时目录。"""
+        d = os.path.join(self.tmp, "ro")
+        sub = os.path.join(d, ".git", "objects", "41")
+        os.makedirs(sub)
+        p = os.path.join(sub, "e095b76967ae399ca3ed62e11d79ce89b0fdfd")
+        with io.open(p, "wb") as f:
+            f.write(b"x")
+        os.chmod(p, stat.S_IREAD)                      # 模拟只读 git object
+        PCM._rmtree(d)
+        self.assertFalse(os.path.exists(d), "只读文件没清属性 → 目录残留")
+
+    def test_推送会清理临时目录(self):
+        """清理必须真的被调用（文件删不掉是环境问题——杀软/Sysmon 句柄占住刚写的 .git 对象，
+        实测连 `rm -rf` 都报 "Directory not empty"；但代码不能退回"不清理"）。"""
+        calls = []
+        orig = PCM._rmtree
+
+        def spy(p):
+            calls.append(p)
+            return orig(p)
+
+        PCM._rmtree = spy
+        try:
+            self.assertTrue(self._push()[0])
+        finally:
+            PCM._rmtree = orig
+        got = {"aa_mirror_ex_": 0, "aa_mirror_chk": 0}
+        for p in calls:
+            for pre in got:
+                if os.path.basename(p).startswith(pre):
+                    got[pre] += 1
+        self.assertTrue(all(v >= 1 for v in got.values()),
+                        f"这些临时目录没被清理: {[k for k, v in got.items() if not v]}（calls={len(calls)}）")
 
 
 if __name__ == "__main__":

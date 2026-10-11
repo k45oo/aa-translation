@@ -38,6 +38,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -224,6 +225,27 @@ def _collect(src_root):
     return copies
 
 
+def _rmtree(path):
+    """删目录树：① 先清只读位（git 有时把 loose object 写成只读，`shutil.rmtree` 会
+    PermissionError 静默留下整个目录）② 再删。
+
+    注意**删不掉的两种情况**（实测）：只读位（本函数解决）；以及文件被外部句柄占住
+    （杀软实时扫描/Sysmon 等——属性正常但 `rm -rf` 也报 "Directory not empty"，只能等句柄
+    释放或重启）。第二次情况会留下**空壳目录**，不是内容泄漏。
+    """
+    if not path or not os.path.isdir(path):
+        return
+    for dp, _dns, fns in os.walk(path):
+        for fn in fns:
+            p = os.path.join(dp, fn)
+            try:
+                if not (os.stat(p).st_mode & stat.S_IWRITE):
+                    os.chmod(p, stat.S_IWRITE | stat.S_IREAD)
+            except OSError:
+                pass
+    shutil.rmtree(path, ignore_errors=True)
+
+
 def _write_snapshot(dst, src_root):
     """把 `src_root` 的白名单内容脱敏写进 dst（+ 生成 README）。返回 (文件数, 逐目录统计)。"""
     copies = _collect(src_root)
@@ -264,7 +286,7 @@ def _clear_tree(dst):
             continue
         p = os.path.join(dst, name)
         if os.path.isdir(p):
-            shutil.rmtree(p, ignore_errors=True)
+            _rmtree(p)
         else:
             try:
                 os.remove(p)
@@ -384,7 +406,7 @@ def _replay_one(dst, c, max_mb):
         _clear_tree(dst)
         nfiles, _per = _write_snapshot(dst, ex)
     finally:
-        shutil.rmtree(ex, ignore_errors=True)
+        _rmtree(ex)
     errors, _warns, _total = gates(dst, max_mb)
     if errors:
         return False, errors, nfiles, 0
@@ -413,8 +435,8 @@ def _tip_check(dst, last_sha):
         _write_snapshot(chk, ex2)
         want = local_tree(chk, "aa-mirror-chk")
     finally:
-        shutil.rmtree(ex2, ignore_errors=True)
-        shutil.rmtree(chk, ignore_errors=True)
+        _rmtree(ex2)
+        _rmtree(chk)
     have = commit_tree(dst, "HEAD")
     diff = sorted(set(want) ^ set(have)) + [k for k in sorted(set(want) & set(have)) if want[k] != have[k]]
     return diff, want
@@ -571,8 +593,8 @@ def find_base(remote, branch, mirror_tip, scan=300):
             if local_tree(chk, "aa-mirror-basechk") == remote_tree(remote, branch):
                 return c["sha"], "说明+时间+树校验命中"
         finally:
-            shutil.rmtree(ex, ignore_errors=True)
-            shutil.rmtree(chk, ignore_errors=True)
+            _rmtree(ex)
+            _rmtree(chk)
         return None, "说明+时间对得上但树比对不一致（本地历史被改写过？）"
     return None, "本地最近 %d 条历史里找不到镜像 tip 对应的提交" % scan
 
@@ -950,12 +972,12 @@ def main():
         return 0
     finally:
         if not args.keep and not args.check:
-            shutil.rmtree(dst, ignore_errors=True)
+            _rmtree(dst)
         elif not args.keep:
             pass
         for d in set(_PROBE.values()):
             if d and not args.keep:
-                shutil.rmtree(d, ignore_errors=True)
+                _rmtree(d)
 
 
 if __name__ == "__main__":
