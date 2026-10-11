@@ -48,6 +48,9 @@ class TestMirrorMessage(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="aa_mirror_msg_")
         self.per = _fake_snapshot(self.tmp)
 
+    def tearDown(self):
+        P._rmtree(self.tmp)        # 别再漏临时目录（本机 .git 对象常被句柄占住，用工具自己的清理）
+
     def _msg(self, subjects=("条目一", "条目二")):
         return P.mirror_message(self.tmp, "2026-10-10", 16, 16 * 1048576, self.per, subjects=subjects)
 
