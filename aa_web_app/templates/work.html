@@ -13,7 +13,9 @@
   {% endif %}
   <button id="gen-cands" class="btn" data-work="{{ work }}" title="全章遍历提取术语候选（AI，耗时数分钟~十几分钟）">生成术语候选…</button>
   <button id="regen" class="btn {{ 'regen-dirty' if unsynced }}" data-work="{{ work }}"
-    {% if unsynced %}title="{{ unsynced }} 条人工修改未同步到交付 HTML"{% endif %}>重新生成合集 HTML{% if unsynced %}（{{ unsynced }} 条待同步）{% endif %}</button>
+    title="{% if unsynced %}{{ unsynced }} 条人工修改未同步到交付 HTML{% else %}正式交付文件夹：译/原切换 + 页面内编辑·替换（AA编辑服务.exe）+ 源 txt.gz 留档{% endif %}">生成简易工作台{% if unsynced %}（{{ unsynced }} 条待同步）{% endif %}</button>
+  <button id="make-html" class="btn" data-work="{{ work }}"
+    title="只出 .html 文件（可选仅译文 / 分页成多个）：自包含、双击即看、手机可读；不带编辑服务与源留档">仅 HTML 文件…</button>
   <a class="btn" href="/work/{{ work }}/translate">翻译任务…</a>
   {% if wiki_ready %}
   <button id="sync-wiki" class="btn" title="重抓本作品官方设定 wiki（零模型成本）→ 增量翻译新增行 → 重建对照页；连载更新后点它保持一致">同步 wiki</button>
@@ -107,6 +109,34 @@
     </div>
   </div>
 </div>
+
+<div id="mh-modal" class="modal hidden">
+  <div class="modal-box" style="max-width:620px">
+    <h3>仅 HTML 文件</h3>
+    <p class="muted small">自包含 <code>.html</code>（章节数据与 AA 等宽字体都内嵌）：双击打开 / 发出去 / 手机文件管理器都能看；
+      <b>不带</b>编辑服务（exe）与源 txt.gz 留档。阅读进度、手机阅读优化默认带上。</p>
+    <div class="mh-row" style="margin:12px 0">
+      <b style="display:inline-block;width:52px">内容</b>
+      <label style="margin-right:16px"><input type="radio" name="mh-content" value="both" checked> 双语（可切换 译文 / 原文）</label>
+      <label><input type="radio" name="mh-content" value="tr"> 仅译文</label>
+    </div>
+    <div class="mh-row" style="margin:12px 0">
+      <b style="display:inline-block;width:52px">分页</b>
+      <label style="margin-right:12px"><input type="radio" name="mh-split" value="0" checked> 全部（一个文件）</label>
+      <label style="margin-right:12px"><input type="radio" name="mh-split" value="50"> 每 50 章</label>
+      <label style="margin-right:12px"><input type="radio" name="mh-split" value="100"> 每 100 章</label>
+      <label style="margin-right:12px"><input type="radio" name="mh-split" value="200"> 每 200 章</label>
+      <label><input type="radio" name="mh-split" value="custom"> 自定义
+        <input type="number" id="mh-split-n" min="1" value="30" style="width:66px"> 章</label>
+    </div>
+    <p class="muted small">分页时文件名形如 <code>【机翻】&lt;标题&gt;_001-100.html</code>（每部分自带目录、上一/下一部分链接、跨文件续读提示）。</p>
+    <div class="actions">
+      <button id="mh-go" class="btn primary">开始生成</button>
+      <button id="mh-cancel" class="btn ghost">取消</button>
+      <span class="muted small" id="mh-msg"></span>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -124,6 +154,35 @@ document.getElementById('regen').addEventListener('click', async (e) => {
   toast(j.ok ? '已重新生成 ✓' : '生成失败:\n' + j.output, j.ok);
   b.disabled = false;
   setTimeout(() => location.reload(), 800);
+});
+// 生成「仅 HTML 文件」：自包含 .html，可选仅译文 / 每 N 章一个文件（零 token）
+const mhModal = document.getElementById('mh-modal');
+const mhMsg = document.getElementById('mh-msg');
+document.getElementById('make-html').addEventListener('click', () => {
+  mhMsg.textContent = ''; mhModal.classList.remove('hidden');
+});
+document.getElementById('mh-cancel').addEventListener('click', () => mhModal.classList.add('hidden'));
+document.getElementById('mh-go').addEventListener('click', async () => {
+  const b = document.getElementById('mh-go');
+  const content = document.querySelector('input[name=mh-content]:checked').value;
+  const sv = document.querySelector('input[name=mh-split]:checked').value;
+  const split = sv === 'custom' ? (parseInt(document.getElementById('mh-split-n').value, 10) || 0)
+                                : parseInt(sv, 10);
+  b.disabled = true; mhMsg.textContent = '生成中…（章节多时要一会儿）';
+  try {
+    const r = await fetch('/api/work/' + workId + '/make-html', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({tr_only: content === 'tr', split: split})
+    });
+    const j = await r.json();
+    if (!j.ok) { mhMsg.textContent = '生成失败：' + (j.output || ''); return; }
+    mhMsg.textContent = '已生成 ' + j.files.length + ' 个文件 → ' + j.dir;
+    toast('仅 HTML 文件：已生成 ' + j.files.length + ' 个 ✓', true);
+  } catch (err) {
+    mhMsg.textContent = '失败：' + err;
+  } finally {
+    b.disabled = false;
+  }
 });
 // 同步本作品官方设定 wiki（2026-10-06）：入队 wiki 任务 = 重抓原站 + 增量翻译新增行 + 重建
 const syncWikiBtn = document.getElementById('sync-wiki');

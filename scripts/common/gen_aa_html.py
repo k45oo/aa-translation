@@ -228,6 +228,15 @@ pre.aa span.aa-line.hide{display:none}
 #trm button:hover{filter:brightness(1.08)}
 #trm button:disabled{opacity:.55;cursor:default}
 #trm .emsg{font-size:12px;color:#888}
+/* 分页简版（多个 HTML 文件）：头部范围说明 / 跨文件「上次阅读」提示 / 上一部分·下一部分 */
+header p.part-nav a{color:#ffd48a;text-decoration:none;font-weight:bold}
+header p.part-nav a:hover{text-decoration:underline}
+#xres{padding:6px 12px;background:#fff4d8;border-bottom:1px solid #e0c080;color:#664400;
+  font-family:"Microsoft YaHei",sans-serif;font-size:13px}
+#xres a{color:#8a5a3a;font-weight:bold}
+.pager a.pager-btn{background:#7a5a3a;color:#fff;border-radius:4px;padding:8px 18px;font-size:14px;
+  font-family:"Microsoft YaHei",sans-serif;text-decoration:none;display:inline-block}
+.pager a.pager-btn:hover{background:#8a6a4a}
 @media (max-width:640px){
 .modebar{top:6px;right:8px;padding:2px}
 .modebar button{padding:4px 9px;font-size:12px}
@@ -390,13 +399,17 @@ def tr_patch(tr_lines, src_lines):
                      for i, (t, s) in enumerate(zip(tr_lines, src_lines)) if t != s)
 
 
-def chapter_payload(idx, tr_lines, src_lines, src_b64=None):
+def chapter_payload(idx, tr_lines, src_lines, src_b64=None, tr_only=False):
     """一章的 chapters 数据 payload（自动选 v1/v2，选不出来就 v1）。
 
+    tr_only（「仅译文」简版）→ 只带 tr（省掉近一半数据；页面上不出现「原文」按钮）。
     src_b64 给定时沿用现成 b64（服务写回时不必重压原文）；src_lines 为 None 时
     **只能**出 v1（没有原文行就没法算差异行）。
     """
     tr_b64 = _gz_b64("\n".join(tr_lines))
+    if tr_only:
+        return ('window.AA_DATA=window.AA_DATA||[];'
+                'window.AA_DATA[%d]={"tr":"%s"};\n' % (idx, tr_b64))
     if src_b64 is None:
         src_b64 = _gz_b64("\n".join(src_lines or []))
     patch = tr_patch(tr_lines, src_lines) if src_lines is not None else None
@@ -446,6 +459,101 @@ def _render_body(lines, cm, site, plan, src_lines=None, marks=None):
                                src_line=(src_lines[i] if src_lines and i < len(src_lines) else None),
                                sfx_marks=marks))
     return out
+
+
+def _chapter_sections(cfg, site, chapters, tpl, aa_dir, offset=0, total=None,
+                      prev_href="", next_href="", tr_only=False, want_src=True):
+    """渲染**一批**章节 → (sections, payloads, n_src_missing)。
+
+    两个调用方共用这一段（别再各写一遍、别改出两套口径）：
+      · 正式交付文件夹（`main()`）：全章一批，offset=0，无跨文件链接；
+      · 「仅 HTML 文件」简版（`_gen_plain()`）：分页，offset = 本文件首章在整部的序号，
+        prev_href/next_href = 相邻分页文件名（首/末章的翻页按钮改成跨文件链接）。
+
+    payload 的章序号 = **本批内**序号（0..len-1）——页面 JS 按本文件的章节骨架取数。
+    tr_only=True（仅译文）→ payload 只带 tr；want_src=False 时连原文渲染都跳过。
+    """
+    if total is None:
+        total = len(chapters)
+    n = len(chapters)
+    n_src_missing = 0
+    sections, payloads = [], []
+    for idx, f in enumerate(chapters):
+        m = EID_RE.search(os.path.basename(f))
+        eid = m.group(1) if m else ''
+        eid = cfg.get("eid_map", {}).get(os.path.basename(f), eid)  # eid_map 覆盖文件名推断(第1话无 eid 前缀)
+        src_url = src_url_of(f, cfg, eid) or ''
+        lines = _read_lines(f)
+        base = _base_of(f)
+        cm = {}
+        cmf = os.path.join(aa_dir, base + "_colormap.json")
+        if os.path.exists(cmf):
+            cm = json.load(open(cmf, encoding="utf-8"))
+        plan = _blank_plan(lines)           # 楼间间距：帖头前补足 ≥2 空行（幂等）
+        # 原文行（sfx 自动对齐 + 译/原切换共用）——**先读原文**：译文行的 sfx 特效要
+        # 对照原文行的半角假名段。带 work/sfx_marks/<base>.json 的人工标记一起透传
+        sp = _src_path(aa_dir, base)
+        if sp:
+            src_lines = _read_lines(sp)
+        else:
+            src_lines, n_src_missing = lines, n_src_missing + 1
+        if len(src_lines) < len(lines):
+            src_lines = src_lines + [''] * (len(lines) - len(src_lines))
+        marks = _sfx_marks_of(cfg.get("work_dir"), base)
+        rendered = _render_body(lines, cm, site, plan, src_lines=src_lines, marks=marks)
+        # 原文渲染（译/原切换用）：同一份间距计划 → 两种模式行位置完全对齐
+        rendered_src = _render_body(src_lines[:len(lines)], cm, site, plan) if want_src else None
+        label = chapter_label(f, cfg)
+        style = "" if idx == 0 else ' style="display:none"'
+        if idx > 0:
+            prev_btn = f'<button type="button" onclick="showChapter({idx-1})" id="prev{idx}">&larr; 上一章</button>'
+        elif prev_href:
+            prev_btn = f'<a class="pager-btn" href="{H.escape(prev_href)}">&larr; 上一部分</a>'
+        else:
+            prev_btn = '<button type="button" disabled>&larr; 上一章</button>'
+        if idx < n - 1:
+            next_btn = f'<button type="button" onclick="showChapter({idx+1})" id="next{idx}">下一章 &rarr;</button>'
+        elif next_href:
+            next_btn = f'<a class="pager-btn" href="{H.escape(next_href)}">下一部分 &rarr;</a>'
+        elif tpl == 'fc2':
+            next_btn = f'<button type="button" onclick="showChapter({idx+1})" id="next{idx}">下一章 &rarr;</button>'
+        else:
+            next_btn = '<button type="button" disabled>下一章 &rarr;</button>'
+        cur = offset + idx + 1                 # 「第 N / M 章」用**整部**序号（分页时也看得清在哪）
+        if tpl == 'legacy':
+            sections.append(f'<section class="chapter" id="ch{idx}"{style}>\n'
+                            f'<div class="pager">{prev_btn}{next_btn}</div>\n'
+                            f'<h2>{H.escape(label)}</h2>\n'
+                            f'<div class="src-link">原帖地址：<a href="{H.escape(src_url)}" target="_blank">{H.escape(src_url)}</a></div>\n'
+                            f'<div class="aa-wrap"><div class="aa-gut" id="gut{idx}"></div>'
+                            f'<pre class="aa" id="pre{idx}"></pre></div>\n'
+                            f'<div class="pager">{prev_btn}{next_btn}</div>\n'
+                            f'<div class="chapter-ind">{cur} / {total} 章</div>\n'
+                            f'</section>')
+        elif tpl == 'fc2':
+            num = eid or str(idx + 1)
+            sections.append(f'<section class="chapter" id="ch{idx}"{style}>\n'
+                            f'<h2>{H.escape(label)}（FC2 #{num}）</h2>\n'
+                            f'<div class="src-link">原帖：<a href="{H.escape(src_url)}" target="_blank">{H.escape(src_url)}</a></div>\n'
+                            f'<div class="pager">{prev_btn} <span class="chapter-ind">第{cur} / {total} 章</span> {next_btn}</div>\n'
+                            f'<div class="aa-wrap"><div class="aa-gut" id="gut{idx}"></div>'
+                            f'<pre class="aa" id="pre{idx}"></pre></div>\n'
+                            f'<div class="pager">{prev_btn} <span class="chapter-ind">第{cur} / {total} 章</span> {next_btn}</div>\n'
+                            f'</section>')
+        else:  # saki
+            m2 = re.search(r'第(\d+)話', os.path.basename(f))
+            num = m2.group(1) if m2 else str(idx + 1)
+            sections.append(f'<section class="chapter" id="ch{idx}"{style}>\n'
+                            f'<div class="pager">{prev_btn}{next_btn}</div>\n'
+                            f'<h2>第{num}话</h2>\n'
+                            f'<div class="src-link">原帖地址：<a href="{H.escape(src_url)}" target="_blank">{H.escape(src_url)}</a></div>\n'
+                            f'<div class="aa-wrap"><div class="aa-gut" id="gut{idx}"></div>'
+                            f'<pre class="aa" id="pre{idx}"></pre></div>\n'
+                            f'<div class="pager">{prev_btn}{next_btn}</div>\n'
+                            f'<div class="chapter-ind">{cur} / {total} 话</div>\n'
+                            f'</section>')
+        payloads.append(chapter_payload(idx, rendered, rendered_src, tr_only=tr_only))
+    return sections, payloads, n_src_missing
 
 
 def _sfx_marks_of(work_dir, base):
@@ -812,12 +920,16 @@ TAIL_JS = """</main>
 (function () {
   var WORKKEY = "__KEY__";
   var TOTAL = __TOTAL__;
+  var OFF = __OFFSET__;               // 本文件第 1 章在**整部作品**里的序号（分页简版；不分页 = 0）
+  var SELF = "__SELF__";              // 本文件名 —— 存档 + 跨文件「上次读到第 N 话」提示用
+  var PLAIN = __PLAIN__;              // 「仅 HTML」交付：没有编辑服务 → 不挂编辑/替换
+  var TRONLY = __TRONLY__;            // 「仅译文」：没有原文数据，不显示「原文」按钮
   var PKEY = "aa:" + WORKKEY;
   var TXT = {};                       // n -> {tr, src}（解压后的已渲染 HTML）
   var LOADED = {};                    // n -> Promise（脚本只注入一次）
   var FILLED = {};                    // n -> 1（<pre> 里已经填了内容）
   var SHOWN = -1;                     // 当前章
-  var mode = localStorage.getItem(PKEY + ":mode") === "src" ? "src" : "tr";
+  var mode = TRONLY ? "tr" : (localStorage.getItem(PKEY + ":mode") === "src" ? "src" : "tr");
   // 换行符：本文件是 Python 三引号（非 raw）字符串，JS 里写反斜杠 n 会被 Python 先解码成真换行
   // → JS 字符串断行报 SyntaxError。凡是要用到换行的 JS，统一用 NL。
   var NL = String.fromCharCode(10);
@@ -926,7 +1038,8 @@ TAIL_JS = """</main>
     return rows.join(NL);
   }
 
-  function decode(d) {                    // payload → [tr, src]（两种格式都吃）
+  function decode(d) {                    // payload → [tr, src]（v1/v2/「仅译文」都吃）
+    if (!d.src) return unz(d.tr).then(function (tr) { return [tr, tr]; });   // 仅译文：没有原文数据
     return unz(d.src).then(function (src) {
       if (!d.p) return unz(d.tr).then(function (tr) { return [tr, src]; });
       return unz(d.p).then(function (p) { return [unpatch(src, p), src]; });
@@ -1034,7 +1147,9 @@ TAIL_JS = """</main>
   function save() {
     if (mute || SHOWN < 0) return;
     try {
-      localStorage.setItem(PKEY, JSON.stringify({ch: SHOWN, y: Math.round(window.scrollY)}));
+      // ch = **整部作品**里的章序号（分页简版要加上本文件的偏移 OFF）——
+      // 打开别的分页文件时才能提示「上次读到第 N 话（在 xxx.html）」
+      localStorage.setItem(PKEY, JSON.stringify({ch: SHOWN + OFF, y: Math.round(window.scrollY), f: SELF}));
     } catch (e) {}
   }
 
@@ -1042,6 +1157,18 @@ TAIL_JS = """</main>
     var box = el("loading");
     box.className = "err";
     box.textContent = msg;
+  }
+
+  // 分页简版：上次读的是**另一个** HTML 文件 → 头部给一条「继续上次阅读」跳转（不硬跳走）
+  function xResume(st) {
+    var f = st.f || "";
+    var box = document.createElement("div");
+    box.id = "xres";
+    var t = '上次读到第 ' + (st.ch + 1) + ' 话';
+    if (f && f !== SELF) t += '（在 <a href="' + encodeURI(f) + '">' + escapeHtml(f) + '</a>）';
+    box.innerHTML = t;
+    var hd = document.querySelector("header");
+    (hd || document.body).appendChild(box);
   }
 
   function bindModebar() {
@@ -1067,8 +1194,14 @@ TAIL_JS = """</main>
     try { st = JSON.parse(localStorage.getItem(PKEY) || "null"); } catch (e) {}
     if (jumped) { mute = false; return; }        // 用户已抢先点章 → 不抢回
     var n = 0;
-    if (st && typeof st.ch === "number" && st.ch >= 0 && st.ch < TOTAL) n = st.ch;
-    pendY = (n === (st && st.ch) ? (st.y || 0) : 0);
+    var abs = (st && typeof st.ch === "number") ? st.ch : -1;   // 存档 = 整部作品的章序号
+    var local = abs - OFF;                                      // 换算成本文件的章序号
+    if (st && local >= 0 && local < TOTAL) {
+      n = local; pendY = (st.y || 0);
+    } else {
+      if (st && abs >= 0) xResume(st);           // 存档落在别的分页文件 → 提示，不硬跳
+      pendY = 0;
+    }
     mute = true;
     jump(n, true);
     var ld = el("loading");
@@ -1418,13 +1551,22 @@ TAIL_JS = """</main>
     });
   }
 
+  // 「仅 HTML」交付里没有编辑服务 → 连按钮都不生成（不靠 CSS 藏，免得留个能点的灰按钮）；
+  // 「仅译文」没有原文数据 → 去掉「原文」按钮。都在骨架已解析之后跑（modebar 在脚本之前）。
+  if (PLAIN) {
+    var ebs = document.querySelectorAll(".modebar button.editbtn");
+    for (var q = ebs.length - 1; q >= 0; q--) ebs[q].parentNode.removeChild(ebs[q]);
+  }
+  if (TRONLY) {
+    var sbtn = document.querySelector('.modebar button[data-mode="src"]');
+    if (sbtn) sbtn.parentNode.removeChild(sbtn);
+  }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot);
-    document.addEventListener("DOMContentLoaded", function () { bindEdit(); esLocate(); });
+    if (!PLAIN) document.addEventListener("DOMContentLoaded", function () { bindEdit(); esLocate(); });
   } else {
     boot();
-    bindEdit();
-    esLocate();
+    if (!PLAIN) { bindEdit(); esLocate(); }
   }
 })();
 </script>
@@ -1527,6 +1669,147 @@ def install_edit_server(out_dir, wid, cfg, chapters, layout="external"):
     return what
 
 
+def _font_parts(cfg, chapters, aa_dir, out_dir, layout, font_mode="auto", font_stack=None):
+    """AA 等宽字体内嵌（common/aa_font.py）→ [<style> 片段]。
+
+    layout=inline（单档 / 简版单文件）→ base64 内嵌；external → 交付夹 `aa_font.woff2` + 相对 URL。
+    关闭（`AA_AA_FONT=0` / `--font none`）或失败 → []（页面回退系统字体栈）。
+    """
+    font_parts = []
+    if font_mode != "none" and _AF.font_enabled():
+        try:
+            font_src = _AF.font_source() if font_mode in ("auto", "1", "") else font_mode
+            if not os.path.exists(font_src):
+                raise SystemExit("字体文件不存在: %s" % font_src)
+            paths = [p for p in (_src_path(aa_dir, _base_of(f)) for f in chapters) if p]
+            corpus = _AF.chars_of_files(paths + list(chapters))
+            sub, missing, _ = _AF.build_subset(_AF.base_chars() | corpus, font_src)
+            if layout == "inline":
+                with open(sub, "rb") as fp:
+                    font_ref = "data:font/woff2;base64," + base64.b64encode(fp.read()).decode("ascii")
+            else:
+                shutil.copy2(sub, os.path.join(out_dir, FONT_NAME))
+                font_ref = FONT_NAME
+            first = _AF.stack_first() if font_stack is None else (font_stack.lower() != "last")
+            font_parts.append("<style>\n" + _AF.font_css(font_ref, first=first) + "</style>")
+            print("[font] AA 等宽字体 %s（%s, %d 字符, 栈序 %s）%s"
+                  % (os.path.basename(sub),
+                     "内嵌 base64" if layout == "inline" else FONT_NAME,
+                     len(corpus), "first" if first else "last",
+                     ("，字体缺 %d 字符→回退" % len(missing)) if missing else ""))
+        except SystemExit:
+            raise
+        except Exception as e:
+            print("[font] 跳过（%s）；AA 列位在缺字体的设备上不保证" % e)
+    return font_parts
+
+
+# ── 「仅 HTML 文件」简版（2026-10-11）──────────────────────────────────────────
+# 与正式交付文件夹（编辑服务 exe + 源留档 + data/ 目录）并列的**轻交付**：
+#   文件名 `【机翻】<交付短名>_<起>-<止>.html`（3 位零填充，1-based 章序号）
+#   每个文件**自包含**（章节数据内嵌、字体内嵌）→ 双击 file:// / 发出去 / 手机文件管理器都能看
+#   不带 exe / 编辑服务 / 手机阅读 bat / edit_meta / 源 txt.gz / data 目录
+#   仍带 译·原切换（`--tr-only` 关）、阅读进度、手机抽屉、跨文件「上次阅读」提示、上一/下一部分
+PLAIN_PREFIX = "【机翻】"
+_PLAIN_SUFFIXES = ("_汉化合集", "_汉化（机翻）合集")
+
+
+def plain_short_name(cfg):
+    """简版文件名里的 <标题>：交付夹基名去掉 `_汉化合集` 类后缀；无则回退 registry title。"""
+    d = deliver_dir(cfg) or ""
+    n = os.path.basename(d) if d else ""
+    for suf in _PLAIN_SUFFIXES:
+        if n.endswith(suf):
+            n = n[: -len(suf)]
+            break
+    return n or (cfg.get("title") or "").strip() or "作品"
+
+
+def plain_plan(cfg, chapters, split):
+    """简版分页计划 → [(文件名, 起始章号(1-based), 结束章号)]；split<=0 = 全部章放一个文件。"""
+    per = split if (split and split > 0) else len(chapters)
+    per = max(1, per)
+    short = plain_short_name(cfg)
+    out = []
+    for i in range(0, len(chapters), per):
+        s, e = i + 1, min(i + per, len(chapters))
+        out.append(("%s%s_%03d-%03d.html" % (PLAIN_PREFIX, short, s, e), s, e))
+    return out
+
+
+def _gen_plain(cfg, site, chapters, tpl, css, title, source, desc_zh, split, tr_only,
+               out_dir_override=None, font_mode="auto", font_stack=None):
+    """「仅 HTML 文件」：按分页计划逐个写出自包含 .html，返回写出的路径列表。
+
+    落在**交付 HTML 目录**（`--out-dir` 可改）= 交付夹的父目录，即 `aaManga/交付HTML/`。
+    重跑会先删掉本作品上一次的简版文件（`【机翻】<短名>_*.html`）——章数/分页变了不留陈旧件。
+    """
+    plan = plain_plan(cfg, chapters, split)
+    if not plan:
+        raise SystemExit("没有章节可生成")
+    out_dir = out_dir_override or os.path.dirname(deliver_dir(cfg))
+    if not out_dir:
+        raise SystemExit("无法确定输出目录（作品未配置 html_out）")
+    os.makedirs(out_dir, exist_ok=True)
+    short = plain_short_name(cfg)
+    pre = PLAIN_PREFIX + short + "_"
+    for fn in os.listdir(out_dir):                  # 清掉上一次的简版文件（只删自己前缀的）
+        if fn.startswith(pre) and fn.endswith(".html") and os.path.isfile(os.path.join(out_dir, fn)):
+            try:
+                os.remove(os.path.join(out_dir, fn))
+            except OSError:
+                pass
+    total = len(chapters)
+    written, n_src_missing = [], 0
+    for pi, (name, s, e) in enumerate(plan):
+        prev_name = plan[pi - 1][0] if pi > 0 else ""
+        next_name = plan[pi + 1][0] if pi + 1 < len(plan) else ""
+        chunk = chapters[s - 1:e]
+        sections, payloads, miss = _chapter_sections(
+            cfg, site, chunk, tpl, cfg["aa_dir"], offset=s - 1, total=total,
+            prev_href=prev_name, next_href=next_name,
+            tr_only=tr_only, want_src=not tr_only)
+        n_src_missing += miss
+        toc = [f'<button type="button" onclick="showChapter({i})" id="toc{i}">{H.escape(chapter_label(f, cfg))}</button>'
+               for i, f in enumerate(chunk)]
+        toc_html = ''.join(toc) if tpl == 'fc2' else '\n'.join(toc)
+        nav = ""
+        if prev_name:
+            nav += f'<a href="{H.escape(prev_name)}">← 上一部分</a>'
+        if next_name:
+            nav += ('　' if nav else '') + f'<a href="{H.escape(next_name)}">下一部分 →</a>'
+        range_txt = f"本文件：第 {s:03d}-{e:03d} 话 / 共 {total} 话"
+        head = (f'<!DOCTYPE html>\n<html lang="zh-CN"><head><meta charset="utf-8">\n'
+                f'<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+                f'<title>{H.escape(title)}</title>\n<style>\n{css}</style></head><body>\n'
+                f'<header><h1>{H.escape(title)}</h1>\n'
+                f'<p>{H.escape(source)}</p>\n'
+                + f'<p class="part-nav">{H.escape(range_txt)}' + (("　" + nav) if nav else "") + '</p>\n'
+                + (f'<p class="work-desc">{H.escape(desc_zh)}</p>\n' if desc_zh else '')
+                + '</header>\n'
+                + f'<nav><span class="toc-label">目录：</span>' + toc_html + '</nav><main>')
+        font_parts = _font_parts(cfg, chapters, cfg["aa_dir"], out_dir, "inline", font_mode, font_stack)
+        inline_script = ("<script>\nwindow.AA_INLINE=1;\n"
+                         + "\n".join(p.rstrip("\n") for p in payloads) + "\n</script>")
+        tail = (TAIL_JS.replace("__KEY__", _js_str(cfg.get("title") or short))
+                       .replace("__TOTAL__", str(len(chunk)))
+                       .replace("__OFFSET__", str(s - 1))
+                       .replace("__SELF__", _js_str(name))
+                       .replace("__PLAIN__", "1")
+                       .replace("__TRONLY__", "1" if tr_only else "0"))
+        doc = "\n".join([head, '<div id="loading">正在载入章节数据…</div>']
+                        + sections + font_parts + [inline_script, tail])
+        dst = os.path.join(out_dir, name)
+        open(dst, "w", encoding="utf-8").write(doc)     # 不加 newline='' → CRLF（与历史交付一致）
+        written.append(dst)
+        print("written %s (%d KB) 第 %03d-%03d 话%s"
+              % (dst, os.path.getsize(dst) // 1024, s, e, "（仅译文）" if tr_only else ""))
+    print("[plain] %d 个自包含 HTML%s，输出 %s" % (len(written), "（仅译文）" if tr_only else "", out_dir))
+    if n_src_missing:
+        print("[warn] %d 章缺原文（aa/ 无同名 txt）→ 原文模式回退显示译文" % n_src_missing)
+    return written
+
+
 def main(work=None):
     argv = sys.argv[1:]
     one = None                      # --one <base>：单章试读（只渲染这一章，输出到 work/）
@@ -1562,8 +1845,30 @@ def main(work=None):
             font_stack = argv[i + 1]
         elif a.startswith("--font-stack="):
             font_stack = a.split("=", 1)[1]
+    # 「仅 HTML 文件」简版（2026-10-11）：--plain 只出 .html（不装编辑服务/源留档）；
+    # --tr-only 只存译文；--split N 每 N 章一个文件（0/缺省 = 全部放一个）；--out-dir 改输出目录
+    plain = "--plain" in argv
+    tr_only = "--tr-only" in argv
+    split_val, out_dir_val = None, None
+    for i, a in enumerate(argv):
+        if a == "--split" and i + 1 < len(argv):
+            split_val = argv[i + 1]
+        elif a.startswith("--split="):
+            split_val = a.split("=", 1)[1]
+        elif a == "--out-dir" and i + 1 < len(argv):
+            out_dir_val = argv[i + 1]
+        elif a.startswith("--out-dir="):
+            out_dir_val = a.split("=", 1)[1]
+    split = 0
+    if split_val is not None:
+        try:
+            split = int(float(split_val))
+        except ValueError:
+            raise SystemExit("--split 需要章数，例如 --split 100（0 = 不分页）")
+    if plain and one:
+        raise SystemExit("--plain 与 --one 不能同时用")
     args = [a for a in argv if not a.startswith("-")
-            and a not in (one, inline_max_val, font_mode, font_stack)]
+            and a not in (one, inline_max_val, font_mode, font_stack, split_val, out_dir_val)]
     wid = work or (args[0] if args else "saki")
     cfg = registry.get(wid)
     site = importlib.import_module("sites." + cfg["site"])
@@ -1586,6 +1891,11 @@ def main(work=None):
         dp = os.path.join(cfg["work_dir"], "description_zh.txt")
         if os.path.exists(dp):
             desc_zh = open(dp, encoding="utf-8").read().strip()
+
+    # ── 分支：「仅 HTML 文件」简版（自包含 .html，可能分页成多个文件）─────────────
+    if plain:
+        return _gen_plain(cfg, site, chapters, tpl, css, title, source, desc_zh, split, tr_only,
+                          out_dir_override=out_dir_val, font_mode=font_mode, font_stack=font_stack)
 
     # 交付文件夹（--one 时写 work/单章渲染_<base>/，不覆盖正式合集）
     if one:
@@ -1628,72 +1938,10 @@ def main(work=None):
     n_src_missing = 0
     nbytes_data = 0
 
-    for idx, f in enumerate(chapters):
-        m = EID_RE.search(os.path.basename(f))
-        eid = m.group(1) if m else ''
-        eid = cfg.get("eid_map", {}).get(os.path.basename(f), eid)  # eid_map 覆盖文件名推断(第1话无 eid 前缀)
-        src_url = src_url_of(f, cfg, eid) or ''
-        lines = _read_lines(f)
-        base = _base_of(f)
-        cm = {}
-        cmf = os.path.join(AA_DIR, base + "_colormap.json")
-        if os.path.exists(cmf):
-            cm = json.load(open(cmf, encoding="utf-8"))
-        plan = _blank_plan(lines)           # 楼间间距：帖头前补足 ≥2 空行（幂等）
-        # 原文行（sfx 自动对齐 + 译/原切换共用）——**先读原文**：译文行的 sfx 特效要
-        # 对照原文行的半角假名段。带 work/sfx_marks/<base>.json 的人工标记一起透传
-        sp = _src_path(AA_DIR, base)
-        if sp:
-            src_lines = _read_lines(sp)
-        else:
-            src_lines, n_src_missing = lines, n_src_missing + 1
-        if len(src_lines) < len(lines):
-            src_lines = src_lines + [''] * (len(lines) - len(src_lines))
-        marks = _sfx_marks_of(cfg.get("work_dir"), base)
-        rendered = _render_body(lines, cm, site, plan, src_lines=src_lines, marks=marks)
-        # 原文渲染（译/原切换用）：同一份间距计划 → 两种模式行位置完全对齐
-        rendered_src = _render_body(src_lines[:len(lines)], cm, site, plan)
-        label = chapter_label(f, cfg)
-        style = "" if idx == 0 else ' style="display:none"'
-        prev_btn = (f'<button type="button" onclick="showChapter({idx-1})" id="prev{idx}">&larr; 上一章</button>'
-                    if idx > 0 else '<button type="button" disabled>&larr; 上一章</button>')
-        next_btn = (f'<button type="button" onclick="showChapter({idx+1})" id="next{idx}">下一章 &rarr;</button>'
-                    if idx < len(chapters) - 1 or tpl == 'fc2' else '<button type="button" disabled>下一章 &rarr;</button>')
-        nl = '\n'
-        if tpl == 'legacy':
-            parts.append(f'<section class="chapter" id="ch{idx}"{style}>\n'
-                         f'<div class="pager">{prev_btn}{next_btn}</div>\n'
-                         f'<h2>{H.escape(label)}</h2>\n'
-                         f'<div class="src-link">原帖地址：<a href="{H.escape(src_url)}" target="_blank">{H.escape(src_url)}</a></div>\n'
-                         f'<div class="aa-wrap"><div class="aa-gut" id="gut{idx}"></div>'
-                         f'<pre class="aa" id="pre{idx}"></pre></div>\n'
-                         f'<div class="pager">{prev_btn}{next_btn}</div>\n'
-                         f'<div class="chapter-ind">{idx+1} / {len(chapters)} 章</div>\n'
-                         f'</section>')
-        elif tpl == 'fc2':
-            num = eid or str(idx + 1)
-            parts.append(f'<section class="chapter" id="ch{idx}"{style}>\n'
-                         f'<h2>{H.escape(label)}（FC2 #{num}）</h2>\n'
-                         f'<div class="src-link">原帖：<a href="{H.escape(src_url)}" target="_blank">{H.escape(src_url)}</a></div>\n'
-                         f'<div class="pager">{prev_btn} <span class="chapter-ind">第{idx+1} / {len(chapters)} 章</span> {next_btn}</div>\n'
-                         f'<div class="aa-wrap"><div class="aa-gut" id="gut{idx}"></div>'
-                         f'<pre class="aa" id="pre{idx}"></pre></div>\n'
-                         f'<div class="pager">{prev_btn} <span class="chapter-ind">第{idx+1} / {len(chapters)} 章</span> {next_btn}</div>\n'
-                         f'</section>')
-        else:  # saki
-            m2 = re.search(r'第(\d+)話', os.path.basename(f))
-            num = m2.group(1) if m2 else str(idx + 1)
-            parts.append(f'<section class="chapter" id="ch{idx}"{style}>\n'
-                         f'<div class="pager">{prev_btn}{next_btn}</div>\n'
-                         f'<h2>第{num}话</h2>\n'
-                         f'<div class="src-link">原帖地址：<a href="{H.escape(src_url)}" target="_blank">{H.escape(src_url)}</a></div>\n'
-                         f'<div class="aa-wrap"><div class="aa-gut" id="gut{idx}"></div>'
-                         f'<pre class="aa" id="pre{idx}"></pre></div>\n'
-                         f'<div class="pager">{prev_btn}{next_btn}</div>\n'
-                         f'<div class="chapter-ind">{idx+1} / {len(chapters)} 话</div>\n'
-                         f'</section>')
+    secs, payloads, n_src_missing = _chapter_sections(cfg, site, chapters, tpl, AA_DIR)
+    parts.extend(secs)
+    for idx, payload in enumerate(payloads):
         # 章节数据（v1/v2 自动选；见 chapter_payload）——内容不进 index.html
-        payload = chapter_payload(idx, rendered, rendered_src)
         dpath = os.path.join(data_dir, "%05d.js" % idx)
         with open(dpath, "w", encoding="utf-8", newline="") as fp:
             fp.write(payload)
@@ -1722,32 +1970,7 @@ def main(work=None):
     # 形态定下来才知道怎么引：单档（一个 index.html 要走天下）→ base64 内嵌；
     # 外置（data/ 本来就要整夹带走）→ 交付夹里的 aa_font.woff2 + 相对 URL
     #（本机 Chromium file:// 实测相对路径字体可加载，见 aa_font 模块注释）。
-    font_parts = []
-    if font_mode != "none" and _AF.font_enabled():
-        try:
-            font_src = _AF.font_source() if font_mode in ("auto", "1", "") else font_mode
-            if not os.path.exists(font_src):
-                raise SystemExit("字体文件不存在: %s" % font_src)
-            paths = [p for p in (_src_path(AA_DIR, _base_of(f)) for f in chapters) if p]
-            corpus = _AF.chars_of_files(paths + list(chapters))
-            sub, missing, _ = _AF.build_subset(_AF.base_chars() | corpus, font_src)
-            if layout == "inline":
-                with open(sub, "rb") as fp:
-                    font_ref = "data:font/woff2;base64," + base64.b64encode(fp.read()).decode("ascii")
-            else:
-                shutil.copy2(sub, os.path.join(out_dir, FONT_NAME))
-                font_ref = FONT_NAME
-            first = _AF.stack_first() if font_stack is None else (font_stack.lower() != "last")
-            font_parts.append("<style>\n" + _AF.font_css(font_ref, first=first) + "</style>")
-            print("[font] AA 等宽字体 %s（%s, %d 字符, 栈序 %s）%s"
-                  % (os.path.basename(sub),
-                     "内嵌 base64" if layout == "inline" else FONT_NAME,
-                     len(corpus), "first" if first else "last",
-                     ("，字体缺 %d 字符→回退" % len(missing)) if missing else ""))
-        except SystemExit:
-            raise
-        except Exception as e:
-            print("[font] 跳过（%s）；AA 列位在缺字体的设备上不保证" % e)
+    font_parts = _font_parts(cfg, chapters, AA_DIR, out_dir, layout, font_mode, font_stack)
 
     html_out = '\n'.join(parts + font_parts + ([inline_script] if inline_script else []) + [tail])
     os.makedirs(out_dir, exist_ok=True)

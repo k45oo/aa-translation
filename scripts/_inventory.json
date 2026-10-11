@@ -1,12 +1,12 @@
 {
  "generated_at": null,
  "stats": {
-  "total": 320,
+  "total": 323,
   "legacy": 108,
   "core": 75,
   "tool": 61,
-  "deprecated_candidate": 3,
-  "test": 73,
+  "deprecated_candidate": 5,
+  "test": 74,
   "hardcoded": 30,
   "top_consts": 49,
   "dup_function_counts": {
@@ -175,10 +175,12 @@
      "common.pokemon_fixed",
      "common.pre_terms",
      "common.scan_line_drift",
+     "fix.fix_delivered_terms",
      "fix.fix_lead_kanji_miss",
      "fix.fix_mixed_drift",
      "fix.refine_aa",
      "fix.refix_mixed_segs",
+     "fix.retranslate_lines",
      "legacy.aahub_blockmatcher",
      "legacy.batch_fill_missed",
      "legacy.compress_saki",
@@ -668,8 +670,10 @@
      "common.pass2",
      "common.pass3",
      "common.scan_width",
+     "fix.fix_delivered_terms",
      "fix.fix_mixed_drift",
      "fix.refine_aa",
+     "fix.retranslate_lines",
      "legacy.analyze_mismatch",
      "legacy.batch_fill_missed",
      "legacy.fix_san_sensei",
@@ -1476,6 +1480,7 @@
      "tests.test_aa_font",
      "tests.test_edit_server",
      "tests.test_gen_html",
+     "tests.test_gen_html_plain",
      "tests.test_sfx_marks",
      "tools.freeze_delivery_golden",
      "tools.gen_needs_render",
@@ -1970,6 +1975,7 @@
     "referenced_by": [
      "aa_translate",
      "common.pokemon_fixed",
+     "fix.fix_delivered_terms",
      "fix.refine_aa",
      "tests.test_pre_terms",
      "tests.test_refine_batch_guard",
@@ -2373,6 +2379,44 @@
    "has_main_guard": true,
    "docstring": "backfill_aa_comments.py — 为 AAFanClub 下载版章节 HTML 补齐 110话起 的漏译(用户楼为主 + 楼主楼)。"
   },
+  "scripts/fix/fix_delivered_terms.py": {
+   "path": "scripts/fix/fix_delivered_terms.py",
+   "grade": "deprecated_candidate",
+   "cli": [
+    "--apply",
+    "--todo",
+    "--work"
+   ],
+   "argparse": [
+    "--apply",
+    "--todo",
+    "--work"
+   ],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_common",
+     "aa_translate",
+     "argparse",
+     "os",
+     "pre_terms",
+     "registry",
+     "shutil",
+     "sys",
+     "time"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "fix_delivered_terms: 回修**已交付**汉化文本里「词表/补位造成的确定性错误」（零 API）。"
+  },
   "scripts/fix/fix_lead_kanji_miss.py": {
    "path": "scripts/fix/fix_lead_kanji_miss.py",
    "grade": "deprecated_candidate",
@@ -2500,6 +2544,7 @@
     "subprocess": [],
     "referenced_by": [
      "legacy.batch_fill_missed",
+     "tests.test_opencode_go",
      "tests.test_pre_terms",
      "tests.test_refine_art_gate",
      "tests.test_refine_batch_guard",
@@ -2571,6 +2616,47 @@
    "dup_functions": [],
    "has_main_guard": true,
    "docstring": "按 review_inline 段级失败清单定向补译（2026-10-10，存量修复 P2）。"
+  },
+  "scripts/fix/retranslate_lines.py": {
+   "path": "scripts/fix/retranslate_lines.py",
+   "grade": "deprecated_candidate",
+   "cli": [
+    "--apply",
+    "--limit",
+    "--list",
+    "--work"
+   ],
+   "argparse": [
+    "--apply",
+    "--limit",
+    "--list",
+    "--work"
+   ],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_common",
+     "aa_translate",
+     "argparse",
+     "collections",
+     "os",
+     "re",
+     "registry",
+     "shutil",
+     "sys",
+     "time"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "retranslate_lines: 给「已交付」章按**指定行清单**做定向重译（复用主块协议，零结构改动）。"
   },
   "scripts/legacy/__init__.py": {
    "path": "scripts/legacy/__init__.py",
@@ -2709,10 +2795,12 @@
      "common.pokemon_fixed",
      "common.pre_terms",
      "common.scan_line_drift",
+     "fix.fix_delivered_terms",
      "fix.fix_lead_kanji_miss",
      "fix.fix_mixed_drift",
      "fix.refine_aa",
      "fix.refix_mixed_segs",
+     "fix.retranslate_lines",
      "legacy.aahub_blockmatcher",
      "legacy.batch_fill_missed",
      "legacy.compress_saki",
@@ -7068,6 +7156,7 @@
      "tests.test_edit_server",
      "tests.test_endpoint_pin",
      "tests.test_gen_html",
+     "tests.test_gen_html_plain",
      "tests.test_interface_docs",
      "tests.test_line_meta",
      "tests.test_model_choice",
@@ -7228,6 +7317,7 @@
     "imports": [
      "importlib",
      "os",
+     "shutil",
      "sys",
      "tempfile",
      "unittest"
@@ -7423,6 +7513,7 @@
      "json",
      "os",
      "re",
+     "shutil",
      "sys",
      "task_manager",
      "tempfile",
@@ -7488,6 +7579,7 @@
      "iter_glossary",
      "json",
      "os",
+     "shutil",
      "sys",
      "tempfile",
      "unittest"
@@ -7729,6 +7821,43 @@
    "has_main_guard": true,
    "docstring": "交付文件夹回归测试（2026-10-06 起交付物 = 文件夹，不是单个 HTML 文件）。"
   },
+  "scripts/tests/test_gen_html_plain.py": {
+   "path": "scripts/tests/test_gen_html_plain.py",
+   "grade": "test",
+   "cli": "argv-manual",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "_work_guard",
+     "aa_web_app",
+     "base64",
+     "gen_aa_html",
+     "glob",
+     "gzip",
+     "importlib",
+     "json",
+     "os",
+     "re",
+     "registry",
+     "shutil",
+     "subprocess",
+     "sys",
+     "tempfile",
+     "unittest"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "「仅 HTML 文件」简版交付（`gen_aa_html.py --plain`，2026-10-11）回归测试。"
+  },
   "scripts/tests/test_interface_docs.py": {
    "path": "scripts/tests/test_interface_docs.py",
    "grade": "test",
@@ -7897,6 +8026,7 @@
      "os",
      "push_code_mirror",
      "shutil",
+     "stat",
      "subprocess",
      "sys",
      "tempfile",
@@ -8064,6 +8194,7 @@
      "io",
      "json",
      "os",
+     "refine_aa",
      "sys",
      "unittest",
      "urllib"
@@ -8158,6 +8289,7 @@
      "os",
      "pokemon_fixed",
      "re",
+     "shutil",
      "sys",
      "tempfile",
      "unittest"
@@ -8420,6 +8552,7 @@
      "io",
      "os",
      "refine_aa",
+     "shutil",
      "sys",
      "tempfile",
      "unittest"
@@ -8726,6 +8859,7 @@
      "aa_web_app",
      "json",
      "os",
+     "shutil",
      "sys",
      "tempfile",
      "time",
@@ -8794,6 +8928,7 @@
      "fastapi",
      "jinja2",
      "os",
+     "shutil",
      "sys",
      "tempfile",
      "unittest"
@@ -8943,6 +9078,7 @@
      "aa_web_app",
      "json",
      "os",
+     "shutil",
      "subprocess",
      "sys",
      "tempfile",
@@ -8977,6 +9113,7 @@
     "imports": [
      "json",
      "os",
+     "shutil",
      "sys",
      "task_report",
      "tempfile",
@@ -9034,6 +9171,7 @@
      "aa_translate",
      "json",
      "os",
+     "shutil",
      "sys",
      "tempfile",
      "unittest"
@@ -9088,6 +9226,7 @@
      "aa_cost",
      "json",
      "os",
+     "shutil",
      "sys",
      "tempfile",
      "time",
@@ -9181,6 +9320,7 @@
      "gen_work_glossary",
      "json",
      "os",
+     "shutil",
      "sys",
      "tempfile",
      "unittest"
@@ -11007,6 +11147,7 @@
      "os",
      "re",
      "shutil",
+     "stat",
      "subprocess",
      "sync_codex_skills",
      "sys",
@@ -11354,6 +11495,7 @@
      "doc/方案归档/refine_aa优化方案_2026-10-03.md",
      "doc/方案归档/token成本优化方案_2026-09-15.md",
      "doc/方案归档/模型配置统一化方案_2026-08-19.md",
+     "doc/每章消耗统计_2026-10-11.md",
      "doc/阶段二翻译优化归档/01_总结/第二阶段翻译优化_总结报告.md",
      "doc/阶段二翻译优化归档/README.md"
     ]
@@ -11956,10 +12098,12 @@
      "common.scan_width",
      "common.screen_term_pool",
      "common.work_pipeline",
+     "fix.fix_delivered_terms",
      "fix.fix_lead_kanji_miss",
      "fix.fix_mixed_drift",
      "fix.refine_aa",
      "fix.refix_mixed_segs",
+     "fix.retranslate_lines",
      "legacy.batch_fill_missed",
      "legacy.fix_manual_kikkoman",
      "legacy.fix_san_sensei",
@@ -11976,6 +12120,7 @@
      "tests._work_guard",
      "tests.test_aa_font",
      "tests.test_gen_html",
+     "tests.test_gen_html_plain",
      "tests.test_pipeline",
      "tests.test_repatriate",
      "tests.test_work_delete",

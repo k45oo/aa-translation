@@ -192,14 +192,22 @@ def chapter_meta(cfg, fname, tr_lines=None):
     return title, src_url
 
 
-def run_generator(work):
+def run_generator(work, extra=None, plain=False):
     """子进程跑生成器（纯本地零 token）。返回 (exit_code, output_tail, html_out)。
+
+    plain=True → 用**统一生成器** `common/gen_aa_html.py --plain`（「仅 HTML 文件」简版；
+    别走作品自定义 generator，那种是 legacy 单文件路径、不认简版开关）。
+    extra = 附加命令行参数（如 --split 100）。
 
     Windows 长驻进程偶发子进程 spawn 失败（exit 0xC0000142 DLL 初始化），
     重试 2 次自愈（实测重启服务即恢复，重试为兜底）。
     """
     cfg = cfg_of(work)
-    rel, args = generator_of(work)
+    if plain:
+        rel, args = "common/gen_aa_html.py", ["--work", work]
+    else:
+        rel, args = generator_of(work)
+    args = list(args) + list(extra or [])
     script = os.path.join(_SCRIPTS, rel)
     last = (-1, "生成失败: 子进程未能启动", _gen_aa_html.deliver_entry(cfg))
     for attempt in range(3):
@@ -2679,6 +2687,45 @@ def api_regenerate(work: str):
     mtime = os.path.getmtime(html_out) if html_out and os.path.exists(html_out) else None
     return {"ok": code == 0, "exit_code": code, "output": tail,
             "html_out": html_out, "html_mtime": mtime}
+
+
+class MakeHtmlBody(BaseModel):
+    """「仅 HTML 文件」简版的三个选项（作品页第二个生成按钮）。"""
+    tr_only: bool = False       # 仅译文（页面不做译/原切换、不存原文数据）
+    split: int = 0              # 每 N 章一个文件；0/负数 = 全部章放一个文件
+    out_dir: str = ""           # 输出目录；留空 = 交付 HTML 目录（aaManga/交付HTML）
+
+
+@app.post("/api/work/{work}/make-html")
+def api_make_html(work: str, body: MakeHtmlBody = MakeHtmlBody()):
+    """「仅 HTML 文件」：自包含 .html（可分页成多个），零 token。
+
+    与 /regenerate（正式交付文件夹：编辑服务 exe + 源留档 + data/）互不影响：
+    这里只写 `【机翻】<交付短名>_<起始>-<终止>.html` 到交付 HTML 目录（`--out-dir` 可改）。
+    文件自带译/原切换（`tr_only` 关）、阅读进度、手机抽屉；重跑先删本作品上一次的简版文件。
+    """
+    cfg = cfg_of(work)
+    split = int(body.split or 0)
+    if split < 0:
+        split = 0
+    extra = ["--plain", "--split", str(split)]
+    if body.tr_only:
+        extra.append("--tr-only")
+    out_dir = (body.out_dir or "").strip()
+    if out_dir:
+        extra += ["--out-dir", out_dir]
+    with _LOCK:
+        code, tail, _ = run_generator(work, extra=extra, plain=True)
+    out_dir = out_dir or os.path.dirname(_gen_aa_html.deliver_dir(cfg))
+    pre = _gen_aa_html.PLAIN_PREFIX + _gen_aa_html.plain_short_name(cfg) + "_"
+    files = []
+    try:
+        files = sorted(f for f in os.listdir(out_dir)
+                       if f.startswith(pre) and f.endswith(".html"))
+    except OSError:
+        pass
+    return {"ok": code == 0, "exit_code": code, "output": tail,
+            "dir": out_dir, "files": files}
 
 
 @app.post("/api/regenerate-all")
