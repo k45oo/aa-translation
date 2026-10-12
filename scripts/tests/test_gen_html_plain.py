@@ -357,6 +357,30 @@ class TestPlainSizeHint(unittest.TestCase):
         self.assertIn("function boot0()", html)                 # boot 已包 try/catch
         self.assertIn("载入失败：", html)
 
+    def test_缩放控件与viewport放开缩放下限(self):
+        """手机端「大 AA 看不全」：A−/A＋/全览（只乘字号 → 等比缩放，AA 列位不变）。
+
+        另：viewport 必须写 minimum-scale —— 不写它，手机上缩不过「页面铺满」那道下限
+        （用户实测：只能放大不能缩小）。
+        """
+        files, _ = self._gen("zoom")
+        html = open(files[0], encoding="utf-8", newline="").read()
+        vp = re.search(r'<meta name="viewport" content="([^"]*)"', html).group(1)
+        self.assertIn("minimum-scale=", vp)          # 放开缩放下限（能缩到 100% 以下）
+        self.assertIn("user-scalable=yes", vp)       # 显式允许（少数浏览器只认显式声明）
+        for i in ("zdown", "zup", "zlabel", "zfit"):
+            self.assertIn('id="%s"' % i, html)
+        self.assertIn("function bindZoom()", html)
+        self.assertIn("function zFit()", html)
+        self.assertIn('ZKEY = PKEY + ":zoom"', html)   # 倍率随作品存档
+        self.assertIn("localStorage.setItem(ZKEY", html)
+        self.assertIn(":root{--aa-zoom:1}", html)
+        # 字号 / 行高 / 行号列 / 编辑行高 全部按 --aa-zoom 走（桌面 15/17 与手机 11.5/13 两套 base 都要）
+        for base in ("calc(15px * var(--aa-zoom,1))", "calc(17px * var(--aa-zoom,1))",
+                     "calc(11.5px * var(--aa-zoom,1))", "calc(13px * var(--aa-zoom,1))",
+                     "calc(14px * var(--aa-zoom,1))"):
+            self.assertIn(base, html, "字号/行高没跟着 --aa-zoom 走：%s" % base)
+
     def test_内嵌两个字体且AA度量体在Sarasa之前(self):
         """手机端不「错位」的关键：与 PGothic 度量一致的 aahub 排在 Sarasa 之前、PGothic 之后。"""
         files, _ = self._gen("aa")
@@ -367,8 +391,10 @@ class TestPlainSizeHint(unittest.TestCase):
         self.assertIn("'AA-Aahub', 'AA-SarasaMono'", stack)      # 顺序不能反
         self.assertTrue(stack.strip().startswith('"ＭＳ Ｐゴシック"'), "PC 仍以 PGothic 为准")
         # 手机端行高比 = 桌面 15/17（AA 纵向连续性靠这个比例）
-        self.assertIn("font-size:15px;line-height:17px", html)          # 桌面（saki/fc2 系）
-        self.assertIn("font-size:11.5px;line-height:13px", html)        # 手机覆盖（CSS_UI）
+        # 桌面（fukou 走 legacy CSS）：字号/行高按 --aa-zoom 走（倍率默认 1）
+        self.assertIn("font-size:calc(15px * var(--aa-zoom,1));line-height:calc(17px * var(--aa-zoom,1))", html)
+        # 手机覆盖（CSS_UI）：同样按 --aa-zoom 走
+        self.assertIn("font-size:calc(11.5px * var(--aa-zoom,1));line-height:calc(13px * var(--aa-zoom,1))", html)
         self.assertNotIn("line-height:14px", html, "手机行高比必须跟桌面一致，旧值 14px 会让画上下错位")
 
 

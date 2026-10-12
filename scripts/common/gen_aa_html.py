@@ -91,7 +91,8 @@ main { margin-left:240px; padding:18px 24px 60px; max-width:1150px; }
 .pager button:disabled { background:#c8b8a0; cursor:default; }
 .chapter-ind { font-size:12px; color:#999; font-family:"Microsoft YaHei",sans-serif; text-align:center; margin:6px 0; }
 pre.aa { font-family: "ＭＳ Ｐゴシック", "MS PGothic", "Mona", "MS Gothic", "SimSun", monospace;
-         font-size:15px; line-height:17px; white-space:pre; overflow-x:auto;
+         font-size:calc(15px * var(--aa-zoom,1)); line-height:calc(17px * var(--aa-zoom,1));
+         white-space:pre; overflow-x:auto;
          background:#fffdf7; border:1px solid #d8c8a8; border-radius:4px; padding:10px 14px; }
 pre.aa span.sfx { font-size:0.95em; font-style:italic; color:#333;
                   font-family:"楷体","KaiTi","STKaiti",serif; }
@@ -100,7 +101,7 @@ header{margin-left:0;padding:12px 14px}
 nav{position:static;width:auto;height:auto;max-height:34vh;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px 10px;border-bottom:1px solid #3f3f55}
 nav button{font-size:13px;padding:7px 10px}
 main{margin-left:0;padding:10px 10px 48px;max-width:none}
-pre.aa{font-size:11px;line-height:12.5px;padding:6px 8px}
+pre.aa{font-size:calc(11px * var(--aa-zoom,1));line-height:calc(12.5px * var(--aa-zoom,1));padding:6px 8px}
 .chapter h2{font-size:15px}
 .pager button{padding:7px 12px;font-size:13px}
 }
@@ -119,7 +120,7 @@ nav button{display:block;width:100%;text-align:left;background:#3f3f55;color:#cd
 nav button:hover{background:#4f4f6a}
 nav button.active{background:#8a5a3a;color:#fff;border-color:#a87a52;font-weight:bold}
 main{margin-left:240px;padding:18px 24px 60px;max-width:1150px}
-pre.aa{font-family:"ＭＳ Ｐゴシック","MS PGothic","Mona","MS Gothic","SimSun",monospace;font-size:15px;line-height:17px;
+pre.aa{font-family:"ＭＳ Ｐゴシック","MS PGothic","Mona","MS Gothic","SimSun",monospace;font-size:calc(15px * var(--aa-zoom,1));line-height:calc(17px * var(--aa-zoom,1));
 white-space:pre;overflow-x:auto;background:#fffdf7;border:1px solid #d8c8a8;border-radius:4px;padding:10px 14px}
 pre.aa span.sfx{font-size:0.95em;font-style:italic;color:#333;font-family:"楷体","KaiTi","STKaiti",serif}
 .pager{display:flex;justify-content:space-between;margin:10px 0}
@@ -130,13 +131,14 @@ header{margin-left:0;padding:12px 14px}
 nav{position:static;width:auto;height:auto;max-height:34vh;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px 10px;border-bottom:1px solid #3f3f55}
 nav button{font-size:13px;padding:7px 10px}
 main{margin-left:0;padding:10px 10px 48px;max-width:none}
-pre.aa{font-size:11px;line-height:12.5px;padding:6px 8px}
+pre.aa{font-size:calc(11px * var(--aa-zoom,1));line-height:calc(12.5px * var(--aa-zoom,1));padding:6px 8px}
 .pager button{padding:7px 12px;font-size:13px}
 }
 """
 
 # 交付文件夹 UI（三套模板共用）：译/原切换 + 载入提示
 CSS_UI = """
+:root{--aa-zoom:1}                 /* 交付页缩放（A−/A＋/全览）：只乘字号，整幅 AA 等比缩放 → 列位不变 */
 .modebar{position:fixed;top:10px;right:14px;z-index:60;display:flex;gap:3px;
   background:rgba(44,44,58,.94);border:1px solid #55557a;border-radius:6px;padding:3px;
   font-family:"Microsoft YaHei",sans-serif;box-shadow:0 1px 6px rgba(0,0,0,.2)}
@@ -145,6 +147,8 @@ CSS_UI = """
 .modebar button:hover{background:#4f4f6a}
 .modebar button.on{background:#8a5a3a;color:#fff;font-weight:bold}
 .modebar button.on:hover{background:#8a5a3a}
+.modebar .zoom{display:flex;align-items:center;gap:2px;border-left:1px solid #55557a;margin-left:3px;padding-left:5px}
+.modebar #zlabel{min-width:46px;text-align:center;font-variant-numeric:tabular-nums}
 #loading{margin:14px 0;padding:10px 14px;border-radius:4px;font-family:"Microsoft YaHei",sans-serif;
   font-size:13px;background:#fff7e0;border:1px solid #e0cf9a;color:#7a5a20}
 #loading.err{background:#fdecec;border-color:#e0a0a0;color:#8a2020;white-space:pre-wrap}
@@ -179,10 +183,10 @@ CSS_UI = """
 #edithint.loaderr .le-x{margin-top:6px;padding:2px 10px;cursor:pointer}
 #edithint.loaderr b{color:#1a4f7a}
 /* 行号列 + 行内编辑行（与工作台同款：点行号改译文、编辑行在原行位置、原文行在下） */
-.aa-wrap{display:flex;align-items:flex-start;--aa-lh:17px;margin:15px 0}
+.aa-wrap{display:flex;align-items:flex-start;--aa-lh:calc(17px * var(--aa-zoom,1));margin:15px 0}
 .aa-wrap>pre.aa{margin:0}                     /* pre 自带 1em 上边距会把正文压低、行号列错位 */
 .aa-gut{display:none;flex:0 0 auto;user-select:none;font-family:Consolas,"Courier New",monospace;
-  font-size:11.5px;line-height:var(--aa-lh);color:#b0a894;text-align:right;
+  font-size:calc(11.5px * var(--aa-zoom,1));line-height:var(--aa-lh);color:#b0a894;text-align:right;
   padding:11px 4px 0 6px}                      /* 11 = 上边框1 + pre 上内边距10，行行对齐 */
 body.editing .aa-gut{display:block}
 .aa-gut b{display:block;height:var(--aa-lh);font-weight:normal;cursor:pointer;border-radius:3px;padding:0 4px}
@@ -260,8 +264,8 @@ nav.open{transform:none;visibility:visible;box-shadow:2px 0 12px rgba(0,0,0,.35)
 /* 阅读界面左右不留空：正文通栏（模块自带的内边距/边框在这里被覆盖掉） */
 header{margin-left:0;padding:12px 12px 12px 66px}
 main{margin-left:0;padding:0 0 40px;max-width:none}
-pre.aa{font-size:11.5px;line-height:13px;padding:6px 0;border-left:none;border-right:none;border-radius:0}
-.aa-wrap{--aa-lh:14px;margin:11.5px 0}
+pre.aa{font-size:calc(11.5px * var(--aa-zoom,1));line-height:calc(13px * var(--aa-zoom,1));padding:6px 0;border-left:none;border-right:none;border-radius:0}
+.aa-wrap{--aa-lh:calc(14px * var(--aa-zoom,1));margin:11.5px 0}
 .aa-gut{padding-top:7px}
 .chapter{margin:16px 0 26px}
 .chapter h2{margin:0 12px 6px;font-size:15px}
@@ -896,6 +900,12 @@ TAIL_JS = """</main>
           title="编辑模式：点行号即可改译文，右键行号还原原文">&#9998; 编辑</button>
   <button type="button" class="editbtn" id="btn-tr" data-tip="翻译替换：查找 → 替换为，直接写回源（AA 艺术行整行跳过）"
           title="翻译替换：查找 → 替换为，直接写回源（AA 艺术行整行跳过）">&#8646; 替换</button>
+  <span class="zoom">
+    <button type="button" id="zdown" title="缩小（键盘 -）">A&#8722;</button>
+    <button type="button" id="zlabel" title="当前缩放；点它恢复 100%">100%</button>
+    <button type="button" id="zup" title="放大（键盘 +）">A&#43;</button>
+    <button type="button" id="zfit" title="全览：缩到当前章最宽那一行刚好放得下（看大 AA 用）">全览</button>
+  </span>
 </div>
 <button type="button" id="tocbtn" title="展开 / 收起目录">目录</button>
 <div id="tocmask"></div>
@@ -1186,6 +1196,57 @@ TAIL_JS = """</main>
     }
   }
 
+  // ── 缩放（A− / A＋ / 全览）：手机端「大 AA 看不全」的解法 ──────────────────
+  // 只乘 pre.aa 的字号（--aa-zoom）→ 整幅画**等比**缩，AA 列位不变；行高列/行号列同步跟。
+  // 与浏览器自带的双指缩放互不干扰：那个有下限（页面铺满即止，缩不到 100% 以下，故
+  // viewport 另加 minimum-scale），这个是页面内的独立倍率，能一直缩到 20%。
+  var ZKEY = PKEY + ":zoom";
+  var ZMIN = 0.2, ZMAX = 3;
+  var ZLADDER = [0.2, 0.3, 0.4, 0.5, 0.67, 0.8, 1, 1.25, 1.5, 2, 2.5, 3];
+  var z = 1;
+
+  function zSet(v, save) {
+    v = Math.min(ZMAX, Math.max(ZMIN, v));
+    z = Math.round(v * 1000) / 1000;
+    document.documentElement.style.setProperty("--aa-zoom", String(z));
+    var lb = el("zlabel");
+    if (lb) lb.textContent = Math.round(z * 100) + "%";
+    if (save) { try { localStorage.setItem(ZKEY, String(z)); } catch (e2) {} }
+  }
+
+  function zStep(d) {
+    var i = 0, best = 1e9, k, dd;
+    for (k = 0; k < ZLADDER.length; k++) {
+      dd = Math.abs(ZLADDER[k] - z);
+      if (dd < best) { best = dd; i = k; }
+    }
+    k = Math.min(ZLADDER.length - 1, Math.max(0, i + d));
+    zSet(ZLADDER[k], true);
+  }
+
+  // 「全览」：把当前可见章里最宽的那一行缩到刚好放进视口（**只缩不放**，免得把小图撑爆）
+  function zFit() {
+    var pres = document.querySelectorAll("pre.aa"), w = 0, avail = 0, i, p;
+    for (i = 0; i < pres.length; i++) {
+      p = pres[i];
+      if (!p.offsetParent) continue;              // 只量可见的那一章（其余章 display:none）
+      if (p.scrollWidth > w) { w = p.scrollWidth; avail = p.clientWidth; }
+    }
+    if (!w || !avail || w <= avail) return;       // 本来就放得下 → 不动
+    zSet(z * avail / w * 0.98, true);
+  }
+
+  function bindZoom() {
+    var d = el("zdown"), u = el("zup"), lb = el("zlabel"), ft = el("zfit");
+    if (d) d.addEventListener("click", function () { zStep(-1); });
+    if (u) u.addEventListener("click", function () { zStep(1); });
+    if (lb) lb.addEventListener("click", function () { zSet(1, true); });
+    if (ft) ft.addEventListener("click", function () { zFit(); });
+    var v = 1;
+    try { v = parseFloat(localStorage.getItem(ZKEY) || "") || 1; } catch (e3) {}
+    zSet(v, false);
+  }
+
   function boot() {
     try { boot0(); } catch (e) {          // 任何异常都要写出来，不能停在「正在载入章节数据…」
       fail("载入失败：" + (e && e.message ? e.message : e) + "　（请把这句反馈）");
@@ -1198,6 +1259,7 @@ TAIL_JS = """</main>
       return;
     }
     bindModebar();
+    bindZoom();
     var st = null;
     try { st = JSON.parse(localStorage.getItem(PKEY) || "null"); } catch (e) {}
     if (jumped) { mute = false; return; }        // 用户已抢先点章 → 不抢回
@@ -1226,6 +1288,9 @@ TAIL_JS = """</main>
   document.addEventListener("keydown", function (e) {
     var tg = (document.activeElement || {}).tagName || "";
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(tg)) return;
+    if (e.key === "-" || e.key === "_") { zStep(-1); return; }
+    if (e.key === "+" || e.key === "=") { zStep(1); return; }
+    if (e.key === "0") { zSet(1, true); return; }
     if (e.key === "ArrowRight" || e.key === "PageDown") window.showChapter(SHOWN + 1);
     if (e.key === "ArrowLeft" || e.key === "PageUp") window.showChapter(SHOWN - 1);
   });
@@ -1862,7 +1927,7 @@ def _gen_plain(cfg, site, chapters, tpl, css, title, source, desc_zh, split, tr_
                     '})();\n'
                     '</script>' % int(round(data_mb)))
         head = (f'<!DOCTYPE html>\n<html lang="zh-CN"><head><meta charset="utf-8">\n'
-                f'<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+                f'<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=0.2, maximum-scale=5, user-scalable=yes">\n'
                 f'<title>{H.escape(title)}</title>\n<style>\n{css}</style></head><body>\n'
                 f'<header><h1>{H.escape(title)}</h1>\n'
                 f'<p>{H.escape(source)}</p>\n'
@@ -1996,7 +2061,7 @@ def main(work=None):
 
     if tpl == 'legacy':
         head = (f'<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">\n'
-                f'<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+                f'<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=0.2, maximum-scale=5, user-scalable=yes">\n'
                 f'<title>{H.escape(title)}</title><style>\n{css}</style></head><body>\n'
                 f'<header><h1>{H.escape(title)}</h1>\n'
                 f'<p>{H.escape(source)}</p>\n'
@@ -2005,7 +2070,7 @@ def main(work=None):
                 f'<nav><span class="toc-label">目录：</span>' + toc_html + '</nav><main>')
     else:
         head = (f'<!DOCTYPE html>\n<html lang="zh-CN"><head><meta charset="utf-8">\n'
-                f'<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+                f'<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=0.2, maximum-scale=5, user-scalable=yes">\n'
                 f'<title>{H.escape(title)}</title>\n<style>\n{css}</style></head><body>\n'
                 f'<header><h1>{H.escape(title)}</h1>\n'
                 f'<p>{H.escape(source)}</p>\n'

@@ -170,6 +170,11 @@ class TestDeliveryFolder(unittest.TestCase):
         self.assertIn('data-mode="src"', html)
         self.assertIn("localStorage", html)
         self.assertIn("DecompressionStream", html)
+        # 缩放控件（与简版共用同一份页面模板：译文/原文…之后是 A−/100%/A＋/全览）
+        self.assertIn('id="zdown"', html)
+        self.assertIn('id="zfit"', html)
+        self.assertIn("--aa-zoom", html)
+        self.assertIn("minimum-scale=", html)        # 手机上能缩到 100% 以下（放开下限）
         # 2. 章节数据按形态放置；**懒加载**：index.html 不得用 <script src> 预载任何章节数据
         layout = _layout_of(self.SHARED)
         datas = sorted(glob.glob(os.path.join(self.SHARED, "data", "*.js")))
