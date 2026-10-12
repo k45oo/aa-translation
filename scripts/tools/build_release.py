@@ -173,6 +173,14 @@ def stage_assets(stage):
             shutil.copy2(ofl, os.path.join(dst, "OFL.txt"))
         else:
             _log("  ⚠️ fonts/OFL.txt 缺失 —— 随包分发字体必须带 OFL 许可证文本")
+        # AA 字体：2026-10-11 起「手机端列位不错位」全靠它（与 MS PGothic 度量一致，见根
+        # AGENTS.md「交付页内嵌 AA 等宽字体」）——包里缺它就渲染出源站手机上那种漂移 ~127 格。
+        for fn in ("aahub.ttf", "aahub_LICENSE.txt"):
+            src = os.path.join(_ROOT, "fonts", fn)
+            if os.path.isfile(src):
+                shutil.copy2(src, os.path.join(dst, fn))
+            else:
+                _log("  ⚠️ fonts/%s 缺失 —— 包里交付页在手机端会「错位」" % fn)
     # 代码许可是 MIT：分发副本要带 LICENSE
     lic = os.path.join(_ROOT, "LICENSE")
     if os.path.isfile(lic):
@@ -631,6 +639,8 @@ def gates(stage):
             MANUAL_DST, os.path.join("doc", SHOTS_DIR),
             # 许可：代码 MIT + 字体 OFL（分发字体必须随附 OFL 文本，缺了就是不合规分发）
             "LICENSE", os.path.join("fonts", "OFL.txt"),
+            # AA 字体 + 许可（手机端列位靠它，见根 AGENTS.md「交付页内嵌 AA 等宽字体」）
+            os.path.join("fonts", "aahub.ttf"), os.path.join("fonts", "aahub_LICENSE.txt"),
             os.path.join("aaManga", EXAMPLE["dir"], "work", "glossary_%s.json" % EXAMPLE["id"])]
     missing = [m for m in must if not os.path.exists(os.path.join(stage, m))]
     if missing:

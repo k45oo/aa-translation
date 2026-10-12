@@ -273,6 +273,7 @@ class TestBackendAliasAndCloudFallback(unittest.TestCase):
             self.assertNotEqual(AC.model_env(b), "AA_MODEL",
                                 f"链首 {b} 的 model_env 回落到 AA_MODEL → 会覆盖云端直连模型名")
 
+    @repo_only("断言生成者默认链含 opencode_go（发行包把两条链换成公共端点）")
     def test_AA_BACKEND_opencode_go时不走云端直连(self):
         """真发一次 call_api（urlopen 假体）：必须打到 Go 门，而不是 commandcode 云端直连。"""
         seen = {}
@@ -349,6 +350,7 @@ class TestChainBackendRegistrations(unittest.TestCase):
             else:
                 os.environ["AA_BACKEND"] = old
 
+    @repo_only("云端直连分支要用生成者 .env 里的 key 才能走到 urlopen（包里没有 key）")
     def test_未知AA_BACKEND会喊一次(self):
         """未知后端名字要 stderr 提醒（否则只能靠翻日志反推“为什么打到别家网关”）。"""
         ABA._WARNED_UNKNOWN_BACKEND.clear()
