@@ -4007,6 +4007,34 @@ def _all_work_dirs():
     return s
 
 
+def _delete_roots():
+    """删除边界白名单根（realpath 后）：仓库根 / 数据根 **及其下的 aaManga 数据目录**。
+
+    为什么必须带 aaManga（2026-10-12 实测，ポケの子（？）(FC2) 删除 400）：`aaManga/` 常被
+    做成 junction/symlink 指到别的盘（本机 `<repo>\\aaManga` → `E:\\aaManga`），
+    于是作品目录 realpath 后落在仓库根之外，而旧检查只许 realpath 在 `registry.BASE` 内
+    → **每一次删除**都被判「删除路径越界」（107 部作品全中，不只这一部）。
+    数据目录本就是允许删的地方，故把它（realpath）一并进白名单；其它任意路径仍然拒绝。
+    """
+    roots = []
+    for r in (registry.BASE, _DATA):
+        if not r:
+            continue
+        for c in (os.path.realpath(r), os.path.realpath(os.path.join(r, "aaManga"))):
+            if c not in roots:
+                roots.append(c)
+    return roots
+
+
+def _in_delete_roots(p, roots):
+    """p 的 realpath 是否落在白名单根内（junction 已在 roots 侧解析过，两侧口径一致）。"""
+    pr = os.path.realpath(p)
+    for r in roots:
+        if pr == r or pr.startswith(r + os.sep):
+            return True
+    return False
+
+
 class ReadStateBody(BaseModel):
     state: str = ""
 
@@ -4086,12 +4114,13 @@ def api_delete(work: str, body: dict = None):
         if t.get("work") == work and t.get("status") not in (
                 "done", "failed", "crashed", "stopped", "cancelled", "stalled"):
             raise HTTPException(409, f"作品 {work} 有运行中任务，请先停止/取消")
-    # 1. 校验路径在仓库内（防穿越）
-    base_real = os.path.realpath(registry.BASE)
+    # 1. 校验路径在允许的删除根内（防穿越；aaManga 常是 junction → 见 _delete_roots）
+    roots = _delete_roots()
     surf = logic.delete_surface(cfg, _all_work_dirs())
-    for kind, p in surf['items']:
-        if not os.path.realpath(p).startswith(base_real + os.sep):
-            raise HTTPException(400, f"删除路径越界: {p}")
+    arts = _deliver_artifacts(cfg)
+    for _p in [p for _k, p in surf['items']] + list(arts):
+        if not _in_delete_roots(_p, roots):
+            raise HTTPException(400, f"删除路径越界: {_p}")
     # 2. **先改记录、后删文件**（2026-10-09 改序）：旧实现先删盘再摘 registry 条目，
     #    而 registry 那步一旦失败（打包版曾经必失败）就抛出 —— 盘上文件已没了、记录还在，
     #    作品列表里留一个点不开又删不掉的僵尸条目（MM / bar_miku 实测）。现在记录失败 →
@@ -4111,11 +4140,10 @@ def api_delete(work: str, body: dict = None):
         with _LOCK:
             _save_read_state(rs)
     # 5. 删盘（目录 + 交付物件）
-    _arts = _deliver_artifacts(cfg)
     removed = logic.delete_work(surf)
-    removed += logic.remove_paths(_arts)
+    removed += logic.remove_paths(arts)
     failed = [p for _k, p in surf['items'] if os.path.exists(p)]
-    failed += [p for p in _arts if os.path.exists(p)]
+    failed += [p for p in arts if os.path.exists(p)]
     if failed:
         print("[delete] %s 有 %d 个路径删不掉（多为文件被占用，可停掉实例后重试）: %s"
               % (work, len(failed), failed), flush=True)

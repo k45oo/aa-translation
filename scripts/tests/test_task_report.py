@@ -2,6 +2,7 @@
 """task_report (runner 心跳/停止协议) 单测：env 注入、心跳节流、停止标志消费、finalize。"""
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -16,6 +17,7 @@ for _p in (_ROOT, os.path.join(_ROOT, "scripts"), os.path.join(_ROOT, "scripts",
 class TRBase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="tr_test_")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.hb = os.path.join(self.tmp, "hb.json")
         self.stop_chapter = os.path.join(self.tmp, "stop.chapter")
         self.stop_asap = os.path.join(self.tmp, "stop.asap")

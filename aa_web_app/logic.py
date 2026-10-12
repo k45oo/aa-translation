@@ -2284,9 +2284,14 @@ def delete_surface(cfg, all_work_dirs=None):
     shared = False
     if all_work_dirs is not None:
         rp = _os.path.realpath(root)
+        # 两侧都用 realpath 口径比：`dirs` 是本作品自己的目录，若拿它们的字面路径与
+        # all_work_dirs 的 realpath 比，`aaManga/` 是 junction 时（→ 别的盘）本作品
+        # 自己的目录也会被当成「别人的目录」→ shared 恒真 → 只逐目录删、空掉的作品
+        # 文件夹留在 aaManga 下（2026-10-12 实测 pokeko_fc2）。
+        own = set(_os.path.normpath(_os.path.realpath(d)) for d in dirs)
         for d in all_work_dirs:
             dn = _os.path.normpath(_os.path.realpath(d))
-            if dn not in dirs and dn.startswith(rp + _os.sep):
+            if dn not in own and dn.startswith(rp + _os.sep):
                 shared = True
                 break
     items = []

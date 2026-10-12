@@ -58,9 +58,11 @@ class TestMirrorIncremental(unittest.TestCase):
 
     def tearDown(self):
         PCM.REPO = self._orig_repo
+        # 目录里有 .git（loose object 只读）→ 普通 shutil.rmtree 会 PermissionError 静默
+        # 留下整个目录（用例 test_rmtree能删只读文件 就是这个坑），必须用工具自己的 _rmtree
         for d in self.dsts:
-            shutil.rmtree(d, ignore_errors=True)
-        shutil.rmtree(self.tmp, ignore_errors=True)
+            PCM._rmtree(d)
+        PCM._rmtree(self.tmp)
 
     # ---- 工具 ----
     def _w(self, rel, text):

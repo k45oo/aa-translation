@@ -7,6 +7,7 @@
 """
 import os
 import re
+import shutil
 import sys
 import unittest
 
@@ -261,6 +262,7 @@ class TestL2SentenceTemplate(unittest.TestCase):
         import json
         import tempfile
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         with open(os.path.join(d, "glossary_W.json"), "w", encoding="utf-8") as f:
             json.dump({"glossary": [{"jp": "カズマ", "zh": "和真"},
                                     {"jp": "ダメ", "zh": "まだ日本語"},

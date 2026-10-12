@@ -3,6 +3,7 @@
 全部用 tmp 目录 + 假 registry，不碰真实作品目录。spawn 用 AA_TASK_MANAGER_NO_SPAWN 关闭。"""
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -24,6 +25,7 @@ class TMBase(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="tm_test_")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self._old_tasks_dir = TM.TASKS_DIR
         self._old_root = TM.ROOT
         TM.TASKS_DIR = os.path.join(self.tmp, "tasks")

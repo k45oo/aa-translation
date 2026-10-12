@@ -16,6 +16,7 @@
 """
 import io
 import os
+import shutil
 import sys
 import unittest
 
@@ -67,6 +68,7 @@ class TestTxtWriteGuard(unittest.TestCase):
     def setUp(self):
         import tempfile
         self.dir = tempfile.mkdtemp(prefix='lineguard_')
+        self.addCleanup(shutil.rmtree, self.dir, ignore_errors=True)
 
     def test_line_count_preserved_when_line_contains_newline(self):
         p = os.path.join(self.dir, 'entry_1_汉化.txt')
@@ -344,6 +346,7 @@ class TestRefineFailTrace(unittest.TestCase):
         import tempfile
         self._orig = (R._reg_get, R._set_chain_for_work, R.refine_chapter)
         self.dir = tempfile.mkdtemp(prefix="failtrace_")
+        self.addCleanup(shutil.rmtree, self.dir, ignore_errors=True)
         for sub in ("aa", "汉化", "work"):
             os.makedirs(os.path.join(self.dir, sub), exist_ok=True)
         lines = ["# 标题", " 【和真】あざーっす、この怒りはやはり"]

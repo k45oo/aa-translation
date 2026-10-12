@@ -5,6 +5,7 @@
 """
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -95,6 +96,7 @@ class TestDirGuards(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="aaboard_")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
 
     def _touch(self, name):
         with open(os.path.join(self.tmp, name), "w", encoding="utf-8") as f:

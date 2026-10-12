@@ -5,6 +5,7 @@
 实测依据: 归一化 key 覆盖 21.1% 送模型行、护栏通过 99.2%（见 doc/方案归档/token成本优化方案_2026-09-15.md §9）。
 """
 import os
+import shutil
 import sys
 import unittest
 
@@ -96,6 +97,7 @@ class TestBuildRoundTrip(unittest.TestCase):
     def test_build_and_lookup(self):
         import json, tempfile
         d = tempfile.mkdtemp(prefix="tm_test_")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         aa = os.path.join(d, "aa"); out = os.path.join(d, "汉化"); wk = os.path.join(d, "work")
         for p in (aa, out, wk, os.path.join(wk, "refine_ckpt")):
             os.makedirs(p, exist_ok=True)
@@ -119,6 +121,7 @@ class TestBuildRoundTrip(unittest.TestCase):
         work/tm_proofread_legacy.txt，build(only_proofread=True) 必须认它（等价于 ckpt）。"""
         import tempfile
         d = tempfile.mkdtemp(prefix="tm_legacy_")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         aa = os.path.join(d, "aa"); out = os.path.join(d, "汉化"); wk = os.path.join(d, "work")
         for p in (aa, out, wk):
             os.makedirs(p, exist_ok=True)

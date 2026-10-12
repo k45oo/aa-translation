@@ -98,5 +98,155 @@ class TestDeleteRegistryPath(unittest.TestCase):
         self.assertIn("_registry_path()", inspect.getsource(self.M._remove_registry_entry))
 
 
+def _make_junction(link, target):
+    """建目录 junction（Windows `mklink /J`，不需要管理员）。失败抛 OSError。"""
+    import subprocess
+    r = subprocess.run(["cmd", "/c", "mklink", "/J", link, target],
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if r.returncode != 0 or not os.path.isdir(link):
+        raise OSError((r.stdout or b"").decode("mbcs", "replace"))
+
+
+class TestDeleteBoundaryRoots(unittest.TestCase):
+    """删除边界白名单必须容忍 `aaManga/` 是 junction（数据目录指到别的盘）。
+
+    事故（2026-10-12 实测，ポケの子（？）(FC2)）：本机 `<repo>\\aaManga` 是指到
+    `E:\\aaManga` 的 junction → 作品目录 realpath 落在仓库根之外，而旧检查只许 realpath 在
+    `registry.BASE` 内 → **每一次删除**都 400「删除路径越界」（107 部作品全中，不只这一部）。
+    """
+
+    def setUp(self):
+        self.M = _main()
+        import registry
+        self.reg = registry
+        self._old = (registry.BASE, self.M._DATA)
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        self.reg.BASE, self.M._DATA = self._old
+
+    def test_aaManga是指到别处的junction时作品目录仍放行(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = os.path.join(d, "repo")
+            data = os.path.join(d, "data")
+            os.makedirs(repo)
+            os.makedirs(os.path.join(data, "作品", "aa"))
+            link = os.path.join(repo, "aaManga")
+            try:
+                _make_junction(link, data)
+            except OSError as e:
+                self.skipTest("无法建 junction（非 Windows / 无权限）: %s" % e)
+            self.reg.BASE = repo
+            self.M._DATA = repo
+            roots = self.M._delete_roots()
+            self.assertTrue(self.M._in_delete_roots(os.path.join(link, "作品", "aa"), roots),
+                            "junction 下的作品目录（realpath 在仓库外）必须放行")
+            self.assertTrue(self.M._in_delete_roots(os.path.join(link, "交付HTML", "x"), roots))
+
+    def test_白名单之外的路径仍然拒绝(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = os.path.join(d, "repo")
+            os.makedirs(repo)
+            self.reg.BASE = repo
+            self.M._DATA = repo
+            roots = self.M._delete_roots()
+            # 仓库根之外的任意路径（包括与仓库同级、以及系统目录）一律拒绝
+            self.assertFalse(self.M._in_delete_roots(os.path.join(d, "别处", "x"), roots))
+            self.assertFalse(self.M._in_delete_roots(r"C:\Windows", roots))
+            self.assertFalse(self.M._in_delete_roots(os.path.dirname(repo), roots))
+
+    def test_真实注册表每部作品的删除面都在白名单内(self):
+        """回归判据：真仓库上任何一部作品的删除面不得再被判越界。
+
+        注意 realpath 很贵（本机 junction 上一次 ≈0.2ms）：真删路径（带 all_work_dirs）只对
+        几部样品跑，其余用独占根口径——否则 107 部 × 428 目录 = 4.6 万次 realpath ≈ 40s。
+        """
+        import registry as reg
+        from aa_web_app import logic
+        roots = self.M._delete_roots()
+        all_dirs = self.M._all_work_dirs()
+        sample = [w for w in ("pokeko_fc2", "ポケの子", "saki_fc2", "baitou") if w in reg.WORKS]
+        bad = []
+        for wid, cfg in reg.WORKS.items():
+            surf = logic.delete_surface(cfg, all_dirs if wid in sample else None)
+            for _k, p in list(surf['items']) + [('html', x) for x in self.M._deliver_artifacts(cfg)]:
+                if not self.M._in_delete_roots(p, roots):
+                    bad.append((wid, p))
+        self.assertEqual(bad, [], "删除面被判越界的作品: %s" % bad[:10])
+        self.assertTrue(sample, "样品作品名变了？")
+
+
+class TestDeleteRouteWithJunctionData(unittest.TestCase):
+    """端到端（直接调路由函数，不经 HTTP）：aaManga 是 junction 时「删除作品」要真的跑完。
+
+    旧实现下这一步抛 400「删除路径越界」，盘上一个文件都不动（用户看到的就是「删除失败」）。
+    """
+
+    def setUp(self):
+        self.M = _main()
+        import registry as reg
+        self.reg = reg
+        self._old = (reg.BASE, getattr(reg, "__file__", None),
+                     self.M._DATA, self.M._WORK_META_FILE, self.M._PROGRESS_FILE)
+
+    def tearDown(self):
+        base, rfile, data, meta, prog = self._old
+        self.reg.BASE = base
+        if rfile:
+            self.reg.__file__ = rfile
+        self.M._DATA = data
+        self.M._WORK_META_FILE = meta
+        self.M._PROGRESS_FILE = prog
+
+    def test_junction数据目录下删除跑通(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            repo = os.path.join(d, "repo")
+            data = os.path.join(d, "data")
+            os.makedirs(os.path.join(repo, "scripts", "works"))
+            wd = os.path.join(data, "作品X")
+            for sub in ("aa", "汉化", "work", "raw"):
+                os.makedirs(os.path.join(wd, sub))
+            with open(os.path.join(wd, "aa", "a.txt"), "w", encoding="utf-8") as f:
+                f.write("# 标题\n正文\n")
+            link = os.path.join(repo, "aaManga")
+            try:
+                _make_junction(link, data)
+            except OSError as e:
+                self.skipTest("无法建 junction（非 Windows / 无权限）: %s" % e)
+            # 自己的 registry.py（删除要改写它），条目格式与真表一致
+            regfile = os.path.join(repo, "scripts", "works", "registry.py")
+            with open(regfile, "w", encoding="utf-8", newline="") as f:
+                f.write('WORKS = {\n'
+                        '    "作品X": dict(\n'
+                        '        title="作品X",\n'
+                        '        aa_dir=BASE + r"\\aaManga\\作品X\\aa",\n'
+                        '        out_dir=BASE + r"\\aaManga\\作品X\\汉化",\n'
+                        '        work_dir=BASE + r"\\aaManga\\作品X\\work",\n'
+                        '        raw_dir=BASE + r"\\aaManga\\作品X\\raw",\n'
+                        '    ),\n'
+                        '}\n')
+            meta_f = os.path.join(d, "work_meta.json")
+            with open(meta_f, "w", encoding="utf-8") as f:
+                json.dump({"作品X": {"author": "a"}}, f)
+            self.reg.BASE = repo
+            self.reg.__file__ = regfile
+            self.reg.WORKS["作品X"] = {
+                "title": "作品X",
+                **{k: os.path.join(link, "作品X", s)
+                   for k, s in (("aa_dir", "aa"), ("out_dir", "汉化"),
+                                ("work_dir", "work"), ("raw_dir", "raw"))},
+            }
+            self.M._DATA = repo
+            self.M._WORK_META_FILE = meta_f
+            self.M._PROGRESS_FILE = os.path.join(d, "progress.json")
+            r = self.M.api_delete("作品X", {"confirm": True})      # 旧实现这里 400
+            self.assertTrue(r.get("ok"))
+            self.assertFalse(os.path.exists(wd), "作品目录（junction 实际指向处）应被删掉")
+            txt = open(regfile, encoding="utf-8").read()
+            self.assertNotIn('"作品X"', txt, "registry 条目应被摘掉")
+            self.assertNotIn("作品X", json.load(open(meta_f, encoding="utf-8")))
+
+
 if __name__ == "__main__":
     unittest.main()

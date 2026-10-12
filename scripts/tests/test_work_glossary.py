@@ -2,6 +2,7 @@
 """作品术语表生成器测试 (2026-09-01 术语表三级重构)"""
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -44,6 +45,7 @@ class TestDeriveAuto(unittest.TestCase):
         cls._real_roles = GWG.ROLES_JSON
         # 写假文件到临时目录
         cls.tmp = tempfile.mkdtemp()
+        cls.addClassCleanup(shutil.rmtree, cls.tmp, ignore_errors=True)
         GWG.GLOSSARY_JSON = os.path.join(cls.tmp, "glossary.json")
         GWG.ROLES_JSON = os.path.join(cls.tmp, "roles.json")
         with open(GWG.GLOSSARY_JSON, "w", encoding="utf-8") as f:
@@ -101,6 +103,7 @@ class TestDeriveAuto(unittest.TestCase):
 class TestWorkGlossaryIO(unittest.TestCase):
     def test_roundtrip_v1_to_v2(self):
         tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
         path = os.path.join(tmp, "glossary_test.json")
         # v1 旧格式: 二元组
         with open(path, "w", encoding="utf-8") as f:
@@ -114,6 +117,7 @@ class TestWorkGlossaryIO(unittest.TestCase):
 
     def test_roundtrip_v2(self):
         tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
         path = os.path.join(tmp, "glossary_test.json")
         data = {"schema": "AA翻译作品术语表 v2", "glossary": [
             {"jp": "やらない夫", "zh": "不做夫", "cat": "手动", "来源": "manual"},
@@ -130,6 +134,7 @@ class TestWorkGlossaryIO(unittest.TestCase):
         # (Q14-A 曾覆盖为仅正则 → bar_miku 44条→1条)。表有内容时 force 保留
         # auto + 补全局正则; 不重新派生灌 auto(用户规则: 表非空禁 auto)。
         tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
         path = os.path.join(tmp, "glossary_t.json")
         data = {"schema": "AA翻译作品术语表 v2", "glossary": [
             {"jp": "やる夫", "zh": "亚鲁欧", "cat": "角色", "来源": "manual"},

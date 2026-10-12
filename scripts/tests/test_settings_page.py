@@ -5,6 +5,7 @@
 并断言「保存 → .env → os.environ → aa_config」整条生效链。零 API（不测 test-key/test-proxy 的真实联网）。
 """
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -49,6 +50,7 @@ def _toml_key_envs():
 class _Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="aa_settings_")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.env_file = os.path.join(self.tmp, ".env")
         self._old = {k: os.environ.get(k) for k in _TRACKED}
         for k in _TRACKED:

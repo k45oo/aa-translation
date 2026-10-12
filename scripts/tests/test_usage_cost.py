@@ -8,6 +8,7 @@
 """
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -53,6 +54,7 @@ class TestUsageExtra(unittest.TestCase):
 class TestLogUsageFields(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.mkdtemp(prefix="aa_usage_")
+        self.addCleanup(shutil.rmtree, self._tmp, ignore_errors=True)
         self._old = {k: os.environ.get(k) for k in ("AA_USAGE_FILE", "AA_USAGE_COST", "AA_USAGE_MAX_BYTES", "AA_USAGE_TAG")}
         os.environ["AA_USAGE_FILE"] = os.path.join(self._tmp, "usage.jsonl")
         os.environ["AA_USAGE_MAX_BYTES"] = str(10 * 1024 * 1024)

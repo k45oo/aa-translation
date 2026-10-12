@@ -13,6 +13,7 @@
 """
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -50,6 +51,7 @@ class TMBase(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="tm_sched_")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self._old_tasks_dir = TM.TASKS_DIR
         self._old_root = TM.ROOT
         TM.TASKS_DIR = os.path.join(self.tmp, "tasks")
@@ -254,6 +256,7 @@ class MainScheduleTest(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="sched_route_")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         # 翻译硬前置：作品术语表（路由会先检查它）
         with open(os.path.join(self.tmp, "glossary_w1.json"), "w", encoding="utf-8") as f:
             json.dump({"glossary": [{"jp": "ねこ", "zh": "猫"}]}, f)

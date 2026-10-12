@@ -11,6 +11,7 @@
 
 import importlib.util
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -70,6 +71,7 @@ class TestBootstrapRegistry(unittest.TestCase):
         （上一版把断言写在 helper 之外，还原后断言必然失败）。
         """
         code = tempfile.mkdtemp(prefix="exe_code_")
+        self.addCleanup(shutil.rmtree, code, ignore_errors=True)
         os.makedirs(os.path.join(code, "scripts", "works"))
         with open(os.path.join(code, "scripts", "works", "registry.py"), "w", encoding="utf-8") as f:
             f.write(src_text)

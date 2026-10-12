@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """L5 测试：chapter_prep（章节术语 + R18 文本判定）与 iter_glossary（迭代候选去重）。"""
-import os, sys, tempfile, unittest, json
+import os, shutil, sys, tempfile, unittest, json
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scripts"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scripts", "common"))
@@ -21,12 +21,16 @@ class TestEid(unittest.TestCase):
 
 class TestR18(unittest.TestCase):
     def _prep(self, lines, eid="test"):
-        d = os.path.join(tempfile.mkdtemp(), "prep")
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        d = os.path.join(root, "prep")
         os.makedirs(d, exist_ok=True)
         src = os.path.join(d, f"{eid}_章.txt")
         open(src, "w", encoding="utf-8").write("# 标题\n" + "\n".join(lines))
+        work_root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, work_root, ignore_errors=True)
         # 2026-08-28: 传 level='low'(最严 STRONG≥1/NORMAL≥2), 测词表命中而非分档行为
-        return CP.prep_chapter(src, tempfile.mkdtemp(), level="low")
+        return CP.prep_chapter(src, work_root, level="low")
 
     def test_strong_hit_yes(self):
         r = self._prep(["今日も元気だ。", "それって中出しされたの？", "ねぇ"])
@@ -63,6 +67,7 @@ class TestIter(unittest.TestCase):
 
     def test_dedupe_across_runs(self):
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         work_dir = os.path.join(d, "work")
         src_dir = os.path.join(d, "aa")
         os.makedirs(work_dir)

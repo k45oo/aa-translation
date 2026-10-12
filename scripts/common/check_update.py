@@ -23,22 +23,30 @@ sys.path.insert(0, os.path.join(os.path.dirname(_SCRIPT_DIR), "works"))
 import r401_index as R
 
 BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # 仓库根(2026-08-18 Phase 3 动态计算)
-WORK = os.path.join(BASE, "白头与染灰魔女", "work")
+WORK = os.path.join(BASE, "白头与染灰魔女", "work")          # 清单输出（cron 任务约定路径，故意保持不变）
+DATA = os.path.join(BASE, "aaManga", "白头与染灰魔女")        # 作品真实数据目录（与 registry.py 的 aa_dir/out_dir/raw_dir 同源）
+LEGACY_DATA = os.path.join(BASE, "白头与染灰魔女")            # 历史位置兜底
 WORK_DIRS = ("aa", "raw", "汉化")
 DEFAULT_CATEGORY = "12876"          # r401: 白頭と灰かぶりの魔女
 
 
 def local_eids():
-    """已处理 eid 集合：aa/raw/汉化 三目录文件名的数字前缀"""
+    """已处理 eid 集合：aa/raw/汉化 三目录文件名的数字前缀。
+
+    数据在 aaManga/<作品>/（registry.py 同源）；BASE/白头与染灰魔女/ 为历史位置兜底。
+    修复 2026-10-11：此前只扫 BASE/白头与染灰魔女/（不存在）→ local_eids 恒为空，
+    每周把 r401 分类里全部章节误报为「新章节」。
+    """
     eids = set()
-    for d in WORK_DIRS:
-        p = os.path.join(BASE, "白头与染灰魔女", d)
-        if not os.path.isdir(p):
-            continue
-        for f in os.listdir(p):
-            m = re.match(r'(\d+)', f)
-            if m:
-                eids.add(m.group(1))
+    for root in (DATA, LEGACY_DATA):
+        for d in WORK_DIRS:
+            p = os.path.join(root, d)
+            if not os.path.isdir(p):
+                continue
+            for f in os.listdir(p):
+                m = re.match(r'(\d+)', f)
+                if m:
+                    eids.add(m.group(1))
     return eids
 
 
