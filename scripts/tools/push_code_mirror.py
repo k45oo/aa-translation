@@ -294,6 +294,35 @@ def _clear_tree(dst):
                 pass
 
 
+_TREE_CACHE = {}        # sha → 该提交的全部文件路径（进程内复用；提交不可变，缓存安全）
+
+
+def _tree_paths(sha):
+    """某提交里的**全部文件路径** + 其存在的目录集合（**一次** `ls-tree -r`）。
+
+    为什么不用「逐条 `cat-file -e <sha>:<path>` 探测」：白名单有 13 条，一次 `_export_commit`
+    就要 13 个 git 子进程，而一次推送会导出好几次（每条重放提交 + tip 自检）——实测该模块
+    465 次 git 调用里 249 次（54%）花在这上面。本机 git 启动 ~0.09s/次 ⇒ 光探测就是几秒/次推送。
+    `-z` 是必需的：不加它 git 会把带中文的路径转义成 `"doc/\\346\\226\\207..."`。
+    """
+    if sha in _TREE_CACHE:
+        return _TREE_CACHE[sha]
+    r = subprocess.run(["git", "-C", REPO, "ls-tree", "-r", "--name-only", "-z", sha],
+                       capture_output=True)
+    if r.returncode:
+        raise SystemExit("git ls-tree %s 失败: %s"
+                         % (sha, r.stderr.decode("utf-8", "ignore")[:200]))
+    names = set(x for x in r.stdout.decode("utf-8", "replace").split("\0") if x)
+    dirs = set()
+    for n in names:                       # 目录是否存在的判据（git 不跟踪空目录，与 cat-file -e 同口径）
+        parts = n.split("/")
+        for i in range(1, len(parts)):
+            dirs.add("/".join(parts[:i]))
+    out = (names, dirs)
+    _TREE_CACHE[sha] = out
+    return out
+
+
 def _export_commit(sha, out_dir):
     """把某条提交里白名单路径的内容导出到 out_dir（该提交里不存在的路径自动跳过）。
 
@@ -301,11 +330,11 @@ def _export_commit(sha, out_dir):
     `doc\\aa作品相关` → 当 `-e <sha>:doc\\aa作品相关` 传过去直接 rc=128（整棵 wiki 素材静默丢掉）。
     """
     import tarfile
+    names, dirs = _tree_paths(sha)
     paths = []
     for p in list(INCLUDE_DIRS) + list(INCLUDE_FILES) + [WIKI_GLOB_DIR]:
         gp = p.replace(os.sep, "/")
-        if subprocess.run(["git", "-C", REPO, "cat-file", "-e", f"{sha}:{gp}"],
-                          capture_output=True).returncode == 0:
+        if gp in names or gp in dirs:
             paths.append(gp)
     if not paths:
         return 0
@@ -458,10 +487,7 @@ def push_history(dst, remote, branch, n, max_mb, dry_run=False):
             return False, c["sha"]
         warn = "" if n_idx == nfiles else f"  ⚠️ 构建 {nfiles} / 进快照 {n_idx}"
         print(f"   {res}  {c['commit_date'][:19]}  {c['subject'][:52]}{warn}")
-    head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=dst,
-                          capture_output=True, text=True).stdout.strip()
-    full = subprocess.run(["git", "rev-parse", "HEAD"], cwd=dst,
-                          capture_output=True, text=True).stdout.strip()
+    head, full = _head_pair(dst)
     # 一致性自检：镜像 tip 的树必须 == 「最后一条被重放的提交」的脱敏快照（防导出/顺序出错）
     diff, want = _tip_check(dst, commits[-1]["sha"])
     if diff:
@@ -647,10 +673,7 @@ def push_incremental(dst, remote, branch, max_mb, history, dry_run=False):
             return False, c["sha"]
         warn = "" if n_idx == nfiles else f"  ⚠️ 构建 {nfiles} / 进快照 {n_idx}"
         print(f"   {res}  {c['commit_date'][:19]}  {c['subject'][:52]}{warn}")
-    head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=dst,
-                          capture_output=True, text=True).stdout.strip()
-    full = subprocess.run(["git", "rev-parse", "HEAD"], cwd=dst,
-                          capture_output=True, text=True).stdout.strip()
+    head, full = _head_pair(dst)
     diff, want = _tip_check(dst, todo[-1]["sha"])
     if diff:
         print("❌ 镜像 tip 与「最后一条重放提交」的快照不一致（%d 处），拒绝推送:" % len(diff),
@@ -771,6 +794,14 @@ def local_tree(dst, branch):
         meta, path = line.split("\t", 1)
         out[path.strip()] = meta.split()[1]
     return out
+
+
+def _head_pair(dst):
+    """(短 HEAD, 全 HEAD) —— 一条 `git log` 同时拿两个（原来两次 rev-parse = 两个进程）。"""
+    r = subprocess.run(["git", "log", "-1", "--format=%h%n%H"], cwd=dst,
+                       capture_output=True, text=True)
+    got = [x.strip() for x in (r.stdout or "").splitlines() if x.strip()]
+    return (got + ["", ""])[0], (got + ["", ""])[1]
 
 
 def commit_tree(dst, rev="HEAD"):

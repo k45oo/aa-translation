@@ -165,7 +165,7 @@ scripts/
 | `line_classify.py` / `line_classify_v2.py` | 行分类器 v1 / v2（meta 生成，零 API） |
 | `vision_annotate.py` / `vision_classify.py` / `vision_review.py` | 视觉辅助分类 |
 | `sync_codex_skills.py` | ★ `.codex/skills/` 技能副本重建：从技能库生成 Codex 兼容格式（frontmatter 只留 name/description）+ 本机信息占位符化 + 残留门禁（有残留拒出包）；`--check` 只校验。`.codex/skills/README.md` 说明生成规则 |
-| `push_code_mirror.py` | ★ **代码同步推送**：按白名单构建（代码/文档，无数据/无 legacy/无构建产物）→ 本机信息占位符化 → 门禁（残留路径/密钥形状/体积上限/`.py` 语法，命中 rc=2 拒推）→ 推送远端仓库（默认 `origin`；GitHub 用 `--remote <url>`）。**默认增量**：只重放镜像还没有的提交（底座位 `temp/mirror_state.json`，丢了用说明+时间对号 + 树校验；认不出回退全量重建），门禁只对新提交跑、fast-forward 推送；`--full` 强制全量重建历史、`--history N/0` 定重建条数或回单提交快照；`--check` 只校验并与远端比对、`--dry-run` 提交不推 |
+| `push_code_mirror.py` | ★ **代码同步推送**（导出白名单：**一次** `ls-tree -r` 取代逐条 `cat-file -e` 探测 + 按 sha 进程内缓存；短/全 HEAD 一条 `git log` 取回）：按白名单构建（代码/文档，无数据/无 legacy/无构建产物）→ 本机信息占位符化 → 门禁（残留路径/密钥形状/体积上限/`.py` 语法，命中 rc=2 拒推）→ 推送远端仓库（默认 `origin`；GitHub 用 `--remote <url>`）。**默认增量**：只重放镜像还没有的提交（底座位 `temp/mirror_state.json`，丢了用说明+时间对号 + 树校验；认不出回退全量重建），门禁只对新提交跑、fast-forward 推送；`--full` 强制全量重建历史、`--history N/0` 定重建条数或回单提交快照；`--check` 只校验并与远端比对、`--dry-run` 提交不推 |
 | ~~`proofread.py`~~ | 误译复审（**已废弃**，词级替换顶歪 art 段事故 → 已入 `legacy/`；漏译清理统一走 `fix/refine_aa.py`） |
 | `gen_inventory.py` | ★ P1 盘点生成器（scripts/_inventory.json，AST 静态） |
 | `gen_interface_docs.py` | ★ P6 接口文档生成器（doc/接口文档.md，AST 静态） |
@@ -200,7 +200,7 @@ python scripts/tools/run_tests.py -j 1             # 串行（失败时看完整
 python -m unittest discover -s scripts/tests        # 底层原样，1174 用例（含 test_interface_docs 同步闸门）
 ```
 
-- 全量墙钟的**下限 ≈ `test_mirror_incremental`（~69s）**：它每例要跑 ~100 次 git 子进程，而本机 `git --version` 空跑就要 ~0.09s（进程启动开销，改测试改不掉）；再想快只能减 git 调用（生产代码）或用更小的语料。
+- 全量墙钟的**下限 ≈ `test_mirror_incremental`（~48s，2026-10-12 优化后）**：6 例要跑约 210 次 git 子进程（每次真推送都 init/fetch/reset/提交/push 各一个进程），而本机 `git --version` 空跑就要 ~0.09s（进程启动开销）。已做的减法：白名单存在性探测 13 次 `cat-file -e` → 一次 `ls-tree -r`（按 sha 缓存）、短/全 HEAD 合并成一条 `git log`（git 调用 465→212，69s→48s）。
 
 - L0 纯函数：`test_aa_common.py` / `test_line_meta.py` / `test_manual_fix.py`
 - L1 集成：`test_extract.py` / `test_aaweb.py`（工作台）
