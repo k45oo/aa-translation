@@ -1,10 +1,10 @@
 {
  "generated_at": null,
  "stats": {
-  "total": 324,
+  "total": 325,
   "legacy": 108,
   "core": 75,
-  "tool": 61,
+  "tool": 62,
   "deprecated_candidate": 5,
   "test": 75,
   "hardcoded": 30,
@@ -871,6 +871,8 @@
    "argparse": [],
    "env_vars": [
     "AA_AA_FONT",
+    "AA_AA_FONT_AA",
+    "AA_AA_FONT_AA_FILE",
     "AA_AA_FONT_FILE",
     "AA_AA_FONT_STACK"
    ],
@@ -2411,7 +2413,9 @@
     "subprocess": [],
     "referenced_by": [],
     "webapp": [],
-    "docs": []
+    "docs": [
+     "AGENTS.md"
+    ]
    },
    "dup_of": null,
    "hardcoded_path": false,
@@ -2652,7 +2656,9 @@
     "subprocess": [],
     "referenced_by": [],
     "webapp": [],
-    "docs": []
+    "docs": [
+     "AGENTS.md"
+    ]
    },
    "dup_of": null,
    "hardcoded_path": false,
@@ -7837,10 +7843,12 @@
      "_work_guard",
      "aa_web_app",
      "base64",
+     "contextlib",
      "gen_aa_html",
      "glob",
      "gzip",
      "importlib",
+     "io",
      "json",
      "os",
      "re",
@@ -8239,7 +8247,9 @@
     "subprocess": [],
     "referenced_by": [],
     "webapp": [],
-    "docs": []
+    "docs": [
+     "AGENTS.md"
+    ]
    },
    "dup_of": null,
    "hardcoded_path": false,
@@ -11374,6 +11384,55 @@
    "dup_functions": [],
    "has_main_guard": true,
    "docstring": "触发「一键重启工作台.bat」——唯一允许的重启方式（杀旧 + 重启 8765 + 自动开浏览器）。"
+  },
+  "scripts/tools/run_tests.py": {
+   "path": "scripts/tools/run_tests.py",
+   "grade": "tool",
+   "cli": [
+    "--all",
+    "--changed",
+    "--jobs",
+    "--list",
+    "--modules",
+    "-j"
+   ],
+   "argparse": [
+    "--all",
+    "--changed",
+    "--jobs",
+    "--list",
+    "--modules",
+    "-j"
+   ],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "argparse",
+     "ast",
+     "concurrent",
+     "glob",
+     "json",
+     "os",
+     "re",
+     "subprocess",
+     "sys",
+     "time"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": [
+     "AGENTS.md",
+     "doc/接口文档.md",
+     "scripts/README.md"
+    ]
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "跑用例的**唯一入口**（2026-10-12）：全量并行 / 只跑与改动相关的模块。"
   },
   "scripts/tools/sync_codex_skills.py": {
    "path": "scripts/tools/sync_codex_skills.py",

@@ -572,14 +572,15 @@ class TestFollowupChain(TMBase):
             tid = r["task_id"]
             self.assertEqual(TM.scheduler_tick(), [tid])
             fu_tid = None
-            for _ in range(100):
-                t = TM.get_task(tid)
+            deadline = time.time() + 60          # 机器忙（并行跑用例）时子进程/心跳都慢，预算给足
+            while time.time() < deadline:
+                t = TM.get_task(tid) or {}
                 fu = t.get("followup") or {}
                 if fu.get("task_id"):
                     fu_tid = fu["task_id"]
                     break
                 time.sleep(0.1)
-            self.assertTrue(fu_tid, TM.get_task(tid))
+            self.assertTrue(fu_tid, "60s 内没等到链式后续任务（记录=%r）" % (TM.get_task(tid),))
             # 后续 translate 任务也应被调度器启动并正常收尾
             for _ in range(100):
                 TM.scheduler_tick()

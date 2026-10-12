@@ -18,7 +18,7 @@ scripts/
 ├── fix/                 定向修复 + 校对链（refine_aa / refix_mixed_segs / fix_mixed_drift 等，5）
 ├── verify/              质量闸门 quality_gate / metrics_report / reader_win_ab（3）
 ├── benchmark/           模型评估基准（eval_translation.py；report/ 评测结果为生成物，不入线上）
-├── tests/               单元测试（64 个 test_*.py / 1034 用例全绿）
+├── tests/               单元测试（72 个 test_*.py / 1174 用例全绿）
 ├── legacy/              历史归档（108 个，自包含只读，勿再使用；**仅本地，线上仓库不含**）
 └── logs/                批次日志（*.log 历史；**仅本地，线上仓库不含**）
 ```
@@ -170,6 +170,7 @@ scripts/
 | `gen_inventory.py` | ★ P1 盘点生成器（scripts/_inventory.json，AST 静态） |
 | `gen_interface_docs.py` | ★ P6 接口文档生成器（doc/接口文档.md，AST 静态） |
 | `freeze_delivery_golden.py` | 交付页正文**哈希基线**重建（`scripts/tests/fixtures/delivery_golden.json`；渲染口径变更时先确认再跑，`--check` 只比对） |
+| `run_tests.py` | ★ **跑用例统一入口**（2026-10-12）：默认**全量并行**（`-j min(4,CPU)`，按模块分工；1174 例 200s → **80~110s**，视机器负载）；`--changed [路径…]` 用 AST 反查「改动的文件 → 哪些用例 import 了它」只跑相关模块（映射不出 = 新 CLI/站点解析器 → **回退全量**，不静默少跑；恒带闸门 `test_interface_docs`），`--list` 只看映射、`-j 1` 串行看 traceback。跑真调度器/按时间轮询中间状态的 `test_task_manager`/`test_schedule_task` 固定走**串行段**（并行占满时会假失败）；发车顺序按实测 `WEIGHT`（LPT） |
 | `translate_titles.py` / `usage_stats.py` / `usage_total.py` | 标题翻译 / usage 聚合 / token 合并统计（`aahub_stats.py` 已随 AAhub 素材库删除，2026-10-10 入 legacy） |
 | `r18_judge_ch.py` / `r18_vision_pilot.py` | R18 章节判定 / 视觉辅助试点（`r18_zhipu_probe.py`、`guard_rejudge.py` 随 zhipu 后端 2026-09-07 移除已删） |
 | `fix_hankaku_fast.py` / `fix_hankaku_segs.py` / `fix_missed_lines.py` | 定点修复工具（`fix_san_sensei.py` 一次性修复已完成 → legacy） |
@@ -186,11 +187,20 @@ scripts/
 - `verify/quality_gate.py` — ★ M5 质量闸门（五类检查）
 - `verify/metrics_report.py` — ★ M5 指标聚合
 
-### tests/ — 单元测试（64 个 test_*.py / 1034 用例全绿）
+### tests/ — 单元测试（72 个 test_*.py / 1174 用例全绿）
+
+日常（推荐：改哪跑哪 + 并行；脚本会自己切到 `.venv` 的 python）：
 
 ```bash
-python -m unittest discover -s scripts/tests        # 1034 用例（含 test_interface_docs 同步闸门）
+python scripts/tools/run_tests.py                  # 全量并行（~80-110s）
+python scripts/tools/run_tests.py --changed        # 只跑与 git 改动相关的模块（+闸门），数秒~几十秒
+python scripts/tools/run_tests.py --list --changed scripts/common/gen_aa_html.py   # 先看会跑哪些（不跑）
+python scripts/tools/run_tests.py -j 1             # 串行（失败时看完整 traceback）
+
+python -m unittest discover -s scripts/tests        # 底层原样，1174 用例（含 test_interface_docs 同步闸门）
 ```
+
+- 全量墙钟的**下限 ≈ `test_mirror_incremental`（~69s）**：它每例要跑 ~100 次 git 子进程，而本机 `git --version` 空跑就要 ~0.09s（进程启动开销，改测试改不掉）；再想快只能减 git 调用（生产代码）或用更小的语料。
 
 - L0 纯函数：`test_aa_common.py` / `test_line_meta.py` / `test_manual_fix.py`
 - L1 集成：`test_extract.py` / `test_aaweb.py`（工作台）
