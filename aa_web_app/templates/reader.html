@@ -228,6 +228,15 @@ body.dlg-on span.aa-line { cursor: pointer; }
 .tr-hist-row .th-meta { flex: 0 0 auto; color: #999; font-size: 11px; white-space: nowrap; }
 .tr-hist-row .th-add { flex: 0 0 auto; white-space: nowrap; font-size: 11px; padding: 1px 6px; }
 .tr-hist-row.on .th-pair { font-weight: bold; }
+/* 手动置顶（2026-10-13）：📌 = 置顶/取消置顶。置顶条目排最前、不占 TR_HIST_MAX 淘汰名额。
+   高亮用 inset 阴影（不用 border-left——那会把该行内容右推 2px，和未置顶行对不齐）。 */
+.tr-hist-row .th-pin { flex: 0 0 auto; font-size: 11px; line-height: 1.1; padding: 1px 4px;
+                       filter: grayscale(1); opacity: .4; }
+.tr-hist-row .th-pin:hover { opacity: 1; }
+.tr-hist-row .th-pin.on { filter: none; opacity: 1; }
+.tr-hist-row.pinned { background: #fffbee; box-shadow: inset 2px 0 0 #d9a53a;
+                      margin: 0 -6px; padding: 3px 6px; }
+.tr-hist-row.pinned + .tr-hist-row:not(.pinned) { border-top: 1px solid #e8d8a8; }   /* 置顶段分界 */
 </style>
 <script>
 // 阅读器字体偏好：localStorage 持久化，先于首帧渲染生效（防闪烁）
@@ -362,6 +371,7 @@ try {
         <div class="tr-pane tr-pane-hist">
           <div class="tr-pane-head">
             <b>历史替换记录</b>
+            <span class="muted small" title="点条目左侧 📌 手动置顶：置顶的排到最前，且不会因为记录超过上限被挤掉；再点一次取消置顶。">📌 可置顶</span>
             <span class="muted small" id="tr-hist-info"></span>
           </div>
           <div class="tr-hist-tools">
@@ -442,7 +452,7 @@ try {
   </div>
 </div>
 {% endif %}
-<script src="/static/reader.js?v=20261011a"></script>
+<script src="/static/reader.js?v=20261013a"></script>
 <script>window.AA_SEL = { work: {{ work | tojson }}, base: {{ cur.replace('.txt', '') | tojson }}, enabled: {{ sel_enabled() | tojson }} };</script>
 <script src="/static/selection_translate.js?v=20261010a"></script>
 <script>

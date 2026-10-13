@@ -592,11 +592,20 @@ def classify_raw_v2(site, raw, txt_lines, eid=None):
     posts = _site_parse_posts(site, seg)
     meta = {}
     n = 3                      # 第1行=#标题, 第2行=#原帖地址, 第3行起为帖子内容
+    # 无头帖（rusalka_fc2 每篇首帖：原作者排版时把首帖帖头去掉，正文仍是楼主的）→ header 为 None。
+    # 与站点 extract() 同口径：不产生帖头行；该帖按**楼主帖**分类（is_lz），否则 AA 纹理行会被
+    # anon 分支判 text/mixed 送进模型（实测 16 章 179 行）。站点用 HEADLESS_FIRST_IS_LZ 声明。
+    headless_lz = bool(getattr(site, "HEADLESS_FIRST_IS_LZ", False))
     for header, rows in posts:
-        for _h in _expand_row_lines(header):
-            meta[n] = {'kind': 'header', 'confidence': 1.0, 'reason': ['header'], 'segments': None}
-            n += 1
-        is_lz = bool(HEADER_AUTHOR.search(header))
+        header = header or ""
+        if header:
+            for _h in _expand_row_lines(header):
+                meta[n] = {'kind': 'header', 'confidence': 1.0, 'reason': ['header'], 'segments': None}
+                n += 1
+            is_lz = bool(HEADER_AUTHOR.search(header))
+        else:
+            # 无头帖不产帖头行（`_expand_row_lines('')` 会返回 [''] 白占一行 → 行数不齐整章跳过）
+            is_lz = headless_lz
         # 兼容两种 parse_posts 返回：[(row, color)...] 或 [row...]（yaruobook）
         lz_rows = [item[0] if isinstance(item, (list, tuple)) else item for item in rows]
         # 行内裸换行展开：1 元素 = 1 txt 行（否则行数与 txt 不齐 → 整章 meta 跳过）

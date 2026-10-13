@@ -227,6 +227,56 @@ class TestClassifyRowExpansion(unittest.TestCase):
         self.assertEqual(seen.get('eid'), '16812')
 
 
+class TestHeadlessFirstPost(unittest.TestCase):
+    """rusalka_fc2 每篇首帖没有帖头（parse_posts 首项 header=None）：
+
+    ① 旧实现 `_expand_row_lines(None)` 直接 TypeError → 该站点 862 章 meta 全空（整章跳过）；
+    ② 无头帖必须按**楼主帖**分类 —— anon 分支会把 AA 纹理行判 text/mixed 送进模型。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tools'))
+        global LC
+        import line_classify_v2 as LC
+
+    HEADER = '2 ：名無し市民さん：2011/11/20(日) 23:07:02 ID:ICG'
+    ART = '　　　,.､,,、:::::::::::::::::::::::::::::′:::::::::::::::::::::'
+
+    def _site(self, headless_lz):
+        class _S(_FakeSite):
+            pass
+
+        s = _S([(None, [self.ART, 'こんにちは']), (self.HEADER, ['そうですね'])])
+        if headless_lz:
+            s.HEADLESS_FIRST_IS_LZ = True
+        return s
+
+    TXT = ['# 标题', '# 原帖地址: https://x', ART, 'こんにちは', HEADER, 'そうですね']
+
+    def test_none_header_no_crash_and_no_header_line(self):
+        meta = LC.classify_raw_v2(self._site(True), 'raw', self.TXT)
+        self.assertIsNotNone(meta, 'header=None 未容错 → 整章 meta 被跳过')
+        self.assertEqual(max(int(k) for k in meta), len(self.TXT))
+        self.assertEqual(meta[5]['kind'], 'header')       # 有头帖照旧产帖头行
+
+    def test_headless_post_classified_as_lz(self):
+        meta_lz = LC.classify_raw_v2(self._site(True), 'raw', self.TXT)
+        self.assertEqual(meta_lz[3]['kind'], LC.classify_content(self.ART, True)[0])
+        self.assertEqual(meta_lz[3]['kind'], 'art')
+        # 站点不声明 → 回落 anon 分支（历史语义），仍不崩
+        meta_anon = LC.classify_raw_v2(self._site(False), 'raw', self.TXT)
+        self.assertIsNotNone(meta_anon)
+        self.assertEqual(meta_anon[3]['kind'], LC.classify_content(self.ART, False)[0])
+        self.assertNotEqual(meta_anon[3]['kind'], 'art')
+
+    def test_rusalka_declares_headless_op(self):
+        import importlib
+        site = importlib.import_module('sites.rusalka_fc2')
+        self.assertTrue(getattr(site, 'HEADLESS_FIRST_IS_LZ', False),
+                        'rusalka_fc2 必须声明 HEADLESS_FIRST_IS_LZ（否则首帖 AA 纹理行会被送进模型）')
+
+
 class TestGlossaryWorkMode(unittest.TestCase):
     """WORK_ID 模式: 作品术语表注入 + 按章过滤 (2026-09-01 三级重构)。"""
 

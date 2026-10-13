@@ -1208,7 +1208,8 @@
       if (!trHistBox) return;
       if (!trHistRows.length) {
         trHistBox.innerHTML = '<p class="muted small" style="margin:2px 0">' +
-          '暂无记录——每次「应用」成功后自动记一条（新在前，最多 ' + (trHistMax || 100) + ' 条）。</p>';
+          '暂无记录——每次「应用」成功后自动记一条（新在前，最多 ' + (trHistMax || 100) + ' 条；' +
+          '点 📌 可手动置顶，置顶的不占这个上限）。</p>';
         trHistSyncInfo();
         return;
       }
@@ -1222,13 +1223,48 @@
       trHistBox.innerHTML = '';
       rows.forEach((it) => {
         const row = document.createElement('label');
-        row.className = 'tr-hist-row' + (it.on ? ' on' : '');
-        row.title = (it.ts ? it.ts + ' 应用' : '') + (it.n > 1 ? '（累计 ' + it.n + ' 次）' : '') +
+        row.className = 'tr-hist-row' + (it.on ? ' on' : '') + (it.pin ? ' pinned' : '');
+        row.title = (it.pin ? '📌 已置顶（排在最前，且不会被上限 ' + (trHistMax || 100) + ' 条挤掉）· ' : '') +
+          (it.ts ? it.ts + ' 应用' : '') + (it.n > 1 ? '（累计 ' + it.n + ' 次）' : '') +
           (it.applied ? '，最近影响 ' + it.applied + ' 行 / ' + it.files + ' 文件' : '');
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.checked = !!it.on;
         cb.addEventListener('change', () => { it.on = cb.checked; trHistRender(); });
+        // 📌 手动置顶（2026-10-13）：置顶的排到最前、且不占 TR_HIST_MAX 淘汰名额
+        const pinBtn = document.createElement('button');
+        pinBtn.type = 'button';
+        pinBtn.className = 'btn tiny ghost th-pin' + (it.pin ? ' on' : '');
+        pinBtn.textContent = '📌';
+        pinBtn.title = it.pin ? '取消置顶（回到按时间排序）' : '手动置顶：排到最前，且不会被上限挤掉';
+        pinBtn.addEventListener('click', async (ev) => {
+          ev.preventDefault(); ev.stopPropagation();     // 行是 <label>，别让点击连带勾选框
+          pinBtn.disabled = true;
+          const want = !it.pin;
+          try {
+            const r = await fetch(`/api/work/${encodeURIComponent(CFG.work)}/replace-history/pin`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ find: it.find, repl: it.repl, pin: want })
+            });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok || !j.ok || !j.items) {
+              toast('置顶失败：' + (!r.ok && j.detail ? j.detail : JSON.stringify(j)), false);
+              pinBtn.disabled = false;
+              return;
+            }
+            // 服务端已按新顺序返回 → 整表重建（保留本次勾选状态，勾选跟 find+repl 绑定）
+            const onMap = new Map(trHistRows.map(x => [x.find + '\u0000' + x.repl, x.on]));
+            trHistRows = j.items.map(x => Object.assign({}, x, {
+              on: onMap.get(x.find + '\u0000' + x.repl) || false
+            }));
+            trHistRender();
+            toast(want ? '已置顶：' + it.find + ' 📌（排到最前，不会被上限挤掉）'
+                       : '已取消置顶：' + it.find, true);
+          } catch (e) {
+            toast('网络错误：' + e, false);
+            pinBtn.disabled = false;
+          }
+        });
         const pair = document.createElement('span');
         pair.className = 'th-pair';
         pair.innerHTML = '<span class="th-find">' + escapeHtml(it.find) + '</span> → <span class="th-repl">' +
@@ -1236,7 +1272,7 @@
         const meta = document.createElement('span');
         meta.className = 'th-meta';
         meta.textContent = trShortTs(it.ts) + (it.n > 1 ? ' ×' + it.n : '');   // 简略（2026-10-01）；详情看 title
-        row.appendChild(cb); row.appendChild(pair); row.appendChild(meta);
+        row.appendChild(cb); row.appendChild(pinBtn); row.appendChild(pair); row.appendChild(meta);
         // ＋术语表（2026-09-14）：单条把该对 (find→repl) 手动加进本作品术语表，只影响以后的翻译/校对。
         // 已在术语表里的条目直接显示「✓ 已加入」并禁用（不依赖本次会话是否点过）
         const glossHas = trGlossMap.has(it.find);
@@ -1315,8 +1351,10 @@
         return;
       }
       const on = trHistRows.filter(r => r.on).length;
+      const pin = trHistRows.filter(r => r.pin).length;
       const vis = trHistVisible().length;
-      trHistInfo.textContent = '已勾 ' + on + ' / ' + trHistRows.length + ' 条（仅本作品）' +
+      trHistInfo.textContent = '已勾 ' + on + ' / ' + trHistRows.length + ' 条（仅本作品' +
+        (pin ? '，置顶 ' + pin : '') + '）' +
         (trHistQuery.trim() && vis !== trHistRows.length ? '；搜索命中 ' + vis + ' 条' : '');
     };
     let trHistMax = 100;

@@ -92,5 +92,114 @@ class TestTrHist(TrHistFixture):
         self.assertEqual(rows[0]["n"], 2)
 
 
+class TestTrHistPin(TrHistFixture):
+    """手动置顶（2026-10-13）：排最前 + 不占 TR_HIST_MAX 淘汰名额。"""
+
+    def _seed(self, n=3):
+        for i in range(n):
+            logic.tr_hist_add(self.work_dir, [[f"词{i}", f"译{i}"]], ts=f"t{i}")
+        return logic.tr_hist_load(self.work_dir)
+
+    def test_pin_moves_to_front_and_persists(self):
+        self._seed(3)                                     # 词2（最新）在前
+        ok, rows = logic.tr_hist_pin(self.work_dir, "词0", "译0", True)
+        self.assertTrue(ok)
+        self.assertEqual([r["find"] for r in rows], ["词0", "词2", "词1"])
+        self.assertTrue(rows[0]["pin"])
+        # 重新读盘（不是内存里的那份）
+        rows2 = logic.tr_hist_load(self.work_dir)
+        self.assertEqual([r["find"] for r in rows2], ["词0", "词2", "词1"])
+        self.assertEqual([bool(r["pin"]) for r in rows2], [True, False, False])
+
+    def test_two_pins_newest_pinned_first(self):
+        self._seed(3)
+        logic.tr_hist_pin(self.work_dir, "词0", "译0", True)
+        logic.tr_hist_pin(self.work_dir, "词1", "译1", True)
+        rows = logic.tr_hist_load(self.work_dir)
+        self.assertEqual([r["find"] for r in rows], ["词1", "词0", "词2"])   # 后置顶的在置顶段最前
+
+    def test_unpin_clears_flag_and_keeps_position(self):
+        """取消置顶 = 只清标记；条目留在「未置顶段」最前（原时间位置已不可知，不假装还原）。
+
+        之后新记录（未置顶）自然排到它上面，段内顺序很快回归「新在前」。
+        """
+        self._seed(3)
+        logic.tr_hist_pin(self.work_dir, "词0", "译0", True)
+        ok, rows = logic.tr_hist_pin(self.work_dir, "词0", "译0", False)
+        self.assertTrue(ok)
+        self.assertEqual([r["find"] for r in rows], ["词0", "词2", "词1"])
+        self.assertEqual([bool(r["pin"]) for r in rows], [False, False, False])
+        logic.tr_hist_add(self.work_dir, [["新词", "新译"]], ts="t9")
+        rows = logic.tr_hist_load(self.work_dir)
+        self.assertEqual([r["find"] for r in rows], ["新词", "词0", "词2", "词1"])
+
+    def test_new_records_do_not_push_pinned_down(self):
+        self._seed(3)
+        logic.tr_hist_pin(self.work_dir, "词0", "译0", True)
+        logic.tr_hist_add(self.work_dir, [["新词", "新译"]], ts="t9")
+        rows = logic.tr_hist_load(self.work_dir)
+        self.assertEqual([r["find"] for r in rows], ["词0", "新词", "词2", "词1"])
+
+    def test_reapplying_same_pair_keeps_pin(self):
+        self._seed(3)
+        logic.tr_hist_pin(self.work_dir, "词0", "译0", True)
+        logic.tr_hist_add(self.work_dir, [["词0", "译0"]], applied=2, files=1, ts="t9")
+        rows = logic.tr_hist_load(self.work_dir)
+        self.assertEqual(rows[0]["find"], "词0")
+        self.assertTrue(rows[0]["pin"])
+        self.assertEqual(rows[0]["n"], 2)
+        self.assertEqual(rows[0]["ts"], "t9")
+
+    def test_pinned_entries_survive_cap(self):
+        for i in range(logic.TR_HIST_MAX):
+            logic.tr_hist_add(self.work_dir, [[f"词{i}", "译"]], ts=str(i))
+        logic.tr_hist_pin(self.work_dir, "词0", "译", True)          # 最旧那条钉住
+        for i in range(logic.TR_HIST_MAX, logic.TR_HIST_MAX + 20):
+            logic.tr_hist_add(self.work_dir, [[f"词{i}", "译"]], ts=str(i))
+        rows = logic.tr_hist_load(self.work_dir)
+        self.assertEqual(len(rows), logic.TR_HIST_MAX + 1)            # 置顶的另算，不占上限名额
+        self.assertEqual(rows[0]["find"], "词0")                      # 置顶的没被挤掉
+        self.assertTrue(rows[0]["pin"])
+        self.assertEqual([r["find"] for r in rows[1:]][:2], ["词119", "词118"])
+        self.assertNotIn("词1", [r["find"] for r in rows])            # 未置顶的旧记录照旧被淘汰（只留最近 100）
+
+    def test_pinned_all_kept_and_new_records_still_accepted(self):
+        for i in range(logic.TR_HIST_MAX + 3):
+            logic.tr_hist_add(self.work_dir, [[f"词{i}", "译"]], ts=str(i))
+            logic.tr_hist_pin(self.work_dir, f"词{i}", "译", True)
+        rows = logic.tr_hist_load(self.work_dir)
+        self.assertEqual(len(rows), logic.TR_HIST_MAX + 3)            # 全是置顶 → 全留
+        self.assertTrue(all(r["pin"] for r in rows))
+        # 整表置顶时新记录照样进得来（旧口径「置顶占名额」会让它在写入瞬间被丢掉）
+        logic.tr_hist_add(self.work_dir, [["新词", "新译"]], ts="t9")
+        rows = logic.tr_hist_load(self.work_dir)
+        self.assertEqual(rows[0]["find"], "词102")                    # 最新的置顶在最前
+        self.assertIn("新词", [r["find"] for r in rows])
+
+    def test_pin_missing_returns_false_without_writing(self):
+        self._seed(2)
+        p = logic.tr_hist_path(self.work_dir)
+        with open(p, encoding="utf-8") as f:
+            before = f.read()
+        ok, rows = logic.tr_hist_pin(self.work_dir, "不存在", "x", True)
+        self.assertFalse(ok)
+        self.assertEqual(len(rows), 2)
+        with open(p, encoding="utf-8") as f:
+            self.assertEqual(f.read(), before)
+        # 同 find 不同 repl 也不算命中（键是 (find, repl) 整对）
+        self.assertFalse(logic.tr_hist_pin(self.work_dir, "词0", "别的译", True)[0])
+
+    def test_load_normalizes_pin_field(self):
+        p = logic.tr_hist_path(self.work_dir)
+        with open(p, "w", encoding="utf-8") as f:                    # 旧文件（无 pin 字段）+ 脏值
+            json.dump([{"find": "甲", "repl": "A", "n": 1},
+                       {"find": "乙", "repl": "B", "pin": "yes"},
+                       {"find": "丙", "repl": "C", "pin": 1},
+                       {"find": "丁", "repl": "D", "pin": 0}], f)
+        rows = logic.tr_hist_load(self.work_dir)
+        self.assertEqual([bool(r["pin"]) for r in rows], [True, True, False, False])
+        self.assertEqual([r["find"] for r in rows], ["乙", "丙", "甲", "丁"])   # 置顶在前（同组内保原序）
+
+
 if __name__ == "__main__":
     unittest.main()

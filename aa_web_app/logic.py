@@ -1108,7 +1108,8 @@ def apply_glossary_chapter(aa_path, tr_path, pairs, dry_run=True,
 
 # ---------- 翻译替换历史记录（2026-09-13）：<work_dir>/tr_replace_history.json ----------
 # 记「查找 → 替换为」成功应用过的对，供阅读器翻译替换弹窗复用（可手动勾选启用）。
-# 结构：[{find, repl, ts, n, applied, files}, ...] 新在前；同对再去重（n 计数、ts 更新）。
+# 结构：[{find, repl, ts, n, applied, files, pin}, ...] 新在前、**置顶段在最前**；同对再去重（n 计数、ts 更新）。
+# 2026-10-13: pin = 手动置顶（True/False），置顶条目排最前；TR_HIST_MAX 只约束未置顶部分。
 TR_HIST_NAME = "tr_replace_history.json"
 TR_HIST_MAX = 100
 
@@ -1117,8 +1118,32 @@ def tr_hist_path(work_dir):
     return os.path.join(work_dir, TR_HIST_NAME)
 
 
+def tr_hist_pinned_first(rows):
+    """置顶条目排最前（稳定排序 → 两组内部仍保持「新在前」的相对次序）。"""
+    return sorted(rows, key=lambda it: 0 if it.get("pin") else 1)
+
+
+def tr_hist_trim(rows):
+    """按上限截断：TR_HIST_MAX 只约束**未置顶**部分，置顶条目额外保留、不被挤掉。
+
+    置顶是手动钉的（数量由用户自己控制），不占「最多 N 条」的名额——
+    否则整表都是置顶时新记录会在写入瞬间被丢掉。
+    """
+    out, kept = [], 0
+    for it in rows:
+        if it.get("pin"):
+            out.append(it)
+        elif kept < TR_HIST_MAX:
+            out.append(it)
+            kept += 1
+    return out
+
+
 def tr_hist_load(work_dir):
-    """读历史记录（文件缺失/损坏 → []；只保留结构合法的条目）。"""
+    """读历史记录（文件缺失/损坏 → []；只保留结构合法的条目）。
+
+    2026-10-13: 输出已按「置顶在前」排好（pin 缺失的旧文件当未置顶，行为与从前一致）。
+    """
     p = tr_hist_path(work_dir)
     if not os.path.exists(p):
         return []
@@ -1139,8 +1164,9 @@ def tr_hist_load(work_dir):
         repl = it.get("repl")
         out.append({"find": find, "repl": repl if isinstance(repl, str) else "",
                     "ts": it.get("ts") or "", "n": int(it.get("n") or 1),
-                    "applied": int(it.get("applied") or 0), "files": int(it.get("files") or 0)})
-    return out
+                    "applied": int(it.get("applied") or 0), "files": int(it.get("files") or 0),
+                    "pin": bool(it.get("pin"))})
+    return tr_hist_pinned_first(out)
 
 
 def tr_hist_save(work_dir, rows):
@@ -1159,8 +1185,10 @@ def tr_hist_add(work_dir, pairs, applied=0, files=0, ts=None):
     """把一次成功应用记进历史：同 (find, repl) 去重并置顶、n+1；上限 TR_HIST_MAX 条。
 
     返回更新后的列表。pairs 里 find 为空的跳过；applied/files 表示本次的行数/文件数。
+    2026-10-13: 置顶位（pin）跟着条目走；未置顶的新条目插在**置顶段之后**——
+    手动钉住的对不会被每次「应用」不断顶下去；上限只淘汰未置顶的旧条目。
     """
-    rows = tr_hist_load(work_dir)
+    rows = tr_hist_load(work_dir)              # 已按「置顶在前」排好
     now = ts or time.strftime("%Y-%m-%d %H:%M")
     for p in pairs or []:
         fp = p[0] if isinstance(p, (list, tuple)) and len(p) > 0 else ""
@@ -1177,13 +1205,39 @@ def tr_hist_add(work_dir, pairs, applied=0, files=0, ts=None):
         if old is not None:
             rows.remove(old)
             n = old["n"] + 1
+            pin = bool(old.get("pin"))
         else:
             n = 1
-        rows.insert(0, {"find": find, "repl": repl, "ts": now, "n": n,
-                        "applied": int(applied or 0), "files": int(files or 0)})
-    del rows[TR_HIST_MAX:]
+            pin = False
+        pos = sum(1 for it in rows if it.get("pin"))    # 置顶段之后（未置顶的新条目不进置顶区）
+        rows.insert(pos, {"find": find, "repl": repl, "ts": now, "n": n,
+                          "applied": int(applied or 0), "files": int(files or 0), "pin": pin})
+    rows = tr_hist_trim(tr_hist_pinned_first(rows))
     tr_hist_save(work_dir, rows)
     return rows
+
+
+def tr_hist_pin(work_dir, find, repl, pin=True):
+    """手动置顶 / 取消置顶一条历史记录；返回 (是否找到, 更新后的列表)。
+
+    置顶的条目排在列表最前（最近置顶的在最前），且不占 TR_HIST_MAX 的淘汰名额。
+    找不到（find+repl 都不匹配）→ 不写盘，返回 (False, 原列表)。
+    """
+    rows = tr_hist_load(work_dir)
+    hit = None
+    for it in rows:
+        if it["find"] == find and it["repl"] == repl:
+            hit = it
+            break
+    if hit is None:
+        return False, rows
+    hit["pin"] = bool(pin)
+    if hit["pin"]:
+        rows.remove(hit)
+        rows.insert(0, hit)                    # 新置顶的直接排到置顶段最前
+    rows = tr_hist_trim(tr_hist_pinned_first(rows))
+    tr_hist_save(work_dir, rows)
+    return True, rows
 
 
 def load_glossary_pairs(path=None):

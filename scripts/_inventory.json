@@ -1,13 +1,13 @@
 {
  "generated_at": null,
  "stats": {
-  "total": 325,
+  "total": 327,
   "legacy": 108,
-  "core": 75,
+  "core": 76,
   "tool": 62,
   "deprecated_candidate": 5,
-  "test": 75,
-  "hardcoded": 30,
+  "test": 76,
+  "hardcoded": 32,
   "top_consts": 49,
   "dup_function_counts": {
    "allow_overwidth": 1,
@@ -21,8 +21,8 @@
    "render_line": 6,
    "build_whitelist": 8,
    "residual_bad": 6,
-   "render_header": 21,
-   "entry_url": 19
+   "render_header": 22,
+   "entry_url": 20
   },
   "hardcoded_files": [
    "scripts/aa_translate.py",
@@ -51,10 +51,12 @@
    "scripts/legacy/scan_width_baitou.py",
    "scripts/legacy/scan_width_yaruobook.py",
    "scripts/tests/test_pre_terms.py",
+   "scripts/tests/test_work_delete.py",
    "scripts/tools/build_edit_server.py",
    "scripts/tools/gen_inventory.py",
    "scripts/tools/release_common.py",
-   "scripts/works/paths.py"
+   "scripts/works/paths.py",
+   "scripts/works/registry.py"
   ],
   "top_consts_files": [
    "scripts/aa_translate.py",
@@ -2389,11 +2391,13 @@
    "grade": "deprecated_candidate",
    "cli": [
     "--apply",
+    "--no-todo",
     "--todo",
     "--work"
    ],
    "argparse": [
     "--apply",
+    "--no-todo",
     "--todo",
     "--work"
    ],
@@ -6456,6 +6460,7 @@
      "sites.manyoshu",
      "sites.matomemo3",
      "sites.mukankei_fc2",
+     "sites.rusalka_fc2",
      "sites.touhouyaruosure",
      "sites.yarumo_fc2",
      "sites.yaruo_matome",
@@ -6801,6 +6806,40 @@
    ],
    "has_main_guard": true,
    "docstring": "mukankei769.blog114.fc2.com（やる夫我執＆モララーのビデオ棚，老式 FC2 表格模板）。"
+  },
+  "scripts/sites/rusalka_fc2.py": {
+   "path": "scripts/sites/rusalka_fc2.py",
+   "grade": "core",
+   "cli": "argv-manual",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "_base",
+     "html",
+     "json",
+     "os",
+     "re",
+     "sites",
+     "sys"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": [
+     "AGENTS.md",
+     "doc/接口文档.md"
+    ]
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [
+    "entry_url",
+    "render_header"
+   ],
+   "has_main_guard": true,
+   "docstring": "rusalka777.blog.fc2.com（FC2 博客「100%自分用やる夫まとめ」）解析器。"
   },
   "scripts/sites/touhouyaruosure.py": {
    "path": "scripts/sites/touhouyaruosure.py",
@@ -7871,6 +7910,36 @@
    "has_main_guard": true,
    "docstring": "「仅 HTML 文件」简版交付（`gen_aa_html.py --plain`，2026-10-11）回归测试。"
   },
+  "scripts/tests/test_index_cache.py": {
+   "path": "scripts/tests/test_index_cache.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_web_app",
+     "json",
+     "os",
+     "shutil",
+     "starlette",
+     "sys",
+     "tempfile",
+     "time",
+     "unittest"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "首页快照缓存（2026-10-13 方案 A）：`aa_web_app/index_cache.py` + main 的构建/渲染接线。"
+  },
   "scripts/tests/test_interface_docs.py": {
    "path": "scripts/tests/test_interface_docs.py",
    "grade": "test",
@@ -7969,6 +8038,7 @@
     "imports": [
      "_work_guard",
      "aa_translate",
+     "importlib",
      "json",
      "line_classify_v2",
      "os",
@@ -9329,8 +9399,10 @@
     "imports": [
      "aa_web_app",
      "inspect",
+     "json",
      "os",
      "registry",
+     "subprocess",
      "sys",
      "tempfile",
      "unittest"
@@ -9345,7 +9417,7 @@
     ]
    },
    "dup_of": null,
-   "hardcoded_path": false,
+   "hardcoded_path": true,
    "top_consts": [],
    "dup_functions": [],
    "has_main_guard": true,
@@ -12256,7 +12328,7 @@
     ]
    },
    "dup_of": null,
-   "hardcoded_path": false,
+   "hardcoded_path": true,
    "top_consts": [],
    "dup_functions": [],
    "has_main_guard": false,

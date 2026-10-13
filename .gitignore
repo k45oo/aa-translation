@@ -37,6 +37,10 @@ aa_web_app/data/read_state.json
 aa_web_app/data/selection_log.jsonl
 aa_web_app/data/selection_log.jsonl.[0-9]
 
+# 首页数据快照（2026-10-13，可再生缓存：重建即最新；请求路径只读它，见 index_cache.py）
+aa_web_app/data/index_cache.json
+aa_web_app/data/index_cache.json.tmp
+
 # AA 搜索缓存（2026-09-01，r401 tags 映射 + 人气榜单，1 天 TTL 可再生，非数据）
 data/search/
 

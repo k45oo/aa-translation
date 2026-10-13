@@ -8,8 +8,10 @@
   <button id="regen-all" class="btn">全部重新生成合集 HTML</button>
   <button id="add-work-btn" class="btn">＋ 添加作品</button>
   <button id="import-work-btn" class="btn" title="导入工作台导出的作品包（.rar）：自动归位到 aaManga/ 并注册作品">⤓ 导入作品包</button>
+  <button id="idx-refresh" class="btn" title="重扫全库，刷新作品列表数据（后台执行，不阻塞页面）">↻ 刷新数据</button>
   <span class="muted" id="add-work-msg"></span>
   <span class="muted" id="regen-all-msg"></span>
+  <span class="muted small" id="idx-age" title="作品列表数据来自本地快照（避免每次打开都重扫全库）">数据更新于 {{ index_age }}</span>
 </div>
 <div class="search-bar" id="search-bar">
   <span class="muted small" id="sbox-msg"><span id="sbox-status" class="sbox-idle">就绪</span></span>
@@ -1373,6 +1375,45 @@ modal.addEventListener('click', e => { if (e.target === modal && _dmDown === mod
   const goBtn = document.getElementById('sbox-go');
   if (goBtn) goBtn.addEventListener('click', runSearch);
   box.addEventListener('keydown', e => { if (e.key === 'Enter') runSearch(); });
+})();
+</script>
+
+<script>
+// 首页数据快照（2026-10-13）：列表数据来自本地快照，「数据更新于 X」+ 手动「↻ 刷新数据」
+(function () {
+  const btn = document.getElementById('idx-refresh');
+  const ageEl = document.getElementById('idx-age');
+  if (!btn) return;
+  let timer = null;
+  let byUser = false;
+
+  function busy(on) {
+    btn.disabled = !!on;
+    btn.classList.toggle('loading', !!on);
+  }
+  function idleLabel() { btn.textContent = '↻ 刷新数据'; }
+  function poll() {
+    fetch('/api/index/status').then(r => r.json()).then(j => {
+      if (j && j.refreshing) { busy(true); btn.textContent = '刷新中…'; return; }
+      if (timer) { clearInterval(timer); timer = null; }
+      busy(false); idleLabel();
+      if (ageEl) ageEl.textContent = '数据更新于 ' + (j.age_text || '刚刚');
+      if (byUser) { byUser = false; location.reload(); }
+    }).catch(() => {});
+  }
+  function start() { if (!timer) { timer = setInterval(poll, 1500); poll(); } }
+
+  btn.addEventListener('click', () => {
+    if (btn.disabled) return;
+    byUser = true; busy(true); btn.textContent = '刷新中…';
+    fetch('/api/index/refresh', { method: 'POST' }).then(r => r.json())
+      .then(() => start())
+      .catch(() => {
+        byUser = false; busy(false); idleLabel();
+        if (typeof toast === 'function') toast('刷新失败', false);
+      });
+  });
+  {% if index_refreshing %}busy(true); btn.textContent = '刷新中…'; start();{% endif %}
 })();
 </script>
 

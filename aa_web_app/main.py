@@ -40,6 +40,7 @@ from aa_web_app import reader_win            # 2026-09-21 阅读器窗口化：�
 from aa_web_app import task_manager as TM   # 2026-08-29 统一任务管理器
 from aa_web_app import add_work             # 2026-08-30 作品添加/下载（URL 解析→注册→入队）
 from aa_web_app import work_pack            # 2026-10-01 作品导入导出（rar 打包/解包）
+from aa_web_app import index_cache          # 2026-10-13 首页快照（请求路径只读快照，见模块头）
 
 from common import gen_aa_html as _gen_aa_html   # 渲染行（模块级 import，避免每行重复查找）
 
@@ -135,6 +136,26 @@ _WORK_META_FILE = os.path.join(_DATA, "aa_web_app", "data", "work_meta.json")
 _AUTHOR_OVERRIDE = {
     "yaruohiroba": "◆?",     # 短篇祭合集无 ◆ 楼主帖头，待人工补真实作者
 }
+
+
+def _env_num(name, default):
+    try:
+        return float(os.environ.get(name) or default)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+# 首页数据快照（2026-10-13，方案 A）：请求路径只读快照 → 秒回；
+# 重建走后台线程（单飞 + 限流），显式改动走 invalidate 局部重算。见 index_cache 模块头。
+_INDEX_SNAP = index_cache.IndexSnapshot(
+    index_cache.snapshot_path(_DATA),
+    max_age=_env_num("AA_INDEX_MAX_AGE", index_cache.DEFAULT_MAX_AGE),
+    min_interval=_env_num("AA_INDEX_REFRESH_INTERVAL", index_cache.DEFAULT_MIN_INTERVAL),
+)
+# 脏作品数 ≤ 该值时在请求路径里同步重算（保证「保存/重生成完立刻回首页能看到」）；
+# 超了就交给后台，本次先用旧值（大批脏=重新加载全部作品的场景，等后台就行）。
+INDEX_SYNC_DIRTY_MAX = 3
+_BUILD_LOCK = threading.RLock()       # 首次构建/重建串行（并发请求不重复扫全库）；RLock：index() 首建会重入
 
 
 def _load_progress():
@@ -442,6 +463,11 @@ def work_stats(work):
 def invalidate_stats(work):
     _STATS_CACHE.pop(work, None)
     _LASTUPD_CACHE.pop(work, None)
+    # 首页快照：该作品标脏 → 下次首页请求同步只重算这一部（改完立刻可见，见 index_cache）
+    try:
+        _INDEX_SNAP.invalidate(work)
+    except Exception:
+        pass
     # 阅读器章节上下文（reader_win）同样按作品失效：保存行/术语替换/重生成/还原都会改行内容。
     # 注意 ctx 另有 (mtime,size) 指纹兜底（gold/标注这类不经过本函数的小写入也自动生效）。
     reader_win.invalidate(work)
@@ -512,38 +538,8 @@ def _recalc_async(work, fnames, keys, cache, cache_path, work_dir):
         _RECALC_LOCK.release()
 
 
-_WARM_LOCK = threading.Lock()
-
-
-def _warm_all_stats():
-    """服务启动后后台预热全部作品统计（磁盘缓存），首次点击不卡。"""
-    if not _WARM_LOCK.acquire(blocking=False):
-        return  # 已有预热线程在跑，跳过（防多 reload/删除叠加抢 IO）
-    try:
-        _wm = logic.load_work_meta(_WORK_META_FILE)
-        for wid in registry.WORKS:
-            w = registry.WORKS[wid]
-            work_stats(wid)
-            # 2026-09-05: 预热首页冷扫热点（last_update/r18_summary/material_frequency），重启首访命中缓存
-            try:
-                # 2026-09-05: last_update 用 refresh=True 主动生成磁盘缓存（后台，不阻塞页面）；
-                # 这样 index 首访（warm 完成后）last_update 全命中零-stat。r18/material 填缓存。
-                logic.last_update_of(w.get("aa_dir", ""), w.get("out_dir", ""),
-                                     w.get("work_dir", ""), refresh=True)
-                r18_summary_cached(w.get("work_dir", ""), w.get("out_dir", ""))
-                _ml = list((_wm.get(wid, {}) or {}).get("materials", []) or [])
-                if (_wm.get(wid, {}) or {}).get("ignore_materials"):
-                    _ml = []
-                logic.material_frequency_cached(w.get("work_dir", ""), w.get("out_dir", ""), _ml)
-            except Exception:
-                pass
-    except Exception:
-        pass
-    finally:
-        _WARM_LOCK.release()
-
-
-threading.Thread(target=_warm_all_stats, daemon=True).start()
+# 启动**不**做任何全库预热：重建由首页请求限流触发（见 main.index 与 index_cache 模块头），
+# 否则单元测试 import main 也会拉起全库扫描。
 
 
 # ---------- 热加载 ----------
@@ -575,9 +571,10 @@ def api_reload(warm: bool = True, clear_cache: bool = True):
         logic.invalidate_mch_cache()
         _R18_SUMMARY_CACHE.clear()
         _LASTUPD_CACHE.clear()
-    # 后台重算预热（新作品统计不阻塞响应）；删除路径 warm=False 跳过防抢 IO
+    # 后台重建首页快照（新作品/删除的作品不阻塞响应）；删除路径 warm=False 跳过防抢 IO
+    _INDEX_SNAP.invalidate(None)          # 作品集合变了 → 整份快照重算
     if warm:
-        threading.Thread(target=_warm_all_stats, daemon=True).start()
+        _index_refresh_async(force=True)
     return {"ok": True, "works": len(registry.WORKS)}
 
 
@@ -902,11 +899,19 @@ def _site_url_for(wid, cfg):
     return _site_url_fallback(cfg)
 
 
+_SITE_URL_BF_LOCK = threading.Lock()
+_SITE_URL_BF_FAILED = set()      # 解析过但拿不到 ?cat 的作品：本进程不再重试（防每次刷新都发超时请求）
+
+
 def _site_url_backfill():
-    """后台线程：为无 r401_cid 且未缓存分类页的作品解析 ?cat=N 并写 work/site_url.json（一次性）。"""
+    """后台线程：为无 r401_cid 且未缓存分类页的作品解析 ?cat=N 并写 work/site_url.json（一次性）。
+
+    2026-10-13：失败（站点不是 yaruobook / 解析不出 cat）记进 `_SITE_URL_BF_FAILED`——
+    否则每个首页请求都会对同一部作品重发一次 8s 超时的网络请求（实测 商店街迎撃 每次都白等）。
+    """
     import registry
     for wid, cfg in registry.WORKS.items():
-        if cfg.get("r401_cid"):
+        if cfg.get("r401_cid") or wid in _SITE_URL_BF_FAILED:
             continue
         work_dir = cfg.get("work_dir", "")
         cache_path = os.path.join(work_dir, "site_url.json") if work_dir else ""
@@ -918,9 +923,11 @@ def _site_url_backfill():
                 pass
         url = _site_url_fallback(cfg)
         if not url or not url.startswith("http"):
+            _SITE_URL_BF_FAILED.add(wid)
             continue
         cat = _find_yaruobook_cat(url)
         if not cat:
+            _SITE_URL_BF_FAILED.add(wid)
             continue
         domain = re.sub(r"https?://([^/]+)/.*", r"\1", url)
         site_url = f"https://{domain}/?cat={cat}"
@@ -929,20 +936,47 @@ def _site_url_backfill():
             with open(cache_path, "w", encoding="utf-8") as f:
                 json.dump({"url": site_url}, f, ensure_ascii=False)
         except Exception:
+            _SITE_URL_BF_FAILED.add(wid)
+
+
+def _site_url_backfill_async():
+    """首页调用的非阻塞入口：单飞（同时只跑一个 backfill 线程）+ 失败记忆。"""
+    if not _SITE_URL_BF_LOCK.acquire(blocking=False):
+        return False
+
+    def _run():
+        try:
+            _site_url_backfill()
+        except Exception:
             pass
+        finally:
+            _SITE_URL_BF_LOCK.release()
+
+    threading.Thread(target=_run, daemon=True).start()
+    return True
 
 
 
-@app.get("/")
-def index(request: Request):
-    # 后台惰性补全 yaruobook 作品分类页 URL（不阻塞首页；已缓存/已回退的立即返回）
-    threading.Thread(target=_site_url_backfill, daemon=True).start()
+def _build_index_data(only=None, base=None):
+    """构建首页作品卡片**列表**（= 快照内容，见 index_cache 模块头）。
+
+    only = 需要重算的作品 id 集合（其余条目从 base 快照原样复用）；None → 全量重算。
+    read/read_state 在此算一次存进快照，渲染时再由 _render_index 按当前进度实时覆盖
+    （阅读进度变化频繁且读取廉价，不该等后台重建）。
+    """
     works = []
     prog = _load_progress().get("aa", {})
     meta = logic.load_work_meta(_WORK_META_FILE)
     read_states = _load_read_state()
+    prev = {}
+    for _w in ((base or {}).get("works") or []):
+        if isinstance(_w, dict) and _w.get("id"):
+            prev[_w["id"]] = _w
     for wid in registry.WORKS:
         cfg = registry.WORKS[wid]
+        if only is not None and wid not in only and wid in prev:
+            works.append(prev[wid])
+            continue
         st = work_stats(wid)
         # 已读章节数 = 保存进度章节在列表中的序号（0 = 未读过）
         read = 0
@@ -1010,7 +1044,13 @@ def index(request: Request):
             "r18_level": m.get("r18_level", ""),
             "r18_summary": r18_summary_cached(cfg.get("work_dir", ""), cfg.get("out_dir", "")),
             "site": cfg.get("site_name") or cfg.get("site"),
-            "stats": st,
+            # 快照里只留用得到的统计字段（完整 st 含全部章节明细，落盘会白白翻几倍）
+            "stats": {"work": st.get("work"), "error": st.get("error"),
+                      "agg": st["agg"], "html_out": st.get("html_out"),
+                      "html_exists": st.get("html_exists"),
+                      "html_mtime": st.get("html_mtime")},
+            # 章节文件名顺序：渲染时按当前阅读进度实时算 read（秒级反馈，不用等后台重建）
+            "fnames": [c["file"] for c in st["chapters"]],
             "read": read, "total": st["agg"]["chapters"],
             "src_total": src_total, "deficit": deficit,
             "translated": translated,
@@ -1029,12 +1069,16 @@ def index(request: Request):
             # 2026-09-03 作品列表改版：评分/评价/最后更新/阅读状态
             "rating": m.get("rating"),
             "review": m.get("review", ""),
-            "last_update": last_update_cached(wid, cfg),
+            "last_update": _last_update_refresh(wid, cfg),
             "read_state": read_states.get(wid, {}).get("state", ""),
         })
-    # 2026-09-03 排序改版：作品按最后更新倒序；作者按组内 max(last_update) 倒序
+    # 2026-09-03 排序改版：作品按最后更新倒序（分组在 _group_index_works 里做）
     works.sort(key=lambda w: w["last_update"], reverse=True)
-    groups = []
+    return works
+
+
+def _group_index_works(works):
+    """按作者分组（组内 last_update 倒序，组间按组内最新倒序）——构建与渲染共用同一口径。"""
     from collections import OrderedDict
     by_author = OrderedDict()
     for w in works:
@@ -1042,6 +1086,7 @@ def index(request: Request):
     # 作者组排序：组内最新 last_update 倒序
     ordered = sorted(by_author.items(),
                      key=lambda kv: max(w["last_update"] for w in kv[1]), reverse=True)
+    groups = []
     for author, wl in ordered:
         wl.sort(key=lambda w: w["last_update"], reverse=True)
         translated = sum(1 for w in wl if w["translated"])
@@ -1061,17 +1106,114 @@ def index(request: Request):
             "tags_agg": _tags,
             "avg_rating": logic.avg_rating(_ratings),
         })
-    # 筛选多选全集（2026-09-02）：标签/素材按出现次数降序
+    return groups
+
+
+def _index_filter_values(works):
+    """筛选多选全集（2026-09-02）：标签/素材按出现次数降序。"""
     from collections import Counter
     _tc, _mc = Counter(), Counter()
     for _w in works:
         _tc.update(_w["tags"])
         _mc.update(_mt["name"] for _mt in _w["materials"])
+    return [k for k, _ in _tc.most_common()], [k for k, _ in _mc.most_common()]
+
+
+def _rebuild_index_snapshot(only=None):
+    """重算首页快照（only=只重算这几部，其余复用当前快照条目）并落盘。"""
+    with _BUILD_LOCK:
+        base = _INDEX_SNAP.get()
+        works = _build_index_data(only=only, base=base)
+        # 先清脏再写盘：脏集合随快照一起落盘（顺序反了会把已重算的脏标又写回文件）
+        _INDEX_SNAP.clear_dirty(only)
+        return _INDEX_SNAP.set(index_cache.wrap({"works": works}))
+
+
+def _index_refresh_async(force=False):
+    """后台重建首页快照（单飞 + 限流）。返回 False = 已有在跑 / 距上次太近。"""
+    if not _INDEX_SNAP.begin_refresh(force=force):
+        return False
+
+    def _run():
+        err = None
+        try:
+            _rebuild_index_snapshot()
+        except Exception as e:        # 重建失败保留旧快照，首页继续可用
+            err = repr(e)
+        finally:
+            _INDEX_SNAP.end_refresh(err)
+
+    threading.Thread(target=_run, daemon=True).start()
+    return True
+
+
+def _render_index(request, snap):
+    """用快照渲染首页：作品列表来自快照，阅读进度/阅读状态按当前值实时覆盖。"""
+    prog = _load_progress().get("aa", {})
+    read_states = _load_read_state()
+    works = []
+    for _w in (snap.get("works") or []):
+        if _w.get("id") not in registry.WORKS:
+            continue            # 已删除的作品：快照可能还没重建，渲染时直接跳过
+        w = dict(_w)
+        wid = w.get("id")
+        saved = (prog.get(wid) or {}).get("fname")
+        if saved:
+            try:
+                w["read"] = list(w.get("fnames") or []).index(saved) + 1
+            except ValueError:
+                w["read"] = w.get("read", 0)
+        w["read_state"] = (read_states.get(wid) or {}).get("state", "")
+        works.append(w)
+    groups = _group_index_works(works)
+    all_tags, all_mats = _index_filter_values(works)
     return templates.TemplateResponse(request, "index.html",
                                       {"works": works, "groups": groups,
-                                       "all_tags": [k for k, _ in _tc.most_common()],
-                                       "all_mats": [k for k, _ in _mc.most_common()],
+                                       "all_tags": all_tags, "all_mats": all_mats,
+                                       "index_age": index_cache.age_text(_INDEX_SNAP.age()),
+                                       "index_built_at": snap.get("built_at") or 0,
+                                       "index_refreshing": _INDEX_SNAP.refreshing,
                                        "active": "works"})
+
+
+@app.get("/")
+def index(request: Request):
+    """作品列表 —— 只读快照，不再每次扫全库（见 index_cache 模块头）。"""
+    # 后台惰性补全 yaruobook 作品分类页 URL（不阻塞首页；单飞 + 失败记忆）
+    _site_url_backfill_async()
+    snap = _INDEX_SNAP.get()
+    if not snap or not snap.get("works"):
+        # 首次（无快照/快照损坏）：同步建一次并落盘；并发请求只建一次
+        with _BUILD_LOCK:
+            snap = _INDEX_SNAP.get()
+            if not snap or not snap.get("works"):
+                snap = _rebuild_index_snapshot()
+        return _render_index(request, snap)
+    dirty = _INDEX_SNAP.dirty()
+    if dirty:
+        if _INDEX_SNAP.needs_full_rebuild() or len(dirty) > INDEX_SYNC_DIRTY_MAX:
+            _index_refresh_async(force=True)        # 大批脏：后台重建，本次先用旧值
+        else:
+            snap = _rebuild_index_snapshot(only=dirty)   # 少量脏：同步局部重算，改完立刻可见
+    elif _INDEX_SNAP.should_refresh():
+        _index_refresh_async()                      # 快照过期：后台刷新，本次先用旧值
+    return _render_index(request, snap)
+
+
+@app.get("/api/index/status")
+def api_index_status():
+    """首页快照状态（前端「刷新数据」按钮轮询）。"""
+    return {"ok": True, "built_at": (_INDEX_SNAP.get() or {}).get("built_at") or 0,
+            "age": _INDEX_SNAP.age(), "age_text": _INDEX_SNAP.age_text_now(),
+            "refreshing": _INDEX_SNAP.refreshing, "dirty": sorted(_INDEX_SNAP.dirty()),
+            "error": _INDEX_SNAP.last_error}
+
+
+@app.post("/api/index/refresh")
+def api_index_refresh():
+    """手动触发后台重建首页快照（忽略限流）。"""
+    started = _index_refresh_async(force=True)
+    return {"ok": True, "started": started, "refreshing": _INDEX_SNAP.refreshing}
 
 
 _LASTUPD_CACHE = {}
@@ -1086,6 +1228,19 @@ def last_update_cached(work, cfg):
         return hit[1]
     v = logic.last_update_of(cfg.get("aa_dir", ""), cfg.get("out_dir", ""), cfg.get("work_dir", ""))
     _LASTUPD_CACHE[work] = (now, v)
+    return v
+
+
+def _last_update_refresh(work, cfg):
+    """重算并写回 last_update 磁盘缓存（**快照重建路径**用）。
+
+    快照重建时顺手 refresh：last_update 值 = aa/汉化 顶层文件 max mtime，
+    `last_update_cached`（refresh=False）只读缓存，若不主动刷新，重启后首页会一直
+    显示上次刷新时刻的旧时间。scandir 很快（全库 87 个 aa/ 实测 0.14s）。
+    """
+    v = logic.last_update_of(cfg.get("aa_dir", ""), cfg.get("out_dir", ""),
+                             cfg.get("work_dir", ""), refresh=True)
+    _LASTUPD_CACHE[work] = (time.time(), v)
     return v
 
 
@@ -3306,13 +3461,39 @@ def api_replace_apply(work: str, body: ReplacePairsBody):
 
 @app.get("/api/work/{work}/replace-history")
 def api_replace_history(work: str):
-    """翻译替换历史记录（本作品，新在前）——弹窗「历史替换记录」用。
+    """翻译替换历史记录（本作品，置顶在前、其余新在前）——弹窗「历史替换记录」用。
 
-    只读；写入在 replace-apply 成功后自动发生（<work_dir>/tr_replace_history.json）。
+    只读；写入在 replace-apply 成功后自动发生（<work_dir>/tr_replace_history.json），
+    置顶位由 POST .../replace-history/pin 改。
     """
     cfg = cfg_of(work)
-    return {"items": logic.tr_hist_load(cfg["work_dir"]),
-            "max": logic.TR_HIST_MAX}
+    items = logic.tr_hist_load(cfg["work_dir"])
+    return {"items": items, "max": logic.TR_HIST_MAX,
+            "pinned": sum(1 for it in items if it.get("pin"))}
+
+
+class TrHistPin(BaseModel):
+    find: str = ""       # 查找串（与历史里存的完全一致，不做 strip）
+    repl: str = ""       # 替换为（空 = 「删除该串」那条记录）
+    pin: bool = True     # True = 置顶，False = 取消置顶
+
+
+@app.post("/api/work/{work}/replace-history/pin")
+def api_replace_history_pin(work: str, body: TrHistPin):
+    """手动置顶 / 取消置顶一条历史替换记录（2026-10-13）。
+
+    置顶的条目排在列表最前，且不占 TR_HIST_MAX 的淘汰名额（不会被旧记录挤掉）。
+    """
+    cfg = cfg_of(work)
+    find = body.find or ""
+    if not find:
+        raise HTTPException(status_code=422, detail="find 不能为空")
+    with _LOCK:
+        found, items = logic.tr_hist_pin(cfg["work_dir"], find, body.repl or "", body.pin)
+    if not found:
+        raise HTTPException(status_code=404, detail="历史里找不到这一条（可能已被清除，刷新后重试）")
+    return {"ok": True, "items": items, "max": logic.TR_HIST_MAX,
+            "pinned": sum(1 for it in items if it.get("pin"))}
 
 
 @app.get("/api/work/{work}/backups")
