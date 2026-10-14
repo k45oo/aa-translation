@@ -1,12 +1,12 @@
 {
  "generated_at": null,
  "stats": {
-  "total": 327,
+  "total": 328,
   "legacy": 108,
   "core": 79,
   "tool": 64,
   "deprecated_candidate": 0,
-  "test": 76,
+  "test": 77,
   "hardcoded": 32,
   "top_consts": 49,
   "dup_function_counts": {
@@ -2418,7 +2418,8 @@
     ],
     "webapp": [],
     "docs": [
-     "AGENTS.md"
+     "AGENTS.md",
+     "doc/接口文档.md"
     ]
    },
    "dup_of": null,
@@ -2456,6 +2457,7 @@
     "webapp": [],
     "docs": [
      "AGENTS.md",
+     "doc/接口文档.md",
      "doc/方案归档/段级协议漏译根因与优化方案_2026-10-10.md",
      "scripts/README.md"
     ]
@@ -2621,6 +2623,7 @@
     "webapp": [],
     "docs": [
      "AGENTS.md",
+     "doc/接口文档.md",
      "doc/方案归档/段级协议漏译根因与优化方案_2026-10-10.md",
      "scripts/README.md"
     ]
@@ -2667,7 +2670,8 @@
     ],
     "webapp": [],
     "docs": [
-     "AGENTS.md"
+     "AGENTS.md",
+     "doc/接口文档.md"
     ]
    },
    "dup_of": null,
@@ -7515,9 +7519,7 @@
      "tempfile",
      "unittest"
     ],
-    "subprocess": [
-     "main.py"
-    ],
+    "subprocess": [],
     "referenced_by": [],
     "webapp": [],
     "docs": []
@@ -9129,6 +9131,37 @@
    "has_main_guard": true,
    "docstring": "sfx 样式（半角假名拟声词译文特效）标记测试（2026-09-15）。"
   },
+  "scripts/tests/test_snapshot_invalidation.py": {
+   "path": "scripts/tests/test_snapshot_invalidation.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_web_app",
+     "fastapi",
+     "os",
+     "registry",
+     "shutil",
+     "sys",
+     "tempfile",
+     "unittest"
+    ],
+    "subprocess": [
+     "works.py"
+    ],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "首页快照失效覆盖（2026-10-14，B 轴「静默」专项）。"
+  },
   "scripts/tests/test_stability.py": {
    "path": "scripts/tests/test_stability.py",
    "grade": "test",
@@ -9967,6 +10000,7 @@
      "aa_env.py",
      "aa_web.py",
      "aa_web_app/main.py",
+     "aa_web_app/web_state.py",
      "build_term_pool.py",
      "build_workbench_exe.py",
      "chapter_prep.py",
@@ -9979,7 +10013,8 @@
      "scripts/common/chapter_prep.py",
      "scripts/common/extract_dialogue.py",
      "scripts/tools/aa_web.py",
-     "tools/aa_web.py"
+     "tools/aa_web.py",
+     "web_state.py"
     ],
     "referenced_by": [],
     "webapp": [],
@@ -11521,6 +11556,7 @@
     "docs": [
      "AGENTS.md",
      "doc/接口文档.md",
+     "doc/方案归档/main拆分方案_2026-10-14.md",
      "scripts/README.md"
     ]
    },
@@ -12236,6 +12272,7 @@
     ],
     "docs": [
      "AGENTS.md",
+     "doc/接口文档.md",
      "doc/方案归档/宝可梦固定内容表方案_2026-09-22.md"
     ]
    },
@@ -12314,6 +12351,7 @@
      "tests.test_gen_html_plain",
      "tests.test_pipeline",
      "tests.test_repatriate",
+     "tests.test_snapshot_invalidation",
      "tests.test_work_delete",
      "tests.test_work_pack",
      "tools.aa_search",
@@ -12345,7 +12383,7 @@
      "works.pokemon_runner"
     ],
     "webapp": [
-     "aa_web_app/main.py"
+     "aa_web_app/routers/works.py"
     ],
     "docs": [
      "AGENTS.md",

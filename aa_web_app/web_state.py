@@ -591,7 +591,12 @@ _RECALC_LOCK = threading.Lock()   # 防止同作品并发后台重算（多请�
 
 
 def _recalc_async(work, fnames, keys, cache, cache_path, work_dir):
-    """后台重算失配章节并写磁盘缓存（2026-08-30 非阻塞化）。"""
+    """后台重算失配章节并写磁盘缓存（2026-08-30 非阻塞化）。
+
+    2026-10-14: 原来两处 `except Exception: pass` 把失败吞成静默——写缓存失败时
+    「失配章节」永远停在旧值且无任何痕迹。改为打一行 [recalc] 日志（控制台可见），
+    行为不变（失败仍不阻断请求、旧缓存照用）。
+    """
     if not _RECALC_LOCK.acquire(blocking=False):
         return  # 已有重算在跑，本次跳过（旧缓存已够用，下轮访问拿新数据）
     try:
@@ -600,29 +605,36 @@ def _recalc_async(work, fnames, keys, cache, cache_path, work_dir):
                 cfg = cfg_of(work)
                 _known = logic.load_work_glossary(work)["known_names"]
                 _changed = False
+                _failed = 0
                 for f in fnames:
                     if cache.get(f) and cache[f].get("key") == keys[f]:
                         continue
                     try:
                         r = _chapter_full(cfg, f, _known)
-                    except Exception:
+                    except Exception as e:
                         r = None
+                        _failed += 1
+                        print(f"[recalc] {work}/{f} 重算失败: {e!r}", flush=True)
                     if r:
                         cache[f] = r
                         _changed = True
+                if _failed:
+                    print(f"[recalc] {work}: {_failed} 章重算失败（沿用旧缓存）", flush=True)
                 if _changed:
                     try:
                         os.makedirs(work_dir, exist_ok=True)
                         with _LOCK:
                             with open(cache_path, "w", encoding="utf-8") as f:
                                 json.dump(cache, f, ensure_ascii=False)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        # 静默改可见：盘上缓存没更新 → 下次访问还会走同一批失配章节
+                        print(f"[recalc] {work}: 缓存落盘失败 {cache_path}: {e!r}", flush=True)
             finally:
                 _RECALC_LOCK.release()
         threading.Thread(target=_run, daemon=True).start()
-    except Exception:
+    except Exception as e:
         _RECALC_LOCK.release()
+        print(f"[recalc] {work}: 后台重算线程启动失败: {e!r}", flush=True)
 
 
 # ---------- 原站 URL 解析（2026-08-31：非 r401 作品也显示「原站」按钮）----------

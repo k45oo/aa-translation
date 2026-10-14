@@ -11,7 +11,7 @@ from aa_web_app import web_state
 from aa_web_app import logic
 from aa_web_app import task_manager as TM
 from aa_web_app import add_work
-from aa_web_app.web_state import (IMAGE_MANGA, _AUTHOR_OVERRIDE, _DATA, _LASTUPD_CACHE, _LOCK, _READ_STATE_FILE, _SCRIPTS, _STATS_CACHE, _WORK_META_FILE, _deliver_artifacts, _load_progress, _load_read_state, _save_progress, app, generator_of, r18_summary_cached, templates, work_stats)
+from aa_web_app.web_state import (IMAGE_MANGA, _AUTHOR_OVERRIDE, _DATA, _INDEX_SNAP, _LASTUPD_CACHE, _LOCK, _READ_STATE_FILE, _SCRIPTS, _STATS_CACHE, _WORK_META_FILE, _deliver_artifacts, _load_progress, _load_read_state, _save_progress, app, generator_of, r18_summary_cached, templates, work_stats)
 from aa_web_app.routers.admin import api_reload
 from aa_web_app.routers.terms import _mat_scan_from_knowledge
 from fastapi import APIRouter
@@ -329,6 +329,9 @@ def api_work_meta_put(work: str, body: WorkMeta):
         ok = logic.save_work_meta(_WORK_META_FILE, meta)
     if not ok:
         raise HTTPException(500, "保存 work_meta.json 失败")
+    # 2026-10-14: tags/materials/status 会被烘进首页快照（_build_index_data 读 work_meta）
+    # → 必须标脏，否则首页最长 10 分钟（DEFAULT_MAX_AGE=600）显示旧值，用户以为没保存
+    _INDEX_SNAP.invalidate(work)
     return {"ok": True, "work": work}
 
 
@@ -368,6 +371,9 @@ def api_work_meta_mat_scan(work: str):
         m["materials"] = mats
         with _LOCK:
             _ok = logic.save_work_meta(_WORK_META_FILE, meta)
+        if not _ok:      # 2026-10-14: 原来忽略保存结果 → 保存失败也报成功（静默）
+            raise HTTPException(500, "保存 work_meta.json 失败")
+        _INDEX_SNAP.invalidate(work)      # materials 进首页快照 → 标脏
         return {"ok": True, "materials": mats, "counts": dict(kn_mat),
                 "source": "knowledge", "msg": "作品知识库人物素材"}
     # 角色表(排除 texture/yaruo/昵称梗); 2026-08-26: 带作品名, mat key 用「名（作品名）」
@@ -415,6 +421,7 @@ def api_work_meta_mat_scan(work: str):
         ok = logic.save_work_meta(_WORK_META_FILE, meta)
     if not ok:
         raise HTTPException(500, "保存失败")
+    _INDEX_SNAP.invalidate(work)          # materials 进首页快照 → 标脏
     return {"ok": True, "materials": mats, "counts": dict(cnt.most_common(10))}
 
 

@@ -76,6 +76,10 @@ def api_work_update(work: str, body: dict = None):
     r = TM.enqueue("download", work, params)
     if not r.get("ok"):
         return r
+    # 2026-10-14: 下载新章会改「原文话数/未译差值/素材频率」——这些烘进首页快照
+    # （_build_index_data 读 aa/ 计数 + work_meta），标脏让下一次 index() 就重算（≤60s 防抖），
+    # 否则要等 DEFAULT_MAX_AGE=600s 过期才更新
+    _INDEX_SNAP.invalidate(work)
     if action == "translate":
         tail = "（下载完成后自动接 wiki 同步 → 翻译）" if sync_wiki else "（下载完成后自动接翻译）"
         msg = f"下载并翻译 {len(eids)} 个新章已入队{tail}: {r['task_id']}"
