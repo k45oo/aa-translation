@@ -11,20 +11,12 @@ sys.path.insert(0, _SCRIPT_DIR)
 sys.path.insert(0, os.path.join(os.path.dirname(_SCRIPT_DIR), "works"))
 
 import registry
-from aa_common import ART_HIRA, ART_KATA
 import aa_api as A
 import aa_common as C
 
-HIRA = re.compile(r'[ぁ-ん]')
-KATA = re.compile(r'[ァ-ヶ]')
+# 2026-10-14 去重: 本地 residual_text 副本已删（零调用点；权威实现 = aa_translate.residual_text，
+#   经 C 转发，本文件只用 C.residual_text_segs）。HIRA/KATA/ART_HIRA/ART_KATA 仅它用过，一并删。
 HEADER_RE = re.compile(r'^\d+\s*：|^\d+\s*名前')
-
-
-def residual_text(line):
-    nospace = re.sub(r'\s', '', line)
-    hira = [c for c in HIRA.findall(nospace) if c not in ART_HIRA]
-    kata = [c for c in KATA.findall(nospace) if c not in ART_KATA]
-    return len(hira) >= 2 or len(kata) >= 4
 
 
 def _flag_on(name, default_on=True):

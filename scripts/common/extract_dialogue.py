@@ -18,17 +18,25 @@
 import json
 import os
 import re
+import sys
+
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_SCRIPTS = os.path.dirname(_SCRIPT_DIR)
+if _SCRIPTS not in sys.path:            # 仓库铁律: 向上两级到 scripts/ 根
+    sys.path.insert(0, _SCRIPTS)
 
 # 艺术假名（与 aa_common / line_classify_v2 同源；剥离装饰碎片用）
-# ART_HIRA/ART_KATA 转发自 aa_common（实为 aa_translate.py:241-242 定义）
+# ART_HIRA/ART_KATA 转发自 aa_common（实为 aa_translate.py:233-234 定义）
 try:
     from aa_common import ART_HIRA, ART_KATA, ART_KANJI, disp_width
-except ImportError:  # 独立运行兜底（不影响台词提取正确性）
+except ImportError:  # 独立运行兜底：公式**必须与主实现同口径**
+                     # （半角片假名 U+FF61-FF9F = 1 格；旧版 `ord(c) < 0x100` 在这段虚高 6 格/行）
     ART_HIRA = set('つだりへぢづゑゐいうしふとこっッ')
     ART_KATA = set('ノミニハマレヘヾヿヽヾー')
     ART_KANJI = set()
+
     def disp_width(s):
-        return sum(1 if ord(c) < 0x100 else 2 for c in s)
+        return sum(1 if (ord(c) < 0x100 or 0xFF61 <= ord(c) <= 0xFF9F) else 2 for c in s)
 from aa_common import KANA_RE  # [ぁ-んァ-ヺー]
 FACE_KANA = set('ィヲァフテソヅメトイえごドぅぃヌタカリツムちン')  # 脸部/花纹散落艺术假名
 

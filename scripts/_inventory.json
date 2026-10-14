@@ -3,26 +3,26 @@
  "stats": {
   "total": 327,
   "legacy": 108,
-  "core": 76,
-  "tool": 62,
-  "deprecated_candidate": 5,
+  "core": 79,
+  "tool": 64,
+  "deprecated_candidate": 0,
   "test": 76,
   "hardcoded": 32,
   "top_consts": 49,
   "dup_function_counts": {
    "allow_overwidth": 1,
-   "disp_width": 8,
-   "is_text_line": 2,
-   "kana_runs": 6,
+   "disp_width": 2,
+   "is_text_line": 1,
+   "kana_runs": 1,
    "line_kind": 1,
-   "pad_to_width": 4,
-   "residual_text": 6,
-   "fix_batch": 10,
-   "render_line": 6,
-   "build_whitelist": 8,
-   "residual_bad": 6,
-   "render_header": 22,
-   "entry_url": 20
+   "pad_to_width": 1,
+   "residual_text": 1,
+   "fix_batch": 1,
+   "render_line": 1,
+   "build_whitelist": 2,
+   "residual_bad": 1,
+   "entry_url": 20,
+   "render_header": 18
   },
   "hardcoded_files": [
    "scripts/aa_translate.py",
@@ -1837,9 +1837,7 @@
    "dup_of": null,
    "hardcoded_path": false,
    "top_consts": [],
-   "dup_functions": [
-    "residual_text"
-   ],
+   "dup_functions": [],
    "has_main_guard": true,
    "docstring": "pass2: 清理漏译行（模型原样复制的日语行 / 保留的日文拟声词）。"
   },
@@ -2388,7 +2386,7 @@
   },
   "scripts/fix/fix_delivered_terms.py": {
    "path": "scripts/fix/fix_delivered_terms.py",
-   "grade": "deprecated_candidate",
+   "grade": "tool",
    "cli": [
     "--apply",
     "--no-todo",
@@ -2415,7 +2413,9 @@
      "time"
     ],
     "subprocess": [],
-    "referenced_by": [],
+    "referenced_by": [
+     "tools.gen_inventory"
+    ],
     "webapp": [],
     "docs": [
      "AGENTS.md"
@@ -2430,7 +2430,7 @@
   },
   "scripts/fix/fix_lead_kanji_miss.py": {
    "path": "scripts/fix/fix_lead_kanji_miss.py",
-   "grade": "deprecated_candidate",
+   "grade": "tool",
    "cli": "argv-manual",
    "argparse": [],
    "env_vars": [],
@@ -2450,7 +2450,8 @@
     ],
     "subprocess": [],
     "referenced_by": [
-     "tests.test_fix_lead_kanji"
+     "tests.test_fix_lead_kanji",
+     "tools.gen_inventory"
     ],
     "webapp": [],
     "docs": [
@@ -2508,7 +2509,7 @@
   },
   "scripts/fix/refine_aa.py": {
    "path": "scripts/fix/refine_aa.py",
-   "grade": "tool",
+   "grade": "core",
    "cli": "argv-manual",
    "argparse": [],
    "env_vars": [
@@ -2566,7 +2567,9 @@
      "tests.test_task_display",
      "tools.gen_inventory"
     ],
-    "webapp": [],
+    "webapp": [
+     "aa_web_app/task_manager.py"
+    ],
     "docs": [
      "AGENTS.md",
      "doc/工作台使用说明.md",
@@ -2591,7 +2594,7 @@
   },
   "scripts/fix/refix_mixed_segs.py": {
    "path": "scripts/fix/refix_mixed_segs.py",
-   "grade": "deprecated_candidate",
+   "grade": "tool",
    "cli": "argv-manual",
    "argparse": [],
    "env_vars": [
@@ -2612,7 +2615,8 @@
     ],
     "subprocess": [],
     "referenced_by": [
-     "tests.test_endpoint_pin"
+     "tests.test_endpoint_pin",
+     "tools.gen_inventory"
     ],
     "webapp": [],
     "docs": [
@@ -2630,7 +2634,7 @@
   },
   "scripts/fix/retranslate_lines.py": {
    "path": "scripts/fix/retranslate_lines.py",
-   "grade": "deprecated_candidate",
+   "grade": "tool",
    "cli": [
     "--apply",
     "--limit",
@@ -2658,7 +2662,9 @@
      "time"
     ],
     "subprocess": [],
-    "referenced_by": [],
+    "referenced_by": [
+     "tools.gen_inventory"
+    ],
     "webapp": [],
     "docs": [
      "AGENTS.md"
@@ -6224,7 +6230,9 @@
     "referenced_by": [
      "tests.test_board_runner"
     ],
-    "webapp": [],
+    "webapp": [
+     "aa_web_app/task_manager.py"
+    ],
     "docs": [
      "AGENTS.md",
      "doc/接口文档.md"
@@ -6266,7 +6274,9 @@
      "extract_all.py"
     ],
     "referenced_by": [],
-    "webapp": [],
+    "webapp": [
+     "aa_web_app/task_manager.py"
+    ],
     "docs": [
      "AGENTS.md",
      "doc/工作台使用说明.md",
@@ -6391,7 +6401,9 @@
      "tests.test_runner_entries",
      "works.pokemon_runner"
     ],
-    "webapp": [],
+    "webapp": [
+     "aa_web_app/task_manager.py"
+    ],
     "docs": [
      "AGENTS.md",
      "doc/工作台使用说明.md",
@@ -6543,8 +6555,7 @@
    "hardcoded_path": false,
    "top_consts": [],
    "dup_functions": [
-    "entry_url",
-    "render_header"
+    "entry_url"
    ],
    "has_main_guard": true,
    "docstring": "man001.blog.2nt.com（2NT 博客，やる夫まとめ R-18）：<h3>entry 锚点 + <div class=\"article\">。"
@@ -6575,8 +6586,7 @@
    "hardcoded_path": false,
    "top_consts": [],
    "dup_functions": [
-    "entry_url",
-    "render_header"
+    "entry_url"
    ],
    "has_main_guard": true,
    "docstring": "yaruobookshelf.jp（やる夫のブックシェルフ）：<dt>帖头</dt><dd>AA<br></dd> 切分。"
@@ -7931,7 +7941,9 @@
     "subprocess": [],
     "referenced_by": [],
     "webapp": [],
-    "docs": []
+    "docs": [
+     "doc/方案归档/首页快照方案_2026-10-13.md"
+    ]
    },
    "dup_of": null,
    "hardcoded_path": false,
@@ -10442,12 +10454,21 @@
     "subprocess": [
      "aa_translate.py",
      "fix/backfill_aa_comments.py",
+     "fix/fix_delivered_terms.py",
+     "fix/fix_lead_kanji_miss.py",
      "fix/fix_mixed_drift.py",
      "fix/refine_aa.py",
+     "fix/refix_mixed_segs.py",
+     "fix/retranslate_lines.py",
+     "pokemon_runner.py",
      "scripts/aa_translate.py",
      "scripts/fix/backfill_aa_comments.py",
+     "scripts/fix/fix_delivered_terms.py",
+     "scripts/fix/fix_lead_kanji_miss.py",
      "scripts/fix/fix_mixed_drift.py",
      "scripts/fix/refine_aa.py",
+     "scripts/fix/refix_mixed_segs.py",
+     "scripts/fix/retranslate_lines.py",
      "scripts/verify/metrics_report.py",
      "scripts/verify/quality_gate.py",
      "scripts/verify/reader_win_ab.py",
@@ -10455,6 +10476,7 @@
      "scripts/works/fix_comments_yaruobook.py",
      "scripts/works/fix_touhou_width.py",
      "scripts/works/paths.py",
+     "scripts/works/pokemon_runner.py",
      "scripts/works/registry.py",
      "scripts/works/touhou_runner.py",
      "scripts/works/translate_comments_yaruobook.py",
@@ -10465,6 +10487,7 @@
      "works/fix_comments_yaruobook.py",
      "works/fix_touhou_width.py",
      "works/paths.py",
+     "works/pokemon_runner.py",
      "works/registry.py",
      "works/touhou_runner.py",
      "works/translate_comments_yaruobook.py"
@@ -10978,7 +11001,7 @@
   },
   "scripts/tools/gen_work_wiki.py": {
    "path": "scripts/tools/gen_work_wiki.py",
-   "grade": "tool",
+   "grade": "core",
    "cli": "argv-manual",
    "argparse": [],
    "env_vars": [],
@@ -11001,7 +11024,9 @@
     "referenced_by": [
      "tools.gen_konosin_wiki"
     ],
-    "webapp": [],
+    "webapp": [
+     "aa_web_app/task_manager.py"
+    ],
     "docs": [
      "doc/aa作品相关/ポケの子wiki/README.md",
      "doc/aa作品相关/ポケの子wiki/待确认名称.md",
@@ -11986,9 +12011,7 @@
    "hardcoded_path": false,
    "top_consts": [],
    "dup_functions": [
-    "build_whitelist",
-    "disp_width",
-    "kana_runs"
+    "build_whitelist"
    ],
    "has_main_guard": true,
    "docstring": "M5 质量闸门 (quality_gate.py)\n统一校验一话/一批汉化产物 vs 原文，输出四类检查结果：\n  1. 行数一致      src == tr（含 # 行）\n  2. 宽度错位      逐行 disp_width == src（# 行除外）\n  3. 残留假名      非白名单 kana_runs（白名单制，同 pass3 口径）\n  4. 人工行保护    manual_f"
@@ -12182,7 +12205,7 @@
   },
   "scripts/works/pokemon_runner.py": {
    "path": "scripts/works/pokemon_runner.py",
-   "grade": "deprecated_candidate",
+   "grade": "core",
    "cli": "argv-manual",
    "argparse": [],
    "env_vars": [
@@ -12205,8 +12228,12 @@
     "subprocess": [
      "translate_runner.py"
     ],
-    "referenced_by": [],
-    "webapp": [],
+    "referenced_by": [
+     "tools.gen_inventory"
+    ],
+    "webapp": [
+     "aa_web_app/task_manager.py"
+    ],
     "docs": [
      "AGENTS.md",
      "doc/方案归档/宝可梦固定内容表方案_2026-09-22.md"
@@ -12317,7 +12344,9 @@
      "works.fix_touhou_width",
      "works.pokemon_runner"
     ],
-    "webapp": [],
+    "webapp": [
+     "aa_web_app/main.py"
+    ],
     "docs": [
      "AGENTS.md",
      "doc/接口文档.md",

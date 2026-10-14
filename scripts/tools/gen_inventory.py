@@ -9,6 +9,10 @@
 - dup_of: 指向权威实现（人工判定后填写）
 
 防误判铁律: 孤儿 != 废弃（CLI 入口 + 文档提及计入 refs；废弃清单逐条人工过目）。
+口径（2026-10-14）: grade 是**静态启发式建议值**，不是「实测没人用」——`fix/`、`works/`、
+`verify/` 下不在 KEEP 白名单就标 deprecated_candidate。据此删文件前必须回查 refs
+（webapp/文档/用例），已有误标先例：pokemon_runner 是活入口却被标废弃。
+dup_function_counts 只数生产/工具脚本里的**真实现**（legacy 归档副本、tests 桩、转发薄壳都不计）。
 纯标准库零 API。用法: python scripts/tools/gen_inventory.py
 """
 import ast
@@ -54,6 +58,8 @@ CORE_FILES = {
     "scripts/works/registry.py",
     "scripts/works/paths.py",
     "scripts/works/dl_touhou.py",
+    # 宝可梦作品唯一合法入口（task_manager 调它；translate_runner 对 pipeline=pokemon 硬拦）
+    "scripts/works/pokemon_runner.py",
 }
 # works/ 下保留的站点特例/工具（方案 P2「保留（勿误伤）」；完整 scripts/ 前缀格式）
 WORKS_KEEP_TOOL = {
@@ -65,8 +71,12 @@ WORKS_KEEP_TOOL = {
 # verify/ 下现役工具（方案 P5 迁移进 tools/）
 VERIFY_KEEP_TOOL = {"scripts/verify/quality_gate.py", "scripts/verify/metrics_report.py",
                     "scripts/verify/reader_win_ab.py"}
-# fix/ 下无权威替代的保留工具
-FIX_KEEP_TOOL = {"scripts/fix/backfill_aa_comments.py", "scripts/fix/refine_aa.py", "scripts/fix/fix_mixed_drift.py"}
+# fix/ 下无权威替代的保留工具（含「存量回修器械」——改完词表/判据后补欠账要用的，勿当废弃删）
+FIX_KEEP_TOOL = {"scripts/fix/backfill_aa_comments.py", "scripts/fix/refine_aa.py", "scripts/fix/fix_mixed_drift.py",
+                 "scripts/fix/fix_delivered_terms.py",   # 补位/名词回修 + 产 retranslate_todo
+                 "scripts/fix/retranslate_lines.py",     # 按行清单重译（与上一件配对）
+                 "scripts/fix/fix_lead_kanji_miss.py",   # 首/尾汉字漏译定向补译（有用例守护）
+                 "scripts/fix/refix_mixed_segs.py"}      # 段级协议存量重译（有用例守护）
 # 保留的工具（独立 CLI/探针/统计/视觉，勿误伤）——tools/ 下默认 tool
 TOOL_DIRS = {"tools"}
 
@@ -158,14 +168,57 @@ def get_top_consts(tree):
                     consts.append(t.id)
     return sorted(set(consts))
 
+def _imported_names(tree):
+    """模块级 import 进来的名字（Import 顶层名 + ImportFrom 的 name/asname）。"""
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                names.add((a.asname or a.name).split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                if a.name != "*":
+                    names.add(a.asname or a.name)
+    return names
+
+
+def _is_thin_forward(node, imported):
+    """转发薄壳 = 单条 `return <callee>(...)`，callee 是本文件 import 进来的函数。
+
+    例：quality_gate.disp_width → `return T.disp_width(s)`；
+        bookshelf.render_header → `return render_common_header(...)`。
+    逻辑仍只有权威实现一份，计入重复会误报（2026-10-14 口径修正）。
+
+    只认「属性调用」或「import 进来的名字」——`return sum(...)` 这类内建调用是**真实现**
+    （extract_dialogue 的 disp_width 兜底），排除它会把真重复数藏掉。
+    """
+    body = list(node.body)
+    if (body and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)):
+        body = body[1:]                      # 跳过 docstring
+    if len(body) != 1:
+        return False
+    st = body[0]
+    if not (isinstance(st, ast.Return) and isinstance(st.value, ast.Call)):
+        return False
+    callee = st.value.func
+    if isinstance(callee, ast.Attribute):
+        return True
+    return isinstance(callee, ast.Name) and callee.id in imported
+
+
 def get_dup_functions(tree):
-    """重复函数定义检测（方案实测的 6 个）"""
+    """同名函数定义所在文件（转发薄壳不计；legacy/tests 在统计时排除）"""
     dups = {}
     targets = {"disp_width", "pad_to_width", "kana_runs", "is_text_line",
                "line_kind", "allow_overwidth", "residual_text", "residual_bad",
                "build_whitelist", "fix_batch", "render_line", "render_header", "entry_url"}
+    imported = _imported_names(tree)
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in targets:
+            if _is_thin_forward(node, imported):
+                continue
             dups[node.name] = True
     return sorted(dups.keys())
 
@@ -234,6 +287,12 @@ def load_webapp_refs():
                 refs.setdefault(f"scripts/{m.group(1)}/{m.group(2)}.py", []).append(rel(fp))
             for m in re.finditer(r"['\"](?:python\s+)?scripts/([A-Za-z0-9_./-]+\.py)['\"]", src):
                 refs.setdefault("scripts/" + m.group(1), []).append(rel(fp))
+            # os.path.join(_SCRIPTS, "works", "pokemon_runner.py") 形式（正则抓不到字面前缀，
+            # 曾致 pokemon_runner 的 webapp 引用为空 → 被误标 deprecated_candidate）
+            for m in re.finditer(r"os\.path\.join\(\s*_SCRIPTS\s*,((?:\s*['\"][^'\"]+['\"]\s*,?)+)\)", src):
+                parts = re.findall(r"['\"]([^'\"]+)['\"]", m.group(1))
+                if parts and parts[-1].endswith(".py"):
+                    refs.setdefault("scripts/" + "/".join(parts), []).append(rel(fp))
     return refs
 
 def main():
@@ -437,9 +496,13 @@ def main():
         if f["top_consts"]:
             stats["top_consts"] += 1
 
-    # 重复函数统计
+    # 重复函数统计：只统计生产/工具脚本之间的同名实现（转发薄壳在 get_dup_functions 已剔除）。
+    # legacy/ 是归档副本、tests/ 是桩（如 test_sfx_marks 的 `def render_header: return None`）——
+    # 计入会把数字虚高 3~10 倍（2026-10-14 口径修正：disp_width 8→2、fix_batch 10→1）。
     dup_counts = {}
     for fp in facts:
+        if facts[fp]["top_dir"] in ("legacy", "tests"):
+            continue
         for fn in facts[fp]["dup_functions"]:
             dup_counts[fn] = dup_counts.get(fn, 0) + 1
 
