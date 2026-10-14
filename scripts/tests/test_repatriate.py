@@ -28,6 +28,9 @@ import gen_glossary_ai as GA              # noqa: E402
 import registry                           # noqa: E402
 
 
+from aa_web_app import web_state as WS    # noqa: E402  共享底座（cfg_of/paths_of/invalidate_stats 等）
+
+
 def _dump(path, data):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="\n") as f:
@@ -360,7 +363,7 @@ class RouteTest(_Base):
     def test_list_route(self):
         cfg = self._scan_env()
         import aa_web_app.main as M
-        with mock.patch.object(M, "cfg_of", lambda w: cfg), \
+        with mock.patch.object(WS, "cfg_of", lambda w: cfg), \
              mock.patch.object(registry, "get", lambda w: cfg):
             r = M.api_repatriate_list("w1", embed=0)
         self.assertTrue(r["ok"])
@@ -373,7 +376,7 @@ class RouteTest(_Base):
 
         def _boom(_w):
             raise HTTPException(404, "未知作品")
-        with mock.patch.object(M, "cfg_of", _boom):
+        with mock.patch.object(WS, "cfg_of", _boom):
             r = M.api_repatriate_list("nope", embed=0)
         self.assertFalse(r["ok"])
         self.assertEqual(r["error"], "未知作品")
@@ -383,7 +386,7 @@ class RouteTest(_Base):
         cfg = self._scan_env()
         import aa_web_app.main as M
         body = M.RepatriateBody(selected=["イギリス", "初音"], backup=True)
-        with mock.patch.object(M, "cfg_of", lambda w: cfg), \
+        with mock.patch.object(WS, "cfg_of", lambda w: cfg), \
              mock.patch.object(registry, "get", lambda w: cfg):
             r = M.api_repatriate_apply("w1", body)
         self.assertTrue(r["ok"])
@@ -400,7 +403,7 @@ class RouteTest(_Base):
     def test_apply_route_rejects_empty(self):
         cfg = self._scan_env()
         import aa_web_app.main as M
-        with mock.patch.object(M, "cfg_of", lambda w: cfg), \
+        with mock.patch.object(WS, "cfg_of", lambda w: cfg), \
              mock.patch.object(registry, "get", lambda w: cfg):
             r = M.api_repatriate_apply("w1", M.RepatriateBody(selected=[]))
         self.assertFalse(r["ok"])
@@ -414,9 +417,9 @@ class RouteTest(_Base):
               {"ai_候选": [{"term": "アリス"}, {"term": "ボブ"}]})
         cfg = self._cfg("w1")
         import aa_web_app.main as M
-        with mock.patch.object(M, "cfg_of", lambda w: cfg), \
+        with mock.patch.object(WS, "cfg_of", lambda w: cfg), \
              mock.patch.object(registry, "get", lambda w: cfg), \
-             mock.patch.object(M, "paths_of",
+             mock.patch.object(WS, "paths_of",
                                lambda c: (c["aa_dir"], c["out_dir"], c["work_dir"])):
             r = M.api_candidate_whitelist("w1", "アリス")
         self.assertTrue(r["ok"])
@@ -433,7 +436,7 @@ class RouteTest(_Base):
     def test_whitelist_route_rejects_empty_term(self):
         cfg = self._scan_env()
         import aa_web_app.main as M
-        with mock.patch.object(M, "cfg_of", lambda w: cfg), \
+        with mock.patch.object(WS, "cfg_of", lambda w: cfg), \
              mock.patch.object(registry, "get", lambda w: cfg):
             r = M.api_candidate_whitelist("w1", "   ")
         self.assertFalse(r["ok"])

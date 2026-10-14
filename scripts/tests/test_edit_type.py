@@ -110,8 +110,8 @@ class EditTypeApiFixture(unittest.TestCase):
         return M
 
     def _save(self, M, idx, body):
-        with mock.patch("aa_web_app.main.cfg_of", return_value=self.cfg), \
-                mock.patch("aa_web_app.main.logic.load_work_glossary",
+        with mock.patch("aa_web_app.web_state.cfg_of", return_value=self.cfg), \
+                mock.patch("aa_web_app.logic.load_work_glossary",
                            return_value={"known_names": set()}):
             return M.api_save_line("test", self.base + "_汉化.txt", idx, body)
 

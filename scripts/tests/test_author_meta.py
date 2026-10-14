@@ -78,7 +78,16 @@ class TestWiring(unittest.TestCase):
     """锁住「详情=列表」同口径 + 保存不再写 '◆'（静态接线检查）。"""
 
     def setUp(self):
-        self.main_src = open(os.path.join(_REPO_ROOT, "aa_web_app", "main.py"), encoding="utf-8").read()
+        # 2026-10-14 main.py 拆成 web_state.py + routers/*，接线检查改扫**整个应用包**
+        # （断言的是「接线存在」，与它落在哪个文件无关）
+        app_dir = os.path.join(_REPO_ROOT, "aa_web_app")
+        srcs = []
+        for root, dirs, files in os.walk(app_dir):
+            dirs[:] = [d for d in dirs if d not in ("__pycache__", "static", "templates")]
+            for fn in sorted(files):
+                if fn.endswith(".py"):
+                    srcs.append(open(os.path.join(root, fn), encoding="utf-8").read())
+        self.main_src = "\n".join(srcs)
         self.idx_src = open(os.path.join(_REPO_ROOT, "aa_web_app", "templates", "index.html"),
                             encoding="utf-8").read()
 

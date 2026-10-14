@@ -29,6 +29,9 @@ from aa_web_app import main as M  # noqa: E402
 from _work_guard import repo_only  # noqa: E402 （发行包内跳过生成者专属用例）
 
 
+from aa_web_app import web_state as WS      # noqa: E402
+
+
 class _IsolatedEnv(unittest.TestCase):
     """夹具与操作者 .env 隔离：把 `AA_ENV_PATH` 指向空临时文件。
 
@@ -163,10 +166,10 @@ class ChainEnvMappingTest(_IsolatedEnv):
 
     def setUp(self):
         self._cfg = M.cfg_of
-        M.cfg_of = lambda w: {"r18": False}
+        WS.cfg_of = lambda w: {"r18": False}
 
     def tearDown(self):
-        M.cfg_of = self._cfg
+        WS.cfg_of = self._cfg
 
     def test_empty_selection_no_env(self):
         self.assertEqual(M._chain_env("w", {}, "translate"), {})
@@ -312,7 +315,7 @@ class WorkModelsSelectionTest(_IsolatedEnv):
     def setUp(self):
         super().setUp()
         self._cfg = M.cfg_of
-        M.cfg_of = lambda w: {"r18": False}
+        WS.cfg_of = lambda w: {"r18": False}
         self._items, _d = AC.chain_catalog(False)
         self._r18_items, _d2 = AC.chain_catalog(True)
         self.assertTrue(self._items, "TOML 链定义不该为空")
@@ -326,7 +329,7 @@ class WorkModelsSelectionTest(_IsolatedEnv):
 
     def tearDown(self):
         self._p.stop()
-        M.cfg_of = self._cfg
+        WS.cfg_of = self._cfg
         super().tearDown()
 
     def _j(self, type="translate"):
@@ -386,7 +389,7 @@ class WorkModelsSelectionTest(_IsolatedEnv):
                                else (self._items, list(self._synth))))
         self._p.start()
         os.environ["AA_CHAIN"] = outside[0]
-        M.cfg_of = lambda w: {"r18": True}
+        WS.cfg_of = lambda w: {"r18": True}
         j = self._j()                                  # r18 作品 → r18 链
         self.assertEqual(j["default"], self._r18_synth)
         self.assertEqual(j["selected"], self._r18_synth)

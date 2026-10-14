@@ -633,7 +633,7 @@ def gates(stage):
         bad.append("语法检查失败: %s" % syn[:5])
     # 内容级抽查（防止"干净但东西没进去"）
     must = ["scripts/tools/aa_web.py", "scripts/config/model_config.toml", "README.md",
-            "requirements.txt", ".env.example", "aa_web_app/main.py",
+            "requirements.txt", ".env.example", "aa_web_app/main.py", "aa_web_app/web_state.py",
             "doc/接口文档.md", "glossary.json", "roles.json",
             # 图文操作手册（包根 md + doc/使用说明图/*.png 配图目录）
             MANUAL_DST, os.path.join("doc", SHOTS_DIR),
@@ -646,12 +646,15 @@ def gates(stage):
     if missing:
         bad.append("缺少必需文件: %s" % missing)
     # 注册表断言（变换漏了就拦住：图片漫画表必须为空）
+    # 2026-10-14 main.py 拆成 web_state.py + routers/，IMAGE_MANGA 常量现在 web_state.py
+    # （两份都读，兼容旧布局/新布局）
     try:
-        _main_src = _read(os.path.join(stage, "aa_web_app", "main.py"))
+        _main_src = (_read(os.path.join(stage, "aa_web_app", "main.py"))
+                     + _read(os.path.join(stage, "aa_web_app", "web_state.py")))
     except OSError:
         _main_src = ""
     if "IMAGE_MANGA = {}" not in _main_src:
-        bad.append("aa_web_app/main.py 的 IMAGE_MANGA 未清空（图片漫画注册表变换没跑）")
+        bad.append("aa_web_app 的 IMAGE_MANGA 未清空（图片漫画注册表变换没跑）")
     # 反向抽查：不该出现的东西
     forbidden = ["AGENTS.md", "mitm_mcp_traffic.db", "acgn_东方心绮谭", "legacy", "logs",
                  "benchmark", ".codex", "导出", "交付HTML", "揭示板", "aaManga/ポケの子"]

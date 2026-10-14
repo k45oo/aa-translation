@@ -24,7 +24,7 @@ for _p in (_ROOT, _SCRIPTS, os.path.join(_SCRIPTS, "common"), os.path.join(_SCRI
         sys.path.insert(0, _p)
 
 from aa_web_app import index_cache as IC        # noqa: E402
-from aa_web_app import main as M                # noqa: E402
+from aa_web_app.routers import site_url as M    # noqa: E402  首页/快照域（拆分后归属）
 from starlette.requests import Request          # noqa: E402
 
 

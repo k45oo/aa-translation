@@ -65,8 +65,8 @@ class TestSaveLineSfx(SfxApiFixture):
     def test_sfx_mark_written_with_text(self):
         M = self._main()
         body = M.LineSave(text="他小声说道", type="漏译", sfx=[[1, "小声"]])
-        with mock.patch("aa_web_app.main.cfg_of", return_value=self.cfg), \
-                mock.patch("aa_web_app.main.logic.load_work_glossary",
+        with mock.patch("aa_web_app.web_state.cfg_of", return_value=self.cfg), \
+                mock.patch("aa_web_app.logic.load_work_glossary",
                            return_value={"known_names": set()}):
             r = M.api_save_line("test", self.base + "_汉化.txt", 3, body)
         self.assertEqual(r["result"], "ok")
@@ -79,8 +79,8 @@ class TestSaveLineSfx(SfxApiFixture):
         """内容没变（只想要样式）也要落标记——旧实现会因 unchanged 提前返回而丢掉。"""
         M = self._main()
         body = M.LineSave(text="心动", type="错位", sfx=[[0, "心动"]])
-        with mock.patch("aa_web_app.main.cfg_of", return_value=self.cfg), \
-                mock.patch("aa_web_app.main.logic.load_work_glossary",
+        with mock.patch("aa_web_app.web_state.cfg_of", return_value=self.cfg), \
+                mock.patch("aa_web_app.logic.load_work_glossary",
                            return_value={"known_names": set()}):
             r = M.api_save_line("test", self.base + "_汉化.txt", 2, body)
         self.assertEqual(r["result"], "unchanged")
@@ -91,8 +91,8 @@ class TestSaveLineSfx(SfxApiFixture):
         M = self._main()
         logic.add_sfx_mark(self.work_dir, self.base, 4, 1, "悄悄")
         logic.add_sfx_mark(self.work_dir, self.base, 4, 20, "咚")
-        with mock.patch("aa_web_app.main.cfg_of", return_value=self.cfg), \
-                mock.patch("aa_web_app.main.logic.load_work_glossary",
+        with mock.patch("aa_web_app.web_state.cfg_of", return_value=self.cfg), \
+                mock.patch("aa_web_app.logic.load_work_glossary",
                            return_value={"known_names": set()}):
             r = M.api_save_line("test", self.base + "_汉化.txt", 3,
                                 M.LineSave(text="他悄悄说道", type="错译", sfx_clear=[[2, 2]]))
@@ -106,8 +106,8 @@ class TestSaveLineSfx(SfxApiFixture):
 
     def test_mark_on_edited_text_persisted_verbatim(self):
         M = self._main()
-        with mock.patch("aa_web_app.main.cfg_of", return_value=self.cfg), \
-                mock.patch("aa_web_app.main.logic.load_work_glossary",
+        with mock.patch("aa_web_app.web_state.cfg_of", return_value=self.cfg), \
+                mock.patch("aa_web_app.logic.load_work_glossary",
                            return_value={"known_names": set()}):
             M.api_save_line("test", self.base + "_汉化.txt", 1,
                             M.LineSave(text="原文", type="错位", sfx=[[0, "原文"]]))
@@ -118,20 +118,20 @@ class TestLineHtmlSfx(SfxApiFixture):
     def test_auto_sfx_survives_line_rerender(self):
         """回归：api_line_html 必须透传 src_line，否则保存后重渲染的行掉 sfx 特效。"""
         M = self._main()
-        with mock.patch("aa_web_app.main.cfg_of", return_value=self.cfg):
+        with mock.patch("aa_web_app.web_state.cfg_of", return_value=self.cfg):
             r = M.api_line_html("test", self.base + "_汉化.txt", 2)
         self.assertIn('<span class="sfx">心动</span>', r["html"])
 
     def test_manual_mark_rendered(self):
         logic.add_sfx_mark(self.work_dir, self.base, 4, 1, "悄悄")
         M = self._main()
-        with mock.patch("aa_web_app.main.cfg_of", return_value=self.cfg):
+        with mock.patch("aa_web_app.web_state.cfg_of", return_value=self.cfg):
             r = M.api_line_html("test", self.base + "_汉化.txt", 3)
         self.assertEqual(r["html"], '他<span class="sfx">悄悄</span>说道')
 
     def test_no_marks_no_sfx(self):
         M = self._main()
-        with mock.patch("aa_web_app.main.cfg_of", return_value=self.cfg):
+        with mock.patch("aa_web_app.web_state.cfg_of", return_value=self.cfg):
             r = M.api_line_html("test", self.base + "_汉化.txt", 3)
         self.assertEqual(r["html"], "他悄悄说道")
 
@@ -140,10 +140,10 @@ class TestLineGetSfx(SfxApiFixture):
     def test_line_get_returns_marks(self):
         logic.add_sfx_mark(self.work_dir, self.base, 4, 1, "悄悄")
         M = self._main()
-        with mock.patch("aa_web_app.main.cfg_of", return_value=self.cfg):
+        with mock.patch("aa_web_app.web_state.cfg_of", return_value=self.cfg):
             r = M.api_line_get("test", self.base + "_汉化.txt", 3)
         self.assertEqual(r["sfx"], [[1, "悄悄"]])                     # 行 4 有标记
-        with mock.patch("aa_web_app.main.cfg_of", return_value=self.cfg):
+        with mock.patch("aa_web_app.web_state.cfg_of", return_value=self.cfg):
             r2 = M.api_line_get("test", self.base + "_汉化.txt", 1)
         self.assertEqual(r2["sfx"], [])                               # 行 2 无标记
 

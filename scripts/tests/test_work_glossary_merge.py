@@ -30,6 +30,9 @@ from aa_web_app import logic                      # noqa: E402
 from aa_web_app import main as M                  # noqa: E402
 
 
+from aa_web_app import web_state as WS    # noqa: E402  共享底座（cfg_of/paths_of/invalidate_stats 等）
+
+
 class MergeWorkGlossaryTest(unittest.TestCase):
     """logic.merge_work_glossary 纯逻辑。"""
 
@@ -130,9 +133,9 @@ class GlossaryPutRouteTest(unittest.TestCase):
             {"jp": "メシアン", "zh": "弥赛亚", "cat": "专名", "来源": "manual"},
         ], ["ルイ"], path=self.p)
         self._patches = [
-            mock.patch.object(M, "cfg_of", return_value={"work_dir": self.tmp}),
+            mock.patch.object(WS, "cfg_of", return_value={"work_dir": self.tmp}),
             mock.patch.object(M.logic, "work_glossary_path", return_value=self.p),
-            mock.patch.object(M, "invalidate_stats", return_value=None),
+            mock.patch.object(WS, "invalidate_stats", return_value=None),
         ]
         for p in self._patches:
             p.start()

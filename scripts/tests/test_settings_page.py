@@ -28,6 +28,9 @@ _TRACKED = ("AA_ENV", "AA_CHAIN", "AA_REFINE_BACKEND", "AA_SEL_CHAIN", "AA_SEL_E
             "AA_PROXY", "AA_USE_PROXY", "SOME_TEST_KEY", "AA_TEST_DUMMY_KEY")
 
 
+from aa_web_app import web_state as WS      # noqa: E402
+
+
 def _toml_key_envs():
     """TOML 里声明过的 key 名（`[backend.*].key_env` ∪ `[vision].*[].key_env`）。
 
@@ -142,11 +145,11 @@ class TestStateView(_Base):
             self.assertNotEqual(sorted(m["selected"]), sorted(m["default"]))
         # 控制台接口（/api/work/<id>/models）读到同一份选择（非 R18 作品 → normal 链）
         _old = M.cfg_of
-        M.cfg_of = lambda w: {"r18": False}
+        WS.cfg_of = lambda w: {"r18": False}
         try:
             wm = M.api_work_models("w")
         finally:
-            M.cfg_of = _old
+            WS.cfg_of = _old
         self.assertTrue(wm.get("ok"), wm)
         self.assertEqual(wm["selected"], want)
         self.assertTrue(wm["head"])

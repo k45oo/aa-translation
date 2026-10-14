@@ -26,6 +26,8 @@ for _p in (os.path.join(_REPO_ROOT, "scripts"),
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+from aa_web_app import web_state as WS  # noqa: E402  常量定义处（_PROGRESS_FILE 等）
+
 
 # 真实注册表形态：条目是 `    "id": dict(` 起、`    ),` 收（删除逻辑按这两端切）
 KEEP_AND_GONE = ('WORKS = {\n'
@@ -44,7 +46,10 @@ KEEP_ONLY = ('WORKS = {\n'
 
 
 def _main():
-    import aa_web_app.main as M
+    """被测路由（delete/_registry_path/_remove_registry_entry 等）2026-10-14 拆分后归属
+    `aa_web_app/routers/works.py`；本用例会**重绑模块属性**（_DATA/_WORK_META_FILE/…），
+    必须绑在**真正读取它们的模块**上，绑到 aa_web_app.main 只是改了兼容层副本、不生效。"""
+    from aa_web_app.routers import works as M
     return M
 
 
@@ -187,7 +192,7 @@ class TestDeleteRouteWithJunctionData(unittest.TestCase):
         import registry as reg
         self.reg = reg
         self._old = (reg.BASE, getattr(reg, "__file__", None),
-                     self.M._DATA, self.M._WORK_META_FILE, self.M._PROGRESS_FILE)
+                     self.M._DATA, self.M._WORK_META_FILE, WS._PROGRESS_FILE)
 
     def tearDown(self):
         base, rfile, data, meta, prog = self._old
@@ -196,7 +201,7 @@ class TestDeleteRouteWithJunctionData(unittest.TestCase):
             self.reg.__file__ = rfile
         self.M._DATA = data
         self.M._WORK_META_FILE = meta
-        self.M._PROGRESS_FILE = prog
+        WS._PROGRESS_FILE = prog
 
     def test_junction数据目录下删除跑通(self):
         import json
@@ -239,7 +244,7 @@ class TestDeleteRouteWithJunctionData(unittest.TestCase):
             }
             self.M._DATA = repo
             self.M._WORK_META_FILE = meta_f
-            self.M._PROGRESS_FILE = os.path.join(d, "progress.json")
+            WS._PROGRESS_FILE = os.path.join(d, "progress.json")
             r = self.M.api_delete("作品X", {"confirm": True})      # 旧实现这里 400
             self.assertTrue(r.get("ok"))
             self.assertFalse(os.path.exists(wd), "作品目录（junction 实际指向处）应被删掉")

@@ -56,7 +56,7 @@ class CandidatesAPITest(unittest.TestCase):
         with open(os.path.join(self.tmp, "glossary_candidates.json"), encoding="utf-8") as f:
             return json.load(f)
 
-    @mock.patch("aa_web_app.main.cfg_of")
+    @mock.patch("aa_web_app.web_state.cfg_of")
     def test_list_sorted_and_excludes_confirmed(self, m_cfg):
         """列表: 排除已确认 + 按 type 顺序(术语→角色) + 来源数降序。"""
         m_cfg.return_value = self.cfg
@@ -67,7 +67,7 @@ class CandidatesAPITest(unittest.TestCase):
         types = [c["type"] for c in r["candidates"]]
         self.assertEqual(types, ["术语", "角色"])  # 术语(0) 在 角色(3) 前
 
-    @mock.patch("aa_web_app.main.cfg_of")
+    @mock.patch("aa_web_app.web_state.cfg_of")
     def test_confirm_sets_flag_and_updates(self, m_cfg):
         """确认: 设 确认:true + 更新译名/作品。"""
         m_cfg.return_value = self.cfg
@@ -80,7 +80,7 @@ class CandidatesAPITest(unittest.TestCase):
         self.assertEqual(hit["translation"], "甲甲")
         self.assertEqual(hit["作品"], "外部IP")
 
-    @mock.patch("aa_web_app.main.cfg_of")
+    @mock.patch("aa_web_app.web_state.cfg_of")
     def test_delete_removes(self, m_cfg):
         """删除: 永久移除。"""
         m_cfg.return_value = self.cfg
@@ -92,7 +92,7 @@ class CandidatesAPITest(unittest.TestCase):
         self.assertNotIn("角色B", terms)
         self.assertEqual(len(terms), 2)
 
-    @mock.patch("aa_web_app.main.cfg_of")
+    @mock.patch("aa_web_app.web_state.cfg_of")
     def test_confirm_unknown_term(self, m_cfg):
         """确认不存在的 term → 报错。"""
         m_cfg.return_value = self.cfg
@@ -100,8 +100,8 @@ class CandidatesAPITest(unittest.TestCase):
         r = M.api_candidate_confirm("test", "不存在", {})
         self.assertFalse(r["ok"])
 
-    @mock.patch("aa_web_app.main.cfg_of")
-    @mock.patch("aa_web_app.main.logic.save_work_glossary")
+    @mock.patch("aa_web_app.web_state.cfg_of")
+    @mock.patch("aa_web_app.logic.save_work_glossary")
     @mock.patch("registry.get")
     @mock.patch("work_memory.load_knowledge")
     @mock.patch("work_memory.save_knowledge")
@@ -182,7 +182,7 @@ class PromoteCleansPendingTest(unittest.TestCase):
         import shutil
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    @mock.patch("aa_web_app.main.cfg_of")
+    @mock.patch("aa_web_app.web_state.cfg_of")
     def test_promote_cleans_pending(self, m_cfg):
         """promote 后待确认区对应项被清（保留不相关项）。"""
         # 模拟 work_memory.load_knowledge/save_knowledge 指向 tmp

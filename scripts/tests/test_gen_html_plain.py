@@ -407,7 +407,7 @@ class TestMakeHtmlRoute(unittest.TestCase):
         cls.cfg = work_cfg("fukou", ("out_dir",), "make-html 路由用例")
 
     def _call(self, **kw):
-        from aa_web_app import main as M
+        from aa_web_app.routers import deliver as M    # noqa: E402  run_generator 的调用方（api_make_html 在交付域）   # noqa: E402  run_generator 的调用方
         seen = {}
         orig = M.run_generator
 
@@ -439,7 +439,7 @@ class TestMakeHtmlRoute(unittest.TestCase):
 
     def test_自动分页提示回传给前端(self):
         """生成器打了 `[plain] …自动分页…` → 路由要在 note 里带回（前端显示「已自动分页」）。"""
-        from aa_web_app import main as M
+        from aa_web_app.routers import deliver as M    # noqa: E402  run_generator 的调用方（api_make_html 在交付域）   # noqa: E402  run_generator 的调用方
         orig = M.run_generator
 
         def fake(work, extra=None, plain=False):

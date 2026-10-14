@@ -37,6 +37,9 @@ from aa_web_app import estimate as EST        # noqa: E402
 MIMO_MODEL = "mimo-v2.6-flash"
 
 
+from aa_web_app import web_state as WS    # noqa: E402  共享底座（cfg_of/paths_of/invalidate_stats 等）
+
+
 def _ts(s):
     """'2026-09-30 00:00' → unix 秒（本地时区，与 time.mktime 同口径）。"""
     return time.mktime(time.strptime(s, "%Y-%m-%d %H:%M"))
@@ -263,7 +266,7 @@ class MainScheduleTest(unittest.TestCase):
         self.r18 = False
         self.calls = []
         self._patches = [
-            mock.patch.object(M, "cfg_of",
+            mock.patch.object(WS, "cfg_of",
                               side_effect=lambda w: {"work_dir": self.tmp, "title": "测试", "r18": self.r18}),
             mock.patch.object(M.TM, "enqueue", side_effect=self._enq),
         ]
