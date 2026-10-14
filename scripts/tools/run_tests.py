@@ -41,12 +41,12 @@ GATES = ("test_interface_docs",)
 # 其余模块并行 —— 既快又不用把偶发当真实失败。
 SERIAL = ("test_task_manager", "test_schedule_task")
 
-# 调度提示（**只影响并行跑的顺序**，不影响跑哪些用例）：2026-10-12 逐模块实测秒数（空机、串行）。
-# 并行时按它**从重到轻**发车（LPT）：最重的模块 t=0 就开跑，墙钟 ≈ 最重那个的耗时，
-# 而不是「最重的最后才轮到」。新增模块没登记就用默认值（1.0s）。
+# 调度提示（**只影响并行跑的顺序**，不影响跑哪些用例）：2026-10-14 重测（-j6 下各模块秒数，
+# 相对量级为准）。并行时按它**从重到轻**发车（LPT）：最重的模块 t=0 就开跑，避免「最重的最后才轮到」。
+# 新增模块没登记就用默认值（1.0s）；模块自身变重/变轻后记得回来更新，否则发车顺序会失真。
 WEIGHT = {
-    "test_mirror_incremental": 69, "test_gen_html_plain": 30, "test_gen_html": 26,
-    "test_aa_font": 25, "test_refine_line_guard": 18, "test_refine_stream": 13,
+    "test_mirror_incremental": 39, "test_gen_html_plain": 34, "test_gen_html": 29,
+    "test_aa_font": 25, "test_refine_line_guard": 20, "test_refine_stream": 13,
     "test_edit_server": 9, "test_pre_terms": 8, "test_opencode_go": 7, "test_task_manager": 7,
     "test_schedule_task": 4, "test_work_pack": 4, "test_settings_page": 4, "test_edit_type": 3,
     "test_aaweb": 3, "test_repatriate": 3, "test_model_choice": 2, "test_work_glossary_merge": 2,
@@ -198,7 +198,7 @@ def main():
     ap.add_argument("--changed", nargs="*", metavar="PATH",
                     help="只跑与这些文件相关的用例（不带路径 = 读 git status）")
     ap.add_argument("--modules", nargs="+", metavar="MOD", help="只跑这些用例模块（test_ 前缀可省）")
-    ap.add_argument("-j", "--jobs", type=int, default=0, help="并行进程数（默认 min(4, CPU)；1 = 串行）")
+    ap.add_argument("-j", "--jobs", type=int, default=0, help="并行进程数（默认 min(6, CPU)；1 = 串行）")
     ap.add_argument("--list", action="store_true", help="只打印会跑哪些模块，不跑")
     a = ap.parse_args()
 
@@ -229,8 +229,12 @@ def main():
         log("[warn] 没有要跑的模块")
         return 0
 
-    # 实测（8 核）：-j4 ≈ -j6（墙钟都被最重的 test_mirror_incremental 卡住），4 更少抢机器
-    jobs = a.jobs or min(4, (os.cpu_count() or 2))
+    # 实测（i7-6700HQ 4C8T / F 盘 SATA HDD，2026-10-14 重测；全量 74 模块 / 1221 例）：
+    #   -j4（旧默认）68.9s  →  -j6 **53.1s**  →  -j8 57.0s（反升：8 路把 HDD 打满，
+    #   各模块自身耗时被拖长，如 test_mirror_incremental 39.4s→48.1s）。
+    #   这批用例是**子进程+文件 I/O 型**（镜像模块 93% 墙钟是 git spawn），不是 CPU 型
+    #   ⇒ 4 物理核上给到 6 路是甜点，再多只抢盘。旧注释「-j4 ≈ -j6」是 mirror 还没提速时的实测，已过期。
+    jobs = a.jobs or min(6, (os.cpu_count() or 2))
     jobs = max(1, min(jobs, len(sel)))
     first = sorted([m for m in sel if m in SERIAL], key=lambda m: -weight(m))
     rest = sorted([m for m in sel if m not in SERIAL], key=lambda m: -weight(m))   # LPT：重的先开跑
