@@ -18,7 +18,7 @@ import json
 import os
 import time
 
-SCHEMA = "候选出处命中 v1"
+SCHEMA = "候选出处命中 v2"      # v2：加「计数」（真命中行数，不封顶）+ 逐章语料指纹
 MAX_CH = 3          # 每候选最多显示 3 章（决策 11）
 MAX_LINES = 20      # 每章最多记 20 个命中行（前端只用来滚动定位/计数）
 CACHE_NAME = "cand_hits.json"
@@ -79,11 +79,18 @@ def compute_sig(cand_path, aa_dir, terms):
 
 
 def build(aa_dir, terms, max_ch=MAX_CH, max_lines=MAX_LINES):
-    """扫全库原文算命中。返回 {term: {base: [行idx,…]}}（每词最多 max_ch 章）。零 API。"""
+    """扫全库原文算命中。
+
+    返回 `(hits, counts)`：
+      hits   = {term: {base: [行idx,…]}}（每章最多 max_lines 个——只用于滚动定位/高亮）
+      counts = {term: {base: 真命中行数}}（不封顶——展示「命中 N 处」与按命中降序排序用它，
+               否则 20 封顶会让「マヤ 747 次」这类高频词的排序退化）
+    每词最多 max_ch 章（按真命中数降序）。零 API。
+    """
     terms = [(t or "").strip() for t in terms]
     terms = [t for t in terms if t and not t.startswith("re:")]
     if not terms:
-        return {}
+        return {}, {}
     # 按首字分桶：只对行内出现过的首字取词，词多时省一大截
     by_head = {}
     for t in terms:
@@ -107,19 +114,29 @@ def build(aa_dir, terms, max_ch=MAX_CH, max_lines=MAX_LINES):
             for t in cand:
                 if t in line:
                     raw[t].setdefault(base, []).append(i)
-    # 每词按命中行数降序取前 max_ch 章（同数按章名升序，稳定）
-    out = {}
+    hits, counts = {}, {}
     for t, chs in raw.items():
         if not chs:
             continue
+        # 排序看真命中数（不封顶），同数按章名升序（稳定）
         ordered = sorted(chs.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:max_ch]
-        out[t] = {b: idxs[:max_lines] for b, idxs in ordered}
-    return out
+        hits[t] = {b: idxs[:max_lines] for b, idxs in ordered}
+        counts[t] = {b: len(idxs) for b, idxs in ordered}
+    return hits, counts
 
 
 def hits_counts(hits):
-    """{term: {base: n}} 命中行数速查（前端展示「命中 N 处」用）。"""
+    """（兼容用）{term: {base: n}} —— 以**已封顶**的行列表长估算；正式口径请用 build 的 counts。"""
     return {t: {b: len(v) for b, v in chs.items()} for t, chs in (hits or {}).items()}
+
+
+def sort_pairs(hits, counts, term):
+    """(base, 行列表, 真命中数) 列表，按真命中数降序（同数按章名升序）——展示顺序的唯一口径。"""
+    h = (hits or {}).get(term) or {}
+    c = (counts or {}).get(term) or {}
+    rows = [(b, list(v), int(c.get(b, len(v)))) for b, v in h.items()]
+    rows.sort(key=lambda r: (-r[2], r[0]))
+    return rows
 
 
 def load_cache(work_dir):
@@ -137,12 +154,12 @@ def load_cache(work_dir):
         return None
 
 
-def save_cache(work_dir, sig, hits):
+def save_cache(work_dir, sig, hits, counts=None):
     """落盘（原子替换，失败不抛）。"""
     p = os.path.join(work_dir, CACHE_NAME)
     tmp = p + ".tmp"
     d = {"schema": SCHEMA, "生成时间": time.strftime("%Y-%m-%d %H:%M:%S"),
-         "sig": sig, "词数": len(hits), "命中": hits}
+         "sig": sig, "词数": len(hits), "命中": hits, "计数": counts or {}}
     try:
         os.makedirs(work_dir, exist_ok=True)
         with open(tmp, "w", encoding="utf-8", newline="\n") as f:
@@ -160,15 +177,17 @@ def save_cache(work_dir, sig, hits):
 def load_or_build(work_dir, cand_path, aa_dir, terms, allow_build=True):
     """取命中表：缓存 sig 命中即用；否则（allow_build）重算并落盘。
 
-    返回 (hits, info)；info = {"from": "cache"|"built"|"empty", "sig":…, "词数":…}。
-    `allow_build=False`（后台核名前的只读场景）时缺缓存返回空表。
+    返回 (hits, counts, info)；
+      info = {"from": "cache"|"built"|"empty", "sig":…, "词数":…}
+    `allow_build=False`（只读场景）时缺缓存返回空表。
     """
     sig = compute_sig(cand_path, aa_dir, terms)
     d = load_cache(work_dir)
     if d and d.get("sig") == sig:
-        return d.get("命中") or {}, {"from": "cache", "sig": sig, "词数": d.get("词数")}
+        return (d.get("命中") or {}, d.get("计数") or {},
+                {"from": "cache", "sig": sig, "词数": d.get("词数")})
     if not allow_build:
-        return {}, {"from": "empty", "sig": sig, "词数": 0}
-    hits = build(aa_dir, terms)
-    save_cache(work_dir, sig, hits)
-    return hits, {"from": "built", "sig": sig, "词数": len(hits)}
+        return {}, {}, {"from": "empty", "sig": sig, "词数": 0}
+    hits, counts = build(aa_dir, terms)
+    save_cache(work_dir, sig, hits, counts)
+    return hits, counts, {"from": "built", "sig": sig, "词数": len(hits)}

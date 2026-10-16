@@ -143,8 +143,9 @@ def reader_page(request: Request, work: str, f: str = ""):
                 # 命中行在窗口外时高亮静默丢失。现按命中行数降序给前 3 章（决策 11/13）。
                 _terms = [(c.get("term") or "").strip() for c in _cands]
                 _terms = [t for t in _terms if t]
+                _counts = {}
                 try:
-                    _hits, _hinfo = cand_hits.load_or_build(cfg["work_dir"], cand_p, aa_dir, _terms)
+                    _hits, _counts, _hinfo = cand_hits.load_or_build(cfg["work_dir"], cand_p, aa_dir, _terms)
                 except Exception as _e:
                     print(f"[cand_hits] 命中索引失败(降级为空): {_e}")
                     _hits, _hinfo = {}, {"from": "error"}
@@ -153,9 +154,9 @@ def reader_page(request: Request, work: str, f: str = ""):
                     _t = (c.get("term") or "").strip()
                     _h = _hits.get(_t) or {}
                     c["命中"] = _h
-                    # 出处：章标题 + 命中处数（顺序 = 命中降序，最多 3 章）
-                    c["出处"] = [{"base": b, "label": _b2lab.get(b, b),
-                                  "hits": len(v), "cur": b == base} for b, v in _h.items()]
+                    # 出处：章标题 + 真命中处数（顺序 = 真命中数降序，最多 3 章）
+                    c["出处"] = [{"base": b, "label": _b2lab.get(b, b), "hits": n, "cur": b == base}
+                                 for b, _lines, n in cand_hits.sort_pairs(_hits, _counts, _t)]
                 if _hinfo.get("from") == "built":
                     print(f"[cand_hits] {work}: 命中索引已生成（{len(_terms)} 词 → {len(_hits)} 命中）")
                 # ?ci=<n> 初始候选索引(候选确认跳章还原进度)

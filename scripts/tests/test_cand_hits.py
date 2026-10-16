@@ -55,22 +55,28 @@ class TestBuild(unittest.TestCase):
             "entry_2": ["マヤ 一次"],
             "entry_3": ["本章没有任何候选词"],
         })
-        h = CH.build(self.aa, ["マヤ", "ネオユニヴァース"])
+        h, cnt = CH.build(self.aa, ["マヤ", "ネオユニヴァース"])
         self.assertEqual(list(h["マヤ"].keys()), ["entry_1", "entry_2"])   # 3 处 > 1 处
         self.assertEqual(h["マヤ"]["entry_1"], [0, 2, 3])
         self.assertEqual(h["マヤ"]["entry_2"], [0])
+        self.assertEqual(cnt["マヤ"], {"entry_1": 3, "entry_2": 1})
         self.assertNotIn("ネオユニヴァース", h)                          # 零命中不进表
 
     def test_每候选最多3章(self):
         _write_chapters(self.aa, {f"entry_{i}": ["トップガン"] * (i + 1) for i in range(1, 6)})
-        h = CH.build(self.aa, ["トップガン"])
+        h, cnt = CH.build(self.aa, ["トップガン"])
         self.assertEqual(len(h["トップガン"]), CH.MAX_CH)                 # 5 章里只留 3 章
         self.assertEqual(list(h["トップガン"])[:3], ["entry_5", "entry_4", "entry_3"])
+        self.assertEqual(cnt["トップガン"]["entry_5"], 6)      # entry_i 有 i+1 行该词
 
-    def test_每章最多20行(self):
-        _write_chapters(self.aa, {"entry_1": ["マヤ"] * 30})
-        h = CH.build(self.aa, ["マヤ"])
+    def test_每章最多20行_但计数不封顶(self):
+        """行列表封顶 20（只用于滚动定位），真命中数不封顶——否则「命中 N 处」恒 20、
+        高频词的出处章排序退化（实测 マヤ 747 次曾显示成 20）。"""
+        _write_chapters(self.aa, {"entry_1": ["マヤ"] * 30, "entry_2": ["マヤ"] * 25})
+        h, cnt = CH.build(self.aa, ["マヤ"])
         self.assertEqual(len(h["マヤ"]["entry_1"]), CH.MAX_LINES)
+        self.assertEqual(cnt["マヤ"], {"entry_1": 30, "entry_2": 25})
+        self.assertEqual([b for b, _l, _n in CH.sort_pairs(h, cnt, "マヤ")], ["entry_1", "entry_2"])
 
     def test_跳过台词与汉化旁支(self):
         """`_台词.txt` / `_汉化.txt` 是衍生文件，命中只能算在原文上。"""
@@ -79,26 +85,27 @@ class TestBuild(unittest.TestCase):
             with open(os.path.join(self.aa, "entry_1" + suffix + ".txt"), "w",
                       encoding="utf-8", newline="\n") as f:
                 f.write("マヤ\nマヤ\nマヤ")
-        h = CH.build(self.aa, ["マヤ"])
+        h, cnt = CH.build(self.aa, ["マヤ"])
         self.assertEqual(list(h["マヤ"].keys()), ["entry_1"])
         self.assertEqual(h["マヤ"]["entry_1"], [0])
+        self.assertEqual(cnt["マヤ"], {"entry_1": 1})
 
     def test_空词与正则词剔除(self):
         _write_chapters(self.aa, {"entry_1": ["マヤ"]})
-        h = CH.build(self.aa, ["", "  ", "re:^マヤ", "マヤ"])
+        h, _c = CH.build(self.aa, ["", "  ", "re:^マヤ", "マヤ"])
         self.assertEqual(list(h), ["マヤ"])
 
     def test_空terms直接返回(self):
         _write_chapters(self.aa, {"entry_1": ["マヤ"]})
-        self.assertEqual(CH.build(self.aa, []), {})
+        self.assertEqual(CH.build(self.aa, []), ({}, {}))
 
     def test_目录不存在不炸(self):
-        self.assertEqual(CH.build(os.path.join(self.tmp.name, "nope"), ["マヤ"]), {})
+        self.assertEqual(CH.build(os.path.join(self.tmp.name, "nope"), ["マヤ"]), ({}, {}))
 
     def test_空行不计命中(self):
         """空行不可能含词——避免"空词命中所有行"类退化。"""
         _write_chapters(self.aa, {"entry_1": ["", "", "マヤ"]})
-        h = CH.build(self.aa, ["マヤ"])
+        h, _c = CH.build(self.aa, ["マヤ"])
         self.assertEqual(h["マヤ"]["entry_1"], [2])
 
 
@@ -116,19 +123,19 @@ class TestCache(unittest.TestCase):
         return ["マヤ", "トップガン"]
 
     def test_首次构建并落盘_二次命中缓存(self):
-        hits, info = CH.load_or_build(self.wd, self.cand, self.aa, self._terms())
+        hits, _cnt, info = CH.load_or_build(self.wd, self.cand, self.aa, self._terms())
         self.assertEqual(info["from"], "built")
         self.assertIn("マヤ", hits)
         cache_p = os.path.join(self.wd, CH.CACHE_NAME)
         self.assertTrue(os.path.exists(cache_p))
         self.assertFalse(os.path.exists(cache_p + ".tmp"))       # 原子写不留 tmp
-        hits2, info2 = CH.load_or_build(self.wd, self.cand, self.aa, self._terms())
+        hits2, _c2, info2 = CH.load_or_build(self.wd, self.cand, self.aa, self._terms())
         self.assertEqual(info2["from"], "cache")
         self.assertEqual(hits2, hits)
 
     def test_词集合变化即重建(self):
         CH.load_or_build(self.wd, self.cand, self.aa, self._terms())
-        hits, info = CH.load_or_build(self.wd, self.cand, self.aa, ["マヤ"])
+        hits, _cnt, info = CH.load_or_build(self.wd, self.cand, self.aa, ["マヤ"])
         self.assertEqual(info["from"], "built")
         self.assertNotIn("トップガン", hits)
 
@@ -136,14 +143,14 @@ class TestCache(unittest.TestCase):
         CH.load_or_build(self.wd, self.cand, self.aa, self._terms())
         time.sleep(0.01)
         _mk_cand_file(self.wd, ["マヤ", "トップガン", "新增词"])     # mtime 变
-        hits, info = CH.load_or_build(self.wd, self.cand, self.aa, self._terms() + ["新增词"])
+        hits, _cnt, info = CH.load_or_build(self.wd, self.cand, self.aa, self._terms() + ["新增词"])
         self.assertEqual(info["from"], "built")
         self.assertNotIn("新增词", hits)                            # 语料里没有 → 不进表
 
     def test_语料目录变化即重建(self):
         CH.load_or_build(self.wd, self.cand, self.aa, self._terms())
         _write_chapters(self.aa, {"entry_3": ["マヤ"]})             # 新增章 → 语料指纹变
-        hits, info = CH.load_or_build(self.wd, self.cand, self.aa, self._terms())
+        hits, _cnt, info = CH.load_or_build(self.wd, self.cand, self.aa, self._terms())
         self.assertEqual(info["from"], "built")
         self.assertIn("entry_3", hits["マヤ"])
 
@@ -151,12 +158,12 @@ class TestCache(unittest.TestCase):
         """语料指纹含逐章 mtime/size——只改某章内容（词集合没变）也要重算命中行。"""
         CH.load_or_build(self.wd, self.cand, self.aa, self._terms())
         _write_chapters(self.aa, {"entry_1": ["マヤ", "トップガン", "マヤ 新加的一行"]})
-        hits, info = CH.load_or_build(self.wd, self.cand, self.aa, self._terms())
+        hits, _cnt, info = CH.load_or_build(self.wd, self.cand, self.aa, self._terms())
         self.assertEqual(info["from"], "built")
         self.assertEqual(hits["マヤ"]["entry_1"], [0, 2])
 
     def test_只读模式不给缓存则空表(self):
-        hits, info = CH.load_or_build(self.wd, self.cand, self.aa, self._terms(), allow_build=False)
+        hits, _cnt, info = CH.load_or_build(self.wd, self.cand, self.aa, self._terms(), allow_build=False)
         self.assertEqual((hits, info["from"]), ({}, "empty"))
         self.assertFalse(os.path.exists(os.path.join(self.wd, CH.CACHE_NAME)))
 
@@ -164,7 +171,7 @@ class TestCache(unittest.TestCase):
         p = os.path.join(self.wd, CH.CACHE_NAME)
         with open(p, "w", encoding="utf-8") as f:
             f.write("{ 坏 json")
-        hits, info = CH.load_or_build(self.wd, self.cand, self.aa, self._terms())
+        hits, _cnt, info = CH.load_or_build(self.wd, self.cand, self.aa, self._terms())
         self.assertEqual(info["from"], "built")
         self.assertIn("マヤ", hits)
 
@@ -172,7 +179,7 @@ class TestCache(unittest.TestCase):
         p = os.path.join(self.wd, CH.CACHE_NAME)
         with open(p, "w", encoding="utf-8") as f:
             json.dump({"schema": "老版本 v0", "命中": {"マヤ": {"entry_1": [0]}}}, f)
-        hits, info = CH.load_or_build(self.wd, self.cand, self.aa, self._terms())
+        hits, _cnt, info = CH.load_or_build(self.wd, self.cand, self.aa, self._terms())
         self.assertEqual(info["from"], "built")
 
     def test_词序无关_sig只吃集合(self):
