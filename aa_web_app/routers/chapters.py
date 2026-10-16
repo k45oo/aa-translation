@@ -10,6 +10,7 @@ from fastapi import HTTPException, Request
 from pydantic import BaseModel
 from aa_web_app import web_state
 from aa_web_app import logic
+from aa_web_app import cand_hits
 from aa_web_app import reader_win
 from common import gen_aa_html as _gen_aa_html
 from aa_web_app.web_state import (_DATA, _LOCK, _art_checker, _art_sources, _load_progress, app, check_chapter, templates)
@@ -137,28 +138,26 @@ def reader_page(request: Request, work: str, f: str = ""):
                     srcs = str(c.get("来源") or "")
                     return (_t_order.get(c.get("type") or "", 9), -len([x for x in srcs.split(",") if x.strip()]))
                 _cands.sort(key=_ck)
-                # 命中行号: 对每个候选, 遍历其来源章原文, 找含 term 的行 idx
+                # 命中行号（2026-10-15 方案 §3.1）：改为全库扫 + 落盘缓存（work/cand_hits.json）。
+                # 旧实现只扫「来源」字段的那个样例章 → 每个候选只有 1 章出处、读到别的章恒空、
+                # 命中行在窗口外时高亮静默丢失。现按命中行数降序给前 3 章（决策 11/13）。
+                _terms = [(c.get("term") or "").strip() for c in _cands]
+                _terms = [t for t in _terms if t]
+                try:
+                    _hits, _hinfo = cand_hits.load_or_build(cfg["work_dir"], cand_p, aa_dir, _terms)
+                except Exception as _e:
+                    print(f"[cand_hits] 命中索引失败(降级为空): {_e}")
+                    _hits, _hinfo = {}, {"from": "error"}
+                _b2lab = {logic.txt_key(ch["src_file"]): labels[ch["src_file"]] for ch in mch}
                 for c in _cands:
-                    term = (c.get("term") or "").strip()
-                    c["命中"] = {}
-                    if not term:
-                        continue
-                    for src in str(c.get("来源") or "").split(","):
-                        src = src.strip()
-                        if not src:
-                            continue
-                        # 来源是 _台词.txt 文件名 → 归一为原文 base(去 _台词 后缀), 供阅读器按 base 匹配
-                        base = src[:-len("_台词.txt")] if src.endswith("_台词.txt") else logic.txt_key(src).replace("_台词", "")
-                        sp = os.path.join(cfg["aa_dir"], base + ".txt")
-                        if not os.path.exists(sp):
-                            continue
-                        try:
-                            lines = logic.read_lines(sp)
-                        except Exception:
-                            continue
-                        hits = [i for i, l in enumerate(lines) if term in l]
-                        if hits:
-                            c["命中"][base] = hits[:20]
+                    _t = (c.get("term") or "").strip()
+                    _h = _hits.get(_t) or {}
+                    c["命中"] = _h
+                    # 出处：章标题 + 命中处数（顺序 = 命中降序，最多 3 章）
+                    c["出处"] = [{"base": b, "label": _b2lab.get(b, b),
+                                  "hits": len(v), "cur": b == base} for b, v in _h.items()]
+                if _hinfo.get("from") == "built":
+                    print(f"[cand_hits] {work}: 命中索引已生成（{len(_terms)} 词 → {len(_hits)} 命中）")
                 # ?ci=<n> 初始候选索引(候选确认跳章还原进度)
                 _ci = request.query_params.get("ci", "")
                 try:

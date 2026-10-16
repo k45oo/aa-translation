@@ -1,12 +1,12 @@
 {
  "generated_at": null,
  "stats": {
-  "total": 328,
+  "total": 329,
   "legacy": 108,
   "core": 79,
   "tool": 64,
   "deprecated_candidate": 0,
-  "test": 77,
+  "test": 78,
   "hardcoded": 32,
   "top_consts": 49,
   "dup_function_counts": {
@@ -1653,6 +1653,7 @@
      "AGENTS.md",
      "doc/接口文档.md",
      "doc/方案归档/作品知识库合并方案_2026-08-27.md",
+     "doc/方案归档/候选联网核名与出处高亮方案_2026-10-15.md",
      "doc/方案归档/工作台候选确认功能方案_2026-08-28.md",
      "doc/方案归档/术语表注入实验_2026-08-21.md"
     ]
@@ -2071,7 +2072,8 @@
     "referenced_by": [],
     "webapp": [],
     "docs": [
-     "doc/接口文档.md"
+     "doc/接口文档.md",
+     "doc/方案归档/候选联网核名与出处高亮方案_2026-10-15.md"
     ]
    },
    "dup_of": null,
@@ -7595,6 +7597,34 @@
    "has_main_guard": true,
    "docstring": "揭示板下载/更新 runner（scripts/runner/board_runner.py）+ 任务管理器 board 类型用例。"
   },
+  "scripts/tests/test_cand_hits.py": {
+   "path": "scripts/tests/test_cand_hits.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_web_app",
+     "json",
+     "os",
+     "sys",
+     "tempfile",
+     "time",
+     "unittest"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "候选出处命中索引（aa_web_app/cand_hits.py）单元测试。"
+  },
   "scripts/tests/test_candidates.py": {
    "path": "scripts/tests/test_candidates.py",
    "grade": "test",
@@ -9670,6 +9700,7 @@
      "doc/AA搜索脚本使用说明_2026-09-03.md",
      "doc/接口文档.md",
      "doc/方案归档/aa搜索增强方案_2026-09-03.md",
+     "doc/方案归档/候选联网核名与出处高亮方案_2026-10-15.md",
      "doc/方案归档/工作台设置页与配置文件方案_2026-10-08.md"
     ]
    },
@@ -11557,6 +11588,7 @@
      "AGENTS.md",
      "doc/接口文档.md",
      "doc/方案归档/main拆分方案_2026-10-14.md",
+     "doc/方案归档/候选联网核名与出处高亮方案_2026-10-15.md",
      "scripts/README.md"
     ]
    },

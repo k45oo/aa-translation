@@ -453,6 +453,8 @@ table.editable tr.new input { border-color: #d8b04a; background: #fff8e1; }
 .btn.danger { background: #c0392b; border-color: #a93226; color: #fff; }
 .btn.primary { background: #27ae60; border-color: #229954; color: #fff; }
 .cand-highlight { background: #fff176 !important; outline: 1px dashed #f9a825; }
+/* 2026-10-15: 候选出处栏——当前章加粗标出（其余章可点跳转） */
+.cand-src-link.cur { font-weight: bold; color: #8a6d3a; text-decoration: none; }
 .toast.bad { background: #8a2a2a; }
 
 /* ---- 划词翻译弹窗（2026-09-03, selection_translate.js）---- */

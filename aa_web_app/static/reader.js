@@ -958,7 +958,24 @@
     });
     // 闪烁交给 WIN（按 k 记状态）：窗口/行号列随后任何重建都不会丢掉高亮
     const flashLine = lineNo => flashNo(WIN.lineOfK(WIN.kOfLine(lineNo)), 1800);
-    if (CFG.jumpLine) {
+    // 候选确认模式（?cand=1，2026-10-15 方案决策 12）：定位目标 = 当前候选**在本章的首个命中行**。
+    // 否则下面的 jumpLine/resumeLine 会把视图抢回去，而高亮只作用于已渲染窗口内的行 →
+    // 用户看到的就是「点出处跳过去没有高亮」（实测命中行 92 落在视口外、只有 1 处高亮）。
+    const candFirstLine = (() => {
+      try {
+        const cd = window.CAND_DATA || {};
+        const c = (cd.candidates || [])[cd.init_idx || 0] || {};
+        const h = (((c['命中'] || {})[CFG.base]) || [])[0];
+        return (h == null) ? 0 : (h + 1);        // 命中行 idx 是 0-based，WIN API 收 1-based
+      } catch (e) { return 0; }
+    })();
+    if (candFirstLine) {
+      const cd = window.CAND_DATA || {};
+      const c = (cd.candidates || [])[cd.init_idx || 0] || {};
+      await WIN.scrollToLine(candFirstLine, true);
+      flashLine(candFirstLine);
+      toast(`候选「${c.term || ''}」本章首个命中行：第 ${candFirstLine} 行`, true);
+    } else if (CFG.jumpLine) {
       await WIN.scrollToLine(CFG.jumpLine, true);
       flashLine(CFG.jumpLine);
       // 跳转是一次性参数：用掉就从 URL 抹掉，否则刷新会再跳回这个旧位置
@@ -975,6 +992,7 @@
       flashLine(CFG.resumeLine);
       setTimeout(() => toast(`已续读到第 ${CFG.curIdx + 1} 章 第 ${CFG.resumeLine} 行`), 150);
     }
+    window.__aaReaderReady = 1;       // 首窗定位完成（候选面板据此决定是否自己滚动，2026-10-15）
   });
   // ---- 台词纠正模式（2026-08-29 第 2 步，gold_dialogue.json 回归集） ----
   const DLG_KEY = 'aa_dlg_mode';
@@ -1725,8 +1743,17 @@
     const c = list[idx];
     curTerm = c.term;
     const hits = c['命中'] || {};
-    // 所有来源章（有命中的优先）
-    const srcSet = Object.keys(hits).length ? Object.keys(hits) : (c['来源'] || '').split(',').map(x=>x.trim()).filter(Boolean);
+    // 出处（2026-10-15 方案决策 11）：服务端已按命中行数降序给前 3 章（含章标题与命中处数）。
+    // 无「出处」字段时回退旧逻辑（来源字段的样例章；未归一的文件名在这里归一成 base）。
+    let srcList = (c['出处'] || []).slice();
+    if (!srcList.length) {
+      const raw = Object.keys(hits).length ? Object.keys(hits)
+        : String(c['来源'] || '').split(',').map(x => x.trim()).filter(Boolean);
+      srcList = raw.map(b => ({
+        base: b.endsWith('_台词.txt') ? b.slice(0, -'_台词.txt'.length) : b.replace(/\.txt(\.gz)?$/, ''),
+        label: b, hits: (hits[b] || []).length, cur: false,
+      }));
+    }
     // 当前章命中行：service 端已算 c['命中'][<当前base>]（若有）
     curHits = (hits[CFG.base] || []).slice();
     // 若当前章无命中但有来源章，扣"当前章命中为0"提示
@@ -1740,8 +1767,8 @@
         <div class="cand-trans">→ <input id="cand-trans" value="${(c.translation || '').replace(/"/g, '&quot;')}" placeholder="译名"></div>
         ${(c.type||'')==='角色' ? `<div class="cand-alias">别名_of: <input id="cand-aliasof" value="${(c['别名_of'] || '').replace(/"/g, '&quot;')}" placeholder="若为某角色别名, 填主角色名(可空)"></div>` : ''}
         <div class="cand-w">作品: <input id="cand-w" value="${(c['作品'] || '').replace(/"/g, '&quot;')}" placeholder="外部IP出处(可空)"></div>
-        <div class="cand-src muted small">出处(${srcSet.length}): ${srcSet.map((s, i) =>
-          `<a href="#" class="cand-src-link" data-src="${s}" data-term="${encodeURIComponent(c.term)}" data-idx="${i}">${s}</a>`).join(', ')}
+        <div class="cand-src muted small">出处(${srcList.length}): ${srcList.map((s, i) =>
+          `<a href="#" class="cand-src-link${s.cur ? ' cur' : ''}" data-src="${s.base}" data-term="${encodeURIComponent(c.term)}" data-idx="${i}" title="跳到 ${(s.label || s.base).replace(/"/g, '&quot;')}">${s.label || s.base}${s.hits ? '（命中 ' + s.hits + ' 处）' : ''}</a>`).join(', ')}
           ${curHas ? '' : '<span class="warn small">（当前章无此词）</span>'}
         </div>
         ${c.note ? `<div class="cand-note warn small">${c.note}</div>` : ''}
@@ -1772,17 +1799,28 @@
     });
     // 当前章高亮（若有命中）；无则提示去别的出处看
     if (curHas) {
-      const first = highlightInCurrent();
-      if (first) { first.scrollIntoView({ block: 'center' }); }
-      // 若 term 只在原文，自动切原文模式让高亮可见
+      // 窗口化（2026-10-15 方案决策 12）：高亮只作用于「已渲染窗口内」的行——命中行在窗口外时
+      // 旧实现什么都不做（用户实测「跳过去对应没有高亮」）。改为先用 WIN 几何 API 把首个命中
+      // 居中带进视野（与搜索功能同一套 scrollToLine + flashLine），高亮再靠 onPaint 重挂。
       const pre = document.getElementById('chapter-pre');
-      // 窗口化：不再内联整章原文（旧实现扫 __candSrcArr）→ 用服务端候选命中行判断本章原文是否含该词
       const srcHas = curHits.length > 0;
       if (srcHas && pre && pre.dataset.mode !== 'src') {
         const seg = document.getElementById('src-toggle');
         const srcBtn = seg?.querySelector('.seg-btn[data-mode="src"]');
         if (srcBtn) srcBtn.click();
       }
+      const firstIdx = curHits[0];                       // 服务端命中行 idx（0-based）
+      const win = window.__aaWin;
+      // 首屏定位由 reader 自己在 WIN.ready 后完成（候选模式以首个命中行为目标）；
+      // 这里只在「已就绪」时滚动——用于切候选（不刷新页面）的场景。
+      if (window.__aaReaderReady && win && win.scrollToLine && firstIdx != null) {
+        try {
+          win.scrollToLine(firstIdx + 1, true);          // WIN API 收 1-based 行号（同搜索）
+          win.flashLine(firstIdx + 1, 2600);
+        } catch (e) {}
+      }
+      const first = highlightInCurrent();
+      if (first && !win) { first.scrollIntoView({ block: 'center' }); }   // 全量模式兜底
       toast('原文高亮 ' + curHits.length + ' 处: ' + c.term, true);
     } else {
       toast('当前章无此词「' + c.term + '」，点击出处章查看', false);
