@@ -1771,6 +1771,15 @@
           `<a href="#" class="cand-src-link${s.cur ? ' cur' : ''}" data-src="${s.base}" data-term="${encodeURIComponent(c.term)}" data-idx="${i}" title="跳到 ${(s.label || s.base).replace(/"/g, '&quot;')}">${s.label || s.base}${s.hits ? '（命中 ' + s.hits + ' 处）' : ''}</a>`).join(', ')}
           ${curHas ? '' : '<span class="warn small">（当前章无此词）</span>'}
         </div>
+        ${c['检索证据'] ? `<div class="cand-src muted small">检索：${
+          c['检索证据']['状态'] === '一致' ? '<span class="ok">一致</span>'
+            : c['检索证据']['状态'] === '多源冲突' ? '<span class="warn">多源冲突</span>'
+            : `<span class="muted">${c['检索证据']['状态'] || '未命中'}</span>（请看来源页自己定名）`
+        }${c['作品'] ? ' · ' + c['作品'] : ''}${(c['检索证据']['来源'] || []).map((s, i) =>
+          ` <a href="${s.u}" target="_blank" rel="noopener" class="cand-src-link" title="${(s.t || '').replace(/"/g, '&quot;')}">[${i + 1}]</a>`).join('')}${
+          c['检索证据']['建议'] ? ` · <span class="warn">${c['检索证据']['建议']}</span>` : ''}${
+          c['检索证据']['原译名'] ? ` · 原译名「${c['检索证据']['原译名']}」` : ''}${
+          c['简称_of'] ? ` · 简称_of: <b>${c['简称_of']}</b>` : ''}</div>` : ''}
         ${c.note ? `<div class="cand-note warn small">${c.note}</div>` : ''}
       </div>`;
     // type 下拉: 切到角色时显示别名_of 输入, 否则隐藏

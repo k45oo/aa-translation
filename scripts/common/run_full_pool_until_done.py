@@ -45,6 +45,39 @@ def _is_done(work):
     return os.path.join(cfg["work_dir"], "pool_progress.json")
 
 
+def _post_steps(work):
+    """候选生成成功后的收尾（2026-10-15 方案 A 轴/B 轴 §3.1）：联网核名 → 出处命中索引。
+
+    两步都是**尽力而为**：任一失败只打日志，不影响候选产出（候选已经落盘）。
+    """
+    cfg = registry.get(work)
+    # ① 联网核名（缺 TAVILY_API_KEY 时脚本自己跳过）
+    try:
+        import term_web_verify as _WV
+        print("[run_pool] 阶段N: 联网核名（Tavily 定出处 + 中文源取译名）", flush=True)
+        if not _WV.tavily_key():
+            print("[run_pool] 未配置 TAVILY_API_KEY → 跳过联网核名（候选不受影响）", flush=True)
+        else:
+            _WV.verify_work(work)
+    except Exception as e:                                    # noqa: BLE001
+        print(f"[run_pool] 联网核名失败(不阻塞候选): {e}", flush=True)
+    # ② 出处命中索引（候选窗出处章，打开即秒开）
+    try:
+        sys.path.insert(0, _BASE)                              # aa_web_app 包根
+        import json as _json
+        from aa_web_app import cand_hits as _CH
+        cand_p = os.path.join(cfg["work_dir"], "glossary_candidates.json")
+        if os.path.exists(cand_p):
+            cands = _json.load(open(cand_p, encoding="utf-8")).get("ai_候选") or []
+            terms = [(c.get("term") or "").strip() for c in cands]
+            terms = [t for t in terms if t]
+            _hits, _cnt, info = _CH.load_or_build(cfg["work_dir"], cand_p, cfg["aa_dir"], terms)
+            print(f"[run_pool] 阶段N+1: 出处命中索引 {info.get('from')}"
+                  f"（{len(terms)} 词 → {len(_hits)} 命中）", flush=True)
+    except Exception as e:                                    # noqa: BLE001
+        print(f"[run_pool] 出处命中索引失败(不阻塞候选): {e}", flush=True)
+
+
 def main():
     import argparse
     ap = argparse.ArgumentParser(description="自动续跑候选池全量筛选直至完成")
@@ -85,6 +118,7 @@ def main():
                 print(f"[run_pool] 上一轮 exit={last_rc} 且无进度文件 → 判定失败, 停(轮{rnd})", flush=True)
                 return last_rc
             print(f"[run_pool] progress 不存在且上一轮 exit=0 → 已完成, 停(轮{rnd})", flush=True)
+            _post_steps(args.work)
             return 0
         first = False
         r = subprocess.run(py_prefix() + [script, "--work", args.work, "--full"],
@@ -93,6 +127,7 @@ def main():
         # exit0 且 progress 清 → 完成
         if r.returncode == 0 and not os.path.exists(prog_p):
             print(f"[run_pool] --full 全量完成 ✓ (轮{rnd})", flush=True)
+            _post_steps(args.work)
             return 0
         why = "progress 仍在" if os.path.exists(prog_p) else "无 progress 文件"
         print(f"[run_pool] 轮{rnd} exit={r.returncode}, {why} → 续跑", flush=True)

@@ -1,12 +1,12 @@
 {
  "generated_at": null,
  "stats": {
-  "total": 329,
+  "total": 331,
   "legacy": 108,
-  "core": 79,
+  "core": 80,
   "tool": 64,
   "deprecated_candidate": 0,
-  "test": 78,
+  "test": 79,
   "hardcoded": 32,
   "top_consts": 49,
   "dup_function_counts": {
@@ -608,6 +608,7 @@
      "benchmark.eval_translation",
      "common.gen_chapter_summaries",
      "common.pokemon_fixed",
+     "common.term_web_verify",
      "fix.backfill_aa_comments",
      "fix.refine_aa",
      "legacy.batch_fill_missed",
@@ -745,6 +746,7 @@
      "common.aa_usage",
      "common.dl_chapters",
      "common.r401_index",
+     "common.term_web_verify",
      "common.yaruobook_index",
      "fix.refine_aa",
      "fix.refix_mixed_segs",
@@ -2059,11 +2061,14 @@
    "refs": {
     "imports": [
      "aa_spawn",
+     "aa_web_app",
      "argparse",
+     "json",
      "os",
      "registry",
      "subprocess",
      "sys",
+     "term_web_verify",
      "time"
     ],
     "subprocess": [
@@ -2270,6 +2275,63 @@
    "dup_functions": [],
    "has_main_guard": false,
    "docstring": "runner 任务心跳/停止协议（2026-08-29 统一任务管理器配套，方案见 doc/方案归档/翻译进程管理方案_2026-08-29.md）。"
+  },
+  "scripts/common/term_web_verify.py": {
+   "path": "scripts/common/term_web_verify.py",
+   "grade": "core",
+   "cli": [
+    "--cache",
+    "--dry-run",
+    "--force",
+    "--limit",
+    "--no-model",
+    "--rounds",
+    "--terms",
+    "--work",
+    "--work-ip"
+   ],
+   "argparse": [
+    "--cache",
+    "--dry-run",
+    "--force",
+    "--limit",
+    "--no-model",
+    "--rounds",
+    "--terms",
+    "--work",
+    "--work-ip"
+   ],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_backend",
+     "aa_config",
+     "argparse",
+     "json",
+     "os",
+     "re",
+     "registry",
+     "sys",
+     "time",
+     "urllib"
+    ],
+    "subprocess": [],
+    "referenced_by": [
+     "common.run_full_pool_until_done",
+     "tests.test_term_web_verify"
+    ],
+    "webapp": [],
+    "docs": [
+     "AGENTS.md",
+     "doc/方案归档/候选联网核名与出处高亮方案_2026-10-15.md"
+    ]
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "候选联网核名（方案 doc/方案归档/候选联网核名与出处高亮方案_2026-10-15.md A 轴）。"
   },
   "scripts/common/work_pipeline.py": {
    "path": "scripts/common/work_pipeline.py",
@@ -9320,6 +9382,36 @@
    "has_main_guard": true,
    "docstring": "task_report (runner 心跳/停止协议) 单测：env 注入、心跳节流、停止标志消费、finalize。"
   },
+  "scripts/tests/test_term_web_verify.py": {
+   "path": "scripts/tests/test_term_web_verify.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "json",
+     "os",
+     "sys",
+     "tempfile",
+     "term_web_verify",
+     "unittest"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": [
+     "AGENTS.md",
+     "doc/方案归档/候选联网核名与出处高亮方案_2026-10-15.md"
+    ]
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "候选联网核名（scripts/common/term_web_verify.py）单元测试。"
+  },
   "scripts/tests/test_thin_shell.py": {
    "path": "scripts/tests/test_thin_shell.py",
    "grade": "test",
@@ -12357,6 +12449,7 @@
      "common.scan_role_residual",
      "common.scan_width",
      "common.screen_term_pool",
+     "common.term_web_verify",
      "common.work_pipeline",
      "fix.fix_delivered_terms",
      "fix.fix_lead_kanji_miss",
