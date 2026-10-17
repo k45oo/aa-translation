@@ -61,6 +61,9 @@ _DATA = _paths.BASE
 from aa_spawn import child_env, py_prefix   # 起子任务统一前缀（冻结 exe 走 --cli）
 
 
+from aa_common import meta_load   # line_meta_v2 透明读（.json/.json.gz）
+
+
 import registry
 
 
@@ -653,12 +656,7 @@ _KIND2TYPE = {"art": "aa", "text": "text", "mixed": "mixed",
 def _art_sources(cfg, base):
     """art 判定所需的两份标注：line_meta_v2 与人工 override（读一次，全章共用）。"""
     meta, overrides = {}, {}
-    meta_path = os.path.join(cfg["work_dir"], "line_meta_v2", base + ".json")
-    if os.path.exists(meta_path):
-        try:
-            meta = json.load(open(meta_path, encoding="utf-8")) or {}
-        except Exception:
-            meta = {}
+    meta = meta_load(os.path.join(cfg["work_dir"], "line_meta_v2"), base, None) or {}
     try:
         overrides = logic.load_overrides(cfg["work_dir"], base) or {}
     except Exception:

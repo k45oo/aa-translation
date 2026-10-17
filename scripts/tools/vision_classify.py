@@ -18,6 +18,7 @@ import registry
 import sites  # noqa: 提供站点模块查找
 from sites import fc2 as site  # noqa: overridden in main()
 import aa_to_images as A
+from aa_common import meta_load, json_read_any   # meta 透明读（.json/.json.gz）
 from PIL import Image, ImageDraw
 
 V3_DIR_NAME = 'line_meta_v3'
@@ -221,7 +222,7 @@ def process_chapter(base, cfg, site_name, sys_prompt, all_models, limit, retry_f
             meta = json.load(open(mp, encoding='utf-8'))
         except Exception:
             meta = {}
-    v2 = json.load(open(os.path.join(cfg['work_dir'], 'line_meta_v2', base + '.json'), encoding='utf-8'))
+    v2 = meta_load(os.path.join(cfg['work_dir'], 'line_meta_v2'), base, {}) or {}
     cm = {}
     cmf = os.path.join(cfg['aa_dir'], base + '_colormap.json')
     if os.path.exists(cmf):

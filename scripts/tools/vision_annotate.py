@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(BASE, 'scripts', 'tools'))
 import registry
 from sites import fc2 as site
 import aa_to_images as A
+from aa_common import meta_load, json_read_any   # meta 透明读（.json/.json.gz）
 from PIL import Image, ImageDraw
 
 
@@ -93,8 +94,8 @@ def main():
         base = fn.replace('_汉化.txt', '')
         lines = open(os.path.join(cfg['out_dir'], fn), encoding='utf-8').read().split('\n')
         rows = [(i, l) for i, l in enumerate(lines) if not l.startswith('#')]
-        meta = json.load(open(os.path.join(cfg['work_dir'], 'line_meta', base + '.json'), encoding='utf-8'))
-        v2 = json.load(open(os.path.join(cfg['work_dir'], 'line_meta_v2', base + '.json'), encoding='utf-8'))
+        meta = json_read_any(os.path.join(cfg['work_dir'], 'line_meta', base + '.json'), {}) or {}
+        v2 = meta_load(os.path.join(cfg['work_dir'], 'line_meta_v2'), base, {}) or {}
         cm = {}
         cmf = os.path.join(cfg['aa_dir'], base + '_colormap.json')
         if os.path.exists(cmf):

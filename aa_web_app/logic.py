@@ -32,7 +32,7 @@ try:
 except Exception:                        # 包不在 sys.path 上（极端情况）→ 退回代码根
     _DATA = _ROOT
 
-from aa_common import disp_width, pad_to_width, residual_suspect, HEADER_RE, is_text_line, allow_overwidth, KANA_RE, txt_read, txt_write, txt_key, txt_existing
+from aa_common import disp_width, pad_to_width, residual_suspect, HEADER_RE, is_text_line, allow_overwidth, KANA_RE, txt_read, txt_write, txt_key, txt_existing, meta_path, meta_load, meta_list
 
 _GLOSSARY_JSON = os.path.join(_DATA, "glossary.json")
 BACKUP_KEEP = 10          # 每作品滚动保留的备份份数
@@ -2515,13 +2515,13 @@ def _kinds_path(work_dir):
 
 
 def _meta_dir_sig(work_dir):
-    """line_meta_v2 的（最新 mtime, 文件数）——索引失效判据。"""
+    """line_meta_v2 的（最新 mtime, 文件数）——索引失效判据（.json / .json.gz 都计）。"""
     d = os.path.join(work_dir, "line_meta_v2")
     if not os.path.isdir(d):
         return (0.0, 0)
     mx, n = 0.0, 0
     for fn in os.listdir(d):
-        if fn.endswith(".json"):
+        if fn.endswith(".json") or fn.endswith(".json.gz"):
             n += 1
             try:
                 mx = max(mx, os.path.getmtime(os.path.join(d, fn)))
@@ -2531,16 +2531,12 @@ def _meta_dir_sig(work_dir):
 
 
 def _build_line_kinds(work_dir):
-    """扫 line_meta_v2/*.json → {base: 行类型码串}（每行 1 字符，按 txt 行号对齐）。"""
+    """扫 line_meta_v2/*.json[.gz] → {base: 行类型码串}（每行 1 字符，按 txt 行号对齐）。"""
     d = os.path.join(work_dir, "line_meta_v2")
     out = {}
-    for fn in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-        if not fn.endswith(".json"):
-            continue
-        try:
-            with open(os.path.join(d, fn), encoding="utf-8") as fh:
-                meta = json.load(fh)
-        except Exception:
+    for base in meta_list(d):
+        meta = meta_load(d, base, None)
+        if not isinstance(meta, dict):
             continue
         mx = 0
         for k in (meta or {}):
@@ -2552,7 +2548,7 @@ def _build_line_kinds(work_dir):
         for i in range(1, mx + 1):
             v = (meta or {}).get(str(i)) or {}
             code.append(LINE_KIND_CODES.get(v.get("kind") if isinstance(v, dict) else None, "?"))
-        out[fn[:-5]] = "".join(code)
+        out[base] = "".join(code)
     return out
 
 

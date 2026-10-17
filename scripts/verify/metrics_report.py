@@ -7,7 +7,7 @@
 用法:
   python scripts/metrics_report.py --usage キッコーマン/work/usage.jsonl [--meta キッコーマン/work/line_meta_v2] [--json out.json]
 """
-import os, sys, json, argparse, collections, glob
+import os, sys, json, argparse, collections, glob, gzip
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # 仓库根(2026-08-18 Phase 3 修正: verify/ 需 3 级)
 
@@ -37,10 +37,16 @@ def meta_kind_dist(meta_dir):
     dist = collections.Counter()
     n_files = 0
     n_rows = 0
-    for p in glob.glob(os.path.join(meta_dir, '*.json')):
+    for p in sorted(glob.glob(os.path.join(meta_dir, '*.json'))
+                    + glob.glob(os.path.join(meta_dir, '*.json.gz'))):
         n_files += 1
         try:
-            raw = json.load(open(p, encoding='utf-8'))
+            if p.endswith('.gz'):
+                with gzip.open(p, 'rt', encoding='utf-8') as f:
+                    raw = json.load(f)
+            else:
+                with open(p, encoding='utf-8') as f:
+                    raw = json.load(f)
         except Exception:
             continue
         for v in raw.values():

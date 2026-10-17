@@ -74,10 +74,9 @@ def main():
             print(f"{f} L{idx+1}: 找不到台词段 {seg_txt!r}, 跳过")
             continue
         # 2. 写回 meta
-        meta_p = os.path.join(META, f + ".json")
-        meta = json.load(open(meta_p, encoding="utf-8"))
+        meta = A.meta_load(META, f, {}) or {}
         meta[str(idx + 1)] = {"segments": segs}
-        json.dump(meta, open(meta_p, "w", encoding="utf-8"), ensure_ascii=False)
+        A.meta_dump(META, f, meta)
         # 3. 段级翻译
         try:
             fixed, missed, warns = A.translate_lines_mixed([(idx, line, segs)], work_r18=False)

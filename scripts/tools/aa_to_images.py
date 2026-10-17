@@ -9,7 +9,8 @@ sys.path.insert(0, os.path.join(BASE, "scripts"))
 sys.path.insert(0, os.path.join(BASE, "scripts", "common"))
 sys.path.insert(0, os.path.join(BASE, "scripts", "works"))
 import registry
-from aa_common import disp_width, is_text_line, ART_HIRA, ART_KATA, ART_KANJI
+from aa_common import (disp_width, is_text_line, ART_HIRA, ART_KATA, ART_KANJI,
+                       meta_path, json_read_any)
 
 # 与交付 HTML 同款字体语义: 主=MS PGothic(比例,浏览器实测),缺字回退 SimSun
 # 布局宽度与字形都按"字符在 PGothic cmap 则用 PGothic,否则 SimSun"逐字符决定
@@ -134,16 +135,12 @@ def load_line_meta(work_dir, base):
 
 def load_line_meta_v2(work_dir, base):
     """读 line_meta_v2.json(行号→{kind, confidence, reason, segments[]})——嵌字段级分类源。
-    segments: [{start,end,kind,src_width,confidence}] 字符级 text/art 边界(2026-08-14 嵌字方案)"""
-    import json as _json
-    p = os.path.join(work_dir, 'line_meta_v2', base + '.json')
-    if os.path.exists(p):
-        try:
-            with open(p, encoding='utf-8') as f:
-                return _json.load(f)
-        except Exception:
-            return None
-    return None
+    segments: [{start,end,kind,src_width,confidence}] 字符级 text/art 边界(2026-08-14 嵌字方案)
+    .json / .json.gz 透明（压缩后仍可读）。"""
+    p = meta_path(os.path.join(work_dir, 'line_meta_v2'), base)
+    if not os.path.exists(p):
+        return None
+    return json_read_any(p, None)
 
 
 def load_line_meta_v3(work_dir, base):

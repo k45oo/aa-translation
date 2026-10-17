@@ -31,6 +31,7 @@ for _p in (_SCRIPTS, os.path.join(_SCRIPTS, "common"), os.path.join(_SCRIPTS, "w
 
 import pre_terms as PT                     # noqa: E402
 from works import registry                 # noqa: E402
+from aa_common import meta_load            # noqa: E402  meta 透明读（.json/.json.gz）
 import gen_aa_html as G                    # noqa: E402
 
 CSS = """body{margin:0;background:#f5f2ea;color:#222;
@@ -67,13 +68,9 @@ def _meta_kinds(work_dir, base):
 
     不引 aa_web_app（CLI 工具保持零 web 依赖）：单章 0.4MB 的 meta 直接读即可。
     """
-    p = os.path.join(work_dir, "line_meta_v2", base + ".json")
-    if not os.path.exists(p):
-        return {}
-    try:
-        with open(p, encoding="utf-8") as f:
-            d = json.load(f) or {}
-    except Exception:
+    p = os.path.join(work_dir, "line_meta_v2")
+    d = meta_load(p, base, None)
+    if not isinstance(d, dict):
         return {}
     return {str(k): (v.get("kind") if isinstance(v, dict) else None) for k, v in d.items()}
 

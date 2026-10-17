@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(BASE, "scripts", "common"))
 sys.path.insert(0, os.path.join(BASE, "scripts", "works"))
 
 import registry
-from aa_common import ART_HIRA, ART_KATA, ART_KANJI, disp_width
+from aa_common import ART_HIRA, ART_KATA, ART_KANJI, disp_width, meta_exists, meta_dump
 
 EID_FROM_FNAME = re.compile(r'(?:entry_)?(\d+)')
 HEADER_AUTHOR = re.compile(r'◆([^ ：\s]+)')
@@ -747,7 +747,7 @@ def main():
         m = EID_FROM_FNAME.search(fname)
         eid = m.group(1) if m else ''
         base = f'entry_{eid}' if cfg['name_style'] == 'entry_eid' else os.path.basename(fname).replace('.html', '')
-        if missing_only and os.path.exists(os.path.join(meta_dir, base + '.json')):
+        if missing_only and meta_exists(meta_dir, base):
             n_skip += 1
             continue
         try:
@@ -765,8 +765,8 @@ def main():
             continue
         # 序列化: {行号: {"kind":..., "confidence":..., "reason":[...]}, mixed 行附 segments}
         out = _serialize(meta)
-        with open(os.path.join(meta_dir, base + '.json'), 'w', encoding='utf-8') as f:
-            json.dump(out, f, ensure_ascii=False)
+        # 已压缩的章保持 .json.gz 形态（meta_dump），新章写 .json
+        meta_dump(meta_dir, base, out)
         n_ok += 1
         cnt = {}
         for v in meta.values():

@@ -267,6 +267,7 @@
      "tests.test_stability",
      "tests.test_thin_shell",
      "tests.test_tm",
+     "tools.fix_hankaku_fast",
      "tools.fix_hankaku_segs",
      "tools.fix_missed_lines",
      "tools.gen_interface_docs",
@@ -701,8 +702,12 @@
      "tools.fix_hankaku_fast",
      "tools.fix_hankaku_segs",
      "tools.fix_missed_lines",
+     "tools.gen_pre_terms_render",
      "tools.line_classify",
      "tools.line_classify_v2",
+     "tools.vision_annotate",
+     "tools.vision_classify",
+     "tools.vision_review",
      "works.fix_touhou_width"
     ],
     "webapp": [],
@@ -3096,6 +3101,7 @@
      "tests.test_stability",
      "tests.test_thin_shell",
      "tests.test_tm",
+     "tools.fix_hankaku_fast",
      "tools.fix_hankaku_segs",
      "tools.fix_missed_lines",
      "tools.gen_needs_render",
@@ -10601,21 +10607,29 @@
    "path": "scripts/tools/compress_text_pkg.py",
    "grade": "tool",
    "cli": [
+    "--all-works",
+    "--force",
     "--keep",
     "--verify",
+    "--what",
     "--work"
    ],
    "argparse": [
+    "--all-works",
+    "--force",
     "--keep",
     "--verify",
+    "--what",
     "--work"
    ],
    "env_vars": [],
    "refs": {
     "imports": [
      "argparse",
+     "glob",
      "gzip",
      "hashlib",
+     "json",
      "os",
      "registry",
      "sys"
@@ -10632,7 +10646,7 @@
    "top_consts": [],
    "dup_functions": [],
    "has_main_guard": true,
-   "docstring": "AA 文本包压缩工具：把指定作品的 aa/*.txt 与 汉化/*_汉化.txt 转成 .txt.gz（透明读写，省磁盘）。"
+   "docstring": "AA 文本 / 元数据包压缩工具：把 .txt / meta .json 转成 .gz（透明读写，省磁盘）。"
   },
   "scripts/tools/edit_server.py": {
    "path": "scripts/tools/edit_server.py",
@@ -10690,6 +10704,7 @@
     "imports": [
      "aa_backend",
      "aa_common",
+     "aa_translate",
      "json",
      "os",
      "re",
@@ -11273,6 +11288,7 @@
    "env_vars": [],
    "refs": {
     "imports": [
+     "aa_common",
      "argparse",
      "gen_aa_html",
      "html",
@@ -12202,6 +12218,7 @@
    "refs": {
     "imports": [
      "PIL",
+     "aa_common",
      "aa_to_images",
      "argparse",
      "json",
@@ -12247,6 +12264,7 @@
    "refs": {
     "imports": [
      "PIL",
+     "aa_common",
      "aa_config",
      "aa_env",
      "aa_to_images",
@@ -12294,6 +12312,7 @@
    "env_vars": [],
    "refs": {
     "imports": [
+     "aa_common",
      "aa_to_images",
      "argparse",
      "json",
@@ -12389,6 +12408,7 @@
      "argparse",
      "collections",
      "glob",
+     "gzip",
      "json",
      "os",
      "sys"

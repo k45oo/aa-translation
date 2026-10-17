@@ -7,7 +7,9 @@ import os, re, sys, json
 
 BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(BASE, "scripts", "common"))
+sys.path.insert(0, os.path.join(BASE, "scripts"))
 from aa_common import disp_width, pad_to_width
+import aa_translate as A
 import aa_backend as AB
 
 WORK_DIR = os.path.join(BASE, "aaManga", "やる夫の生娘シャブ漬け大戦略")
@@ -34,7 +36,7 @@ def main():
         tr = open(os.path.join(OUT, f + "_汉化.txt"), encoding="utf-8").read().split("\n")
         line = src[idx]
         # 从 meta 读 segments, 取 text 段
-        meta = json.load(open(os.path.join(META, f + ".json"), encoding="utf-8"))
+        meta = (A.meta_load(META, f, {}) or {})
         segs = meta.get(str(idx + 1), {}).get("segments", [])
         text_segs = [s for s in segs if s["kind"] == "text" and s.get("confidence", 1.0) >= 0.65]
         if not text_segs:

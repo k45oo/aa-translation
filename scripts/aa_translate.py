@@ -266,14 +266,13 @@ def _text_segment_part(line, segs):
 
 def load_segments_meta(meta_dir, base):
     """加载 v3 line_meta 的 segments：{0-based idx: [seg,...]}（仅 mixed 行有）。
-    文件缺失/无 segments 返回 {}（与 load_meta_segments_0based 返回 None 区分，pass3 用空 dict 判断）。"""
-    path = os.path.join(meta_dir, base + '.json')
+    文件缺失/无 segments 返回 {}（与 load_meta_segments_0based 返回 None 区分，pass3 用空 dict 判断）。
+    .json / .json.gz 透明（meta_path）。"""
+    path = meta_path(meta_dir, base)
     if not os.path.exists(path):
         return {}
-    try:
-        with open(path, encoding='utf-8') as f:
-            raw = json.load(f)
-    except Exception:
+    raw = json_read_any(path, None)
+    if not isinstance(raw, dict):
         return {}
     out = {}
     for k, v in raw.items():
@@ -930,6 +929,92 @@ def prune_backup_dirs(work_dir, prefix, keep=None, quiet=False):
     return n, freed
 
 
+# ---------------------------------------------------------------------------
+# meta / work 内 JSON 资产：.json ⇄ .json.gz 透明读写（2026-10-17 压缩）
+#   line_meta_v2 是只读资产、全库 7.1GB 且高度重复（实测 gzip 后仅 6.8%）；
+#   磁盘可存 <base>.json.gz。**读一律走 meta_path/meta_load/json_read_any、
+#   写走 meta_dump、枚举走 meta_list**——直接 open(...base+'.json') 在压缩后会读不到。
+# ---------------------------------------------------------------------------
+def meta_path(meta_dir, base):
+    """<meta_dir>/<base>.json 或 <base>.json.gz 的实际存在路径（优先 .json）；皆无返回 .json 路径。"""
+    p = os.path.join(meta_dir, base + ".json")
+    if os.path.exists(p):
+        return p
+    gz = p + ".gz"
+    if os.path.exists(gz):
+        return gz
+    return p
+
+
+def json_read_any(path, default=None):
+    """读 .json / .json.gz（透明）。缺失/损坏 → default。"""
+    if not path:
+        return default
+    try:
+        if str(path).endswith(".gz"):
+            with gzip.open(path, "rt", encoding="utf-8") as f:
+                return json.load(f)
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+
+def meta_load(meta_dir, base, default=None):
+    """读 <meta_dir>/<base>.json[.gz] → 对象（缺失/损坏 → default）。"""
+    p = meta_path(meta_dir, base)
+    if not os.path.exists(p):
+        return default
+    return json_read_any(p, default)
+
+
+def meta_exists(meta_dir, base):
+    """meta 文件是否存在（.json / .json.gz 任一）。"""
+    return os.path.exists(os.path.join(meta_dir, base + ".json")) or \
+        os.path.exists(os.path.join(meta_dir, base + ".json.gz"))
+
+
+def meta_dump(meta_dir, base, obj):
+    """写 meta：目标已是 .json.gz 形态就续写 .gz（别把压缩形态还原），否则写 .json。
+
+    写 .json 时顺带删掉同名陈旧 .gz（meta_path 优先 .json，留着会被后续 --keep 压缩
+    之外的旧副本覆盖读取）。返回实际写入路径。
+    """
+    gz = os.path.join(meta_dir, base + ".json.gz")
+    plain = os.path.join(meta_dir, base + ".json")
+    if os.path.exists(gz) and not os.path.exists(plain):
+        with gzip.open(gz, "wt", encoding="utf-8") as f:
+            json.dump(obj, f, ensure_ascii=False)
+        return gz
+    with open(plain, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False)
+    if os.path.exists(gz):
+        try:
+            os.remove(gz)
+        except OSError:
+            pass
+    return plain
+
+
+def meta_list(meta_dir):
+    """目录内所有 meta 的 base 名（.json / .json.gz 都算，去重，升序）。"""
+    try:
+        names = os.listdir(meta_dir)
+    except OSError:
+        return []
+    seen = []
+    for n in sorted(names):
+        if n.endswith(".json.gz"):
+            b = n[:-8]
+        elif n.endswith(".json"):
+            b = n[:-5]
+        else:
+            continue
+        if b not in seen:
+            seen.append(b)
+    return seen
+
+
 def txt_write(path, lines):
     """写 .txt 或 .txt.gz（\n 连接；.gz 走 gzip）。产物同款 CRLF。
 
@@ -966,13 +1051,11 @@ def load_meta_0based(meta_dir, base):
     文件缺失/损坏返回 None（调用方 fallback is_text_line）。
     2026-08-18 反哺⑨: 额外提取 reason → {0-based idx: (kind, reason_str)}——
     mixed 行用 reason 判断是否含真台词(no_dialogue=纯画面不进模型)。"""
-    path = os.path.join(meta_dir, base + '.json')
+    path = meta_path(meta_dir, base)
     if not os.path.exists(path):
         return None
-    try:
-        with open(path, encoding='utf-8') as f:
-            raw = json.load(f)
-    except Exception:
+    raw = json_read_any(path, None)
+    if not isinstance(raw, dict):
         return None
     out = {}
     for k, v in raw.items():
@@ -1776,14 +1859,13 @@ MIXED_SEG_RE = re.compile(r'^(\d{1,5})_(\d{1,3})\|(.*)$')
 
 
 def load_meta_segments_0based(meta_dir, base):
-    """加载 v3 meta 的 segments：{0-based idx: [seg,...]}；仅 mixed 行有。缺失返回 None。"""
-    path = os.path.join(meta_dir, base + '.json')
+    """加载 v3 meta 的 segments：{0-based idx: [seg,...]}；仅 mixed 行有。缺失返回 None。
+    .json / .json.gz 透明（meta_path）。"""
+    path = meta_path(meta_dir, base)
     if not os.path.exists(path):
         return None
-    try:
-        with open(path, encoding='utf-8') as f:
-            raw = json.load(f)
-    except Exception:
+    raw = json_read_any(path, None)
+    if not isinstance(raw, dict):
         return None
     out = {}
     for k, v in raw.items():

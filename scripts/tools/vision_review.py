@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.join(BASE, 'scripts', 'works'))
 import registry
 from sites import fc2 as site
 import aa_to_images as A
+from aa_common import meta_exists, meta_load   # meta 透明读（.json/.json.gz）
 
 # 非艺术日文假名连续段(≥2) = 残留嫌疑; 艺术假名(ヽノー等装饰)不算
 ART_KANA = set('ヽノー=―ゝ丶つだりへぢづゑゐいうしふとこっッ・…‥ニミヘトソンイリムハヾレンソノ' 
@@ -119,10 +120,9 @@ def main():
     for fn in files:
         base = fn.replace('_汉化.txt', '')
         lines = open(os.path.join(cfg['out_dir'], fn), encoding='utf-8').read().split('\n')
-        v2p = os.path.join(cfg['work_dir'], 'line_meta_v2', base + '.json')
-        if not os.path.exists(v2p):
+        if not meta_exists(os.path.join(cfg['work_dir'], 'line_meta_v2'), base):
             continue
-        v2 = json.load(open(v2p, encoding='utf-8'))
+        v2 = meta_load(os.path.join(cfg['work_dir'], 'line_meta_v2'), base, {}) or {}
         hits = scan_chapter(lines, v2)
         if hits:
             print(f"{base}: {len(hits)} 行残留嫌疑", flush=True)

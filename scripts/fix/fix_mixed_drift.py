@@ -49,12 +49,13 @@ def load_chapter(cfg, base):
     work_dir = cfg["work_dir"]
     src_p = os.path.join(aa_dir, base + ".txt")
     tr_p = os.path.join(out_dir, base + "_汉化.txt")
-    meta_p = os.path.join(work_dir, "line_meta_v2", base + ".json")
-    if not all(os.path.exists(p) for p in (src_p, tr_p, meta_p)):
+    meta_dir = os.path.join(work_dir, "line_meta_v2")
+    if not (os.path.exists(T.txt_existing(src_p)) and os.path.exists(T.txt_existing(tr_p))
+            and T.meta_exists(meta_dir, base)):
         return None
-    src = open(src_p, encoding="utf-8").read().split("\n")
-    tr = open(tr_p, encoding="utf-8").read().split("\n")
-    meta = json.load(open(meta_p, encoding="utf-8"))
+    src = T.txt_read(src_p)
+    tr = T.txt_read(tr_p)
+    meta = T.meta_load(meta_dir, base, {}) or {}
     segmap = {}
     for k, v in meta.items():
         if not isinstance(v, dict) or not v.get("segments"):

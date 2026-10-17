@@ -1194,14 +1194,15 @@ def refine_chapter(cfg, base, do_write=False, review_inline=False):
     aa_dir, out_dir, work_dir = cfg["aa_dir"], cfg["out_dir"], cfg["work_dir"]
     src_p = os.path.join(aa_dir, base + ".txt")
     tr_p = os.path.join(out_dir, base + "_汉化.txt")
-    meta_p = os.path.join(work_dir, "line_meta_v2", base + ".json")
-    if not all(os.path.exists(p) for p in (src_p, tr_p, meta_p)):
+    meta_dir = os.path.join(work_dir, "line_meta_v2")
+    if not (os.path.exists(T.txt_existing(src_p)) and os.path.exists(T.txt_existing(tr_p))
+            and T.meta_exists(meta_dir, base)):
         return base, {"skipped": 1}, []
-    src = open(src_p, encoding="utf-8").read().split("\n")
-    tr = open(tr_p, encoding="utf-8").read().split("\n")
-    meta = json.load(open(meta_p, encoding="utf-8"))
+    src = T.txt_read(src_p)
+    tr = T.txt_read(tr_p)
+    meta = T.meta_load(meta_dir, base, {}) or {}
     # 2026-10-10: 行级艺术闸门用 0-based meta（kind/reason），与主链同一份判据
-    _meta0 = T.load_meta_0based(os.path.join(work_dir, "line_meta_v2"), base)
+    _meta0 = T.load_meta_0based(meta_dir, base)
     if len(src) != len(tr):
         return base, {"skip_len": f"{len(src)}!={len(tr)}"}, []
 

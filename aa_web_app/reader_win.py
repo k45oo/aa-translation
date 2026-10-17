@@ -18,6 +18,7 @@
 """
 import importlib
 import json
+import gzip
 import os
 import sys
 import time
@@ -52,7 +53,7 @@ def _aux_paths(cfg, base):
     wd, aa, out = cfg["work_dir"], cfg["aa_dir"], cfg["out_dir"]
     return {
         "cm": os.path.join(aa, base + "_colormap.json"),
-        "meta": os.path.join(wd, "line_meta_v2", base + ".json"),
+        "meta": logic.meta_path(os.path.join(wd, "line_meta_v2"), base),
         "sfx": os.path.join(wd, "sfx_marks", base + ".json"),
         "gold": os.path.join(wd, "gold_dialogue", base + ".json"),
         "overrides": os.path.join(wd, "line_meta_overrides", base + ".json"),
@@ -63,6 +64,9 @@ def _load_json(path):
     if not path or not os.path.exists(path):
         return {}
     try:
+        if str(path).endswith(".gz"):
+            with gzip.open(path, "rt", encoding="utf-8") as f:
+                return json.load(f) or {}
         with open(path, encoding="utf-8") as f:
             return json.load(f) or {}
     except Exception:
