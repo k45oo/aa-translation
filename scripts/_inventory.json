@@ -1,12 +1,12 @@
 {
  "generated_at": null,
  "stats": {
-  "total": 331,
+  "total": 333,
   "legacy": 108,
   "core": 80,
-  "tool": 64,
+  "tool": 65,
   "deprecated_candidate": 0,
-  "test": 79,
+  "test": 80,
   "hardcoded": 32,
   "top_consts": 49,
   "dup_function_counts": {
@@ -177,6 +177,7 @@
      "common.pokemon_fixed",
      "common.pre_terms",
      "common.scan_line_drift",
+     "fix.audit_alignment",
      "fix.fix_delivered_terms",
      "fix.fix_lead_kanji_miss",
      "fix.fix_mixed_drift",
@@ -242,6 +243,7 @@
      "runner.translate_runner",
      "tests.test_art_kana",
      "tests.test_art_veto",
+     "tests.test_audit_alignment",
      "tests.test_backup_prune",
      "tests.test_endpoint_pin",
      "tests.test_fix_lead_kanji",
@@ -748,6 +750,7 @@
      "common.r401_index",
      "common.term_web_verify",
      "common.yaruobook_index",
+     "fix.audit_alignment",
      "fix.refine_aa",
      "fix.refix_mixed_segs",
      "legacy.refill_manual_saki",
@@ -2301,7 +2304,9 @@
     "--work",
     "--work-ip"
    ],
-   "env_vars": [],
+   "env_vars": [
+    "AA_WEB_VERIFY_DELAY"
+   ],
    "refs": {
     "imports": [
      "aa_backend",
@@ -2323,6 +2328,7 @@
     "webapp": [],
     "docs": [
      "AGENTS.md",
+     "doc/接口文档.md",
      "doc/方案归档/候选联网核名与出处高亮方案_2026-10-15.md"
     ]
    },
@@ -2403,6 +2409,73 @@
    "dup_functions": [],
    "has_main_guard": true,
    "docstring": "网站目录读取：やる夫スレ本棚系列站 作品/章节发现工具（三站格式一致）。"
+  },
+  "scripts/fix/audit_alignment.py": {
+   "path": "scripts/fix/audit_alignment.py",
+   "grade": "tool",
+   "cli": [
+    "--all",
+    "--apply",
+    "--backend",
+    "--base",
+    "--batch",
+    "--dry-run",
+    "--eids",
+    "--limit",
+    "--report",
+    "--resume",
+    "--work",
+    "--workers",
+    "-j"
+   ],
+   "argparse": [
+    "--all",
+    "--apply",
+    "--backend",
+    "--base",
+    "--batch",
+    "--dry-run",
+    "--eids",
+    "--limit",
+    "--report",
+    "--resume",
+    "--work",
+    "--workers",
+    "-j"
+   ],
+   "env_vars": [
+    "AA_AUDIT_IN_WORKERS"
+   ],
+   "refs": {
+    "imports": [
+     "aa_config",
+     "aa_translate",
+     "argparse",
+     "concurrent",
+     "difflib",
+     "json",
+     "os",
+     "re",
+     "registry",
+     "shutil",
+     "subprocess",
+     "sys",
+     "time"
+    ],
+    "subprocess": [],
+    "referenced_by": [
+     "tests.test_audit_alignment",
+     "tools.gen_inventory"
+    ],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "audit_alignment: 对齐审计 + 定向回修（治「模型块内串行错位」）。"
   },
   "scripts/fix/backfill_aa_comments.py": {
    "path": "scripts/fix/backfill_aa_comments.py",
@@ -2882,6 +2955,7 @@
      "common.pokemon_fixed",
      "common.pre_terms",
      "common.scan_line_drift",
+     "fix.audit_alignment",
      "fix.fix_delivered_terms",
      "fix.fix_lead_kanji_miss",
      "fix.fix_mixed_drift",
@@ -2946,6 +3020,7 @@
      "runner.refine_runner",
      "tests.test_art_kana",
      "tests.test_art_veto",
+     "tests.test_audit_alignment",
      "tests.test_backup_prune",
      "tests.test_fix_lead_kanji",
      "tests.test_line_meta",
@@ -7568,6 +7643,35 @@
    "has_main_guard": true,
    "docstring": "艺术行否决（art_line_veto / AA_ART_VETO）单元测试。零依赖 unittest。"
   },
+  "scripts/tests/test_audit_alignment.py": {
+   "path": "scripts/tests/test_audit_alignment.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_translate",
+     "audit_alignment",
+     "json",
+     "os",
+     "shutil",
+     "sys",
+     "tempfile",
+     "unittest"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "对齐审计（scripts/fix/audit_alignment.py）：判据 + 写盘护栏。"
+  },
   "scripts/tests/test_author_meta.py": {
    "path": "scripts/tests/test_author_meta.py",
    "grade": "test",
@@ -9395,7 +9499,8 @@
      "sys",
      "tempfile",
      "term_web_verify",
-     "unittest"
+     "unittest",
+     "urllib"
     ],
     "subprocess": [],
     "referenced_by": [],
@@ -10611,6 +10716,7 @@
     ],
     "subprocess": [
      "aa_translate.py",
+     "fix/audit_alignment.py",
      "fix/backfill_aa_comments.py",
      "fix/fix_delivered_terms.py",
      "fix/fix_lead_kanji_miss.py",
@@ -10620,6 +10726,7 @@
      "fix/retranslate_lines.py",
      "pokemon_runner.py",
      "scripts/aa_translate.py",
+     "scripts/fix/audit_alignment.py",
      "scripts/fix/backfill_aa_comments.py",
      "scripts/fix/fix_delivered_terms.py",
      "scripts/fix/fix_lead_kanji_miss.py",
@@ -12451,6 +12558,7 @@
      "common.screen_term_pool",
      "common.term_web_verify",
      "common.work_pipeline",
+     "fix.audit_alignment",
      "fix.fix_delivered_terms",
      "fix.fix_lead_kanji_miss",
      "fix.fix_mixed_drift",
