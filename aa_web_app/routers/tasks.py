@@ -71,8 +71,10 @@ def translate_page(request: Request, work: str):
                                      os.path.join(cfg["work_dir"], "chapter_order.json"))
     chs = []
     for c in chapters or []:
-        tr_path = os.path.join(tr_dir, c["tr_file"])
-        translated = os.path.exists(tr_path)
+        # 2026-10-17: 压缩感知——磁盘可能是 <tr_file>.gz，直接 join 判存在会把**每一章**都算成未译
+        # （校对页因此「读不到章节」：列不出可校对章）。
+        tr_path = logic.txt_path(tr_dir, c["tr_file"])
+        translated = bool(c.get("has_tr")) or os.path.exists(tr_path)
         chs.append({
             "src_file": c["src_file"], "tr_file": c["tr_file"],
             "title": c.get("title") or c["src_file"],
@@ -94,8 +96,10 @@ def proofread_page(request: Request, work: str):
                                      os.path.join(cfg["work_dir"], "chapter_order.json"))
     chs = []
     for c in chapters or []:
-        tr_path = os.path.join(tr_dir, c["tr_file"])
-        translated = os.path.exists(tr_path)
+        # 2026-10-17: 压缩感知——磁盘可能是 <tr_file>.gz，直接 join 判存在会把**每一章**都算成未译
+        # （校对页因此「读不到章节」：列不出可校对章）。
+        tr_path = logic.txt_path(tr_dir, c["tr_file"])
+        translated = bool(c.get("has_tr")) or os.path.exists(tr_path)
         chs.append({
             "src_file": c["src_file"], "tr_file": c["tr_file"],
             "title": c.get("title") or c["src_file"],

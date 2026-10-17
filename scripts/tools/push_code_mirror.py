@@ -14,7 +14,9 @@ r"""生成「脱敏代码镜像」并推送到裸仓库（默认 `origin`，即 
 原因：全量重建每条提交要「导出 → 脱敏重写整棵快照 → 门禁全量扫 → 提交」，实测 ≈20s/条
 （426 文件/56MB × N 条），而多数提交上次已推过、内容没变，重跑纯属浪费。
 底座识别 = 状态文件（`temp/mirror_state.json`，不进镜像）→ 否则拿镜像 tip 的
-(脱敏说明, 作者/提交时间) 对号 + **树逐文件校验**（不一致就回退全量重建，兼容本地 rebase/amend）。
+(脱敏说明, 作者/提交时间) 对号 + **树逐文件校验**。
+**认不出底座 = 拒绝推送（rc=3），不自动全量重建**（2026-10-17 用户指定：镜像禁止全量；
+本地 rebase/amend 过、镜像被别处改写都属这种情况 → 要么先把历史对齐，要么显式 `--full`）。
 门禁只对**新提交**跑；push 用普通 fast-forward（非 ff 就报错让重跑，不静默覆盖）。
 
 用法（从仓库根运行）：
@@ -522,9 +524,12 @@ def push_history(dst, remote, branch, n, max_mb, dry_run=False):
 # 而其中大多是上次已推过、内容没变的历史，重跑纯属浪费。
 #
 # 底座怎么认：镜像里的提交保留**原提交说明与作者/提交时间**（脱敏后），所以拿远端 tip 的
-# (脱敏说明, 提交时间) 去本地历史对号，再**用树逐文件比对**确认（远端树 vs 该提交的脱敏快照）；
-# 对不上就回退全量重建（本地 rebase/amend 过 → 自愈）。命中后记 `temp/mirror_state.json`
-# （不进镜像），下次直接命中，0 秒认底座。
+# (脱敏说明, 提交时间) 去本地历史对号，再**用树逐文件比对**确认（远端树 vs 该提交的脱敏快照）。
+# 命中后记 `temp/mirror_state.json`（不进镜像），下次直接命中，0 秒认底座。
+#
+# **认不出底座 = 拒绝推送，不自动全量重建（2026-10-17 用户指定）**：早先的实现会「没底座 →
+# 回退 push_history（force）」，等于一次静默的全量重放 + 覆盖镜像历史（≈20s/条）。现在改为
+# 打印原因 + 退出码 3，只有显式 `--full` 才重建。
 # 门禁只对**新提交**跑（旧提交当初推送时已过门禁）；push 走普通 fast-forward，**不用 --force**
 # （镜像被别处改过就报错让重跑，不静默覆盖；真要重建用 --full）。
 # ---------------------------------------------------------------------------
@@ -646,8 +651,15 @@ def push_incremental(dst, remote, branch, max_mb, history, dry_run=False):
         return push_history(dst, remote, branch, history, max_mb, dry_run=dry_run)
     base, how = find_base(remote, branch, mirror_tip)
     if not base:
-        print(f"增量同步：没找到底座（{how}）→ 回退全量重建（force push）")
-        return push_history(dst, remote, branch, history, max_mb, dry_run=dry_run)
+        # 2026-10-17 用户指定：**镜像禁止全量重建**——认不出底座就拒绝推送、报错退出（rc=3），
+        # 绝不静默 force push 覆盖镜像历史（全量重放每条 ≈20s，且会改写镜像的提交链）。
+        print(f"❌ 增量同步：没找到底座（{how}）——本工具【禁止全量重建】，本次不推送（镜像未改动）。",
+              file=sys.stderr)
+        print("   常见原因：本地 rebase/amend 过、镜像被别处改写、镜像用了不同的脱敏规则。",
+              file=sys.stderr)
+        print("   要覆盖镜像历史必须**显式**跑（会 force push）：", file=sys.stderr)
+        print("       python scripts/tools/push_code_mirror.py --full [--history N]", file=sys.stderr)
+        return False, "" 
     print(f"增量同步：底座 = 本地 {base[:7]} ↔ 镜像 {mirror_tip[:7]}（{how}）")
     todo = new_commits_after(base)
     if not todo:
@@ -917,7 +929,8 @@ def main():
                     help=f"全量重建时重放最近 N 条本地提交（默认 {HISTORY_DEFAULT}）；"
                          f"0 = 旧行为（单提交快照，时间固定为当天 00:00）")
     ap.add_argument("--full", action="store_true",
-                    help="强制全量重建历史（默认**增量**：只重放镜像还没有的提交，叠在镜像现有 tip 上）")
+                    help="强制全量重建历史（**显式覆盖镜像**；默认**增量**：只重放镜像还没有的提交，"
+             "认不出底座时默认拒绝推送、不会自动重建）")
     args = ap.parse_args()
 
     remote = _resolve_remote(args.remote)

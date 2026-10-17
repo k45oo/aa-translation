@@ -1074,12 +1074,24 @@ def txt_file_sha1(path):
 
     压缩前后必须相等（gzip 写的是原字节），否则 refine_ckpt / estimate / cand_hits 的
     「指纹未变→零调用跳过」全部失效 → 全库重校对（花钱）。缺失返回 ""。
+
+    **路径同样透明**（2026-10-17 修）：调用方普遍传**规范名** `.../<base>.txt`，而磁盘是
+    `.txt.gz` —— 旧实现只认「已经是 .gz 结尾」的路径，于是压缩后一律返回 ""，
+    `refine_aa._ckpt_ok` 判「拿不到指纹」= 每章重校对（静默烧钱）。现在与
+    `txt_read`/`txt_existing` 同口径：`.gz` 结尾直接读；否则原路径存在读原路径、不存在则
+    试 `<path>.gz`；都没有返回 ""。
     """
     import hashlib as _hl
     if not path:
         return ""
+    path = str(path)
+    if not path.endswith(".gz"):
+        if not os.path.exists(path):
+            _gz = path + ".gz"
+            if os.path.exists(_gz):
+                path = _gz
     try:
-        if str(path).endswith(".gz"):
+        if path.endswith(".gz"):
             with gzip.open(path, "rb") as f:
                 data = f.read()
         else:

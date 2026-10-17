@@ -1,12 +1,12 @@
 {
  "generated_at": null,
  "stats": {
-  "total": 338,
+  "total": 339,
   "legacy": 108,
   "core": 80,
   "tool": 66,
   "deprecated_candidate": 0,
-  "test": 84,
+  "test": 85,
   "hardcoded": 32,
   "top_consts": 49,
   "dup_function_counts": {
@@ -267,6 +267,7 @@
      "tests.test_stability",
      "tests.test_thin_shell",
      "tests.test_tm",
+     "tests.test_txt_gz",
      "tools.fix_hankaku_fast",
      "tools.fix_hankaku_segs",
      "tools.fix_missed_lines",
@@ -291,6 +292,7 @@
      "doc/图片版归档/03_反哺与归档/图片嵌字反哺翻译流程方案_2026-08-18.md",
      "doc/接口文档.md",
      "doc/方案归档/R18分级与章节级判定方案_2026-08-24.md",
+     "doc/方案归档/aaManga冗余数据清理与meta压缩_2026-10-17.md",
      "doc/方案归档/mixed左侧台词错位优化方案_2026-09-01.md",
      "doc/方案归档/refine_aa独立精译流程方案_2026-09-06.md",
      "doc/方案归档/token成本优化方案_2026-09-15.md",
@@ -675,12 +677,18 @@
     ],
     "subprocess": [],
     "referenced_by": [
+     "common.aa_tm",
      "common.analyze_mismatch",
+     "common.chapter_prep",
      "common.extract_dialogue",
      "common.fix_width",
      "common.gen_aa_html",
+     "common.gen_chapter_summaries",
+     "common.gen_glossary_ai",
+     "common.iter_glossary",
      "common.pass2",
      "common.pass3",
+     "common.scan_role_residual",
      "common.scan_width",
      "fix.fix_delivered_terms",
      "fix.fix_mixed_drift",
@@ -698,13 +706,17 @@
      "tests.test_pad_norm",
      "tests.test_pipeline",
      "tests.test_thin_shell",
+     "tests.test_txt_gz",
      "tools.aa_to_images",
+     "tools.calibrate_art_kana",
      "tools.fix_hankaku_fast",
      "tools.fix_hankaku_segs",
      "tools.fix_missed_lines",
+     "tools.gen_meta_batch",
      "tools.gen_pre_terms_render",
      "tools.line_classify",
      "tools.line_classify_v2",
+     "tools.translate_titles",
      "tools.vision_annotate",
      "tools.vision_classify",
      "tools.vision_review",
@@ -1004,6 +1016,7 @@
    ],
    "refs": {
     "imports": [
+     "aa_common",
      "aa_translate",
      "glob",
      "hashlib",
@@ -1062,6 +1075,7 @@
      "doc/图片版归档/03_反哺与归档/图片嵌字反哺翻译流程方案_2026-08-18.md",
      "doc/接口文档.md",
      "doc/方案归档/R18分级与章节级判定方案_2026-08-24.md",
+     "doc/方案归档/aaManga冗余数据清理与meta压缩_2026-10-17.md",
      "doc/方案归档/mixed左侧台词错位优化方案_2026-09-01.md",
      "doc/方案归档/refine_aa独立精译流程方案_2026-09-06.md",
      "doc/方案归档/token成本优化方案_2026-09-15.md",
@@ -1247,6 +1261,7 @@
    "refs": {
     "imports": [
      "aa_api",
+     "aa_common",
      "argparse",
      "collections",
      "glob",
@@ -1548,6 +1563,7 @@
    "refs": {
     "imports": [
      "aa_backend",
+     "aa_common",
      "argparse",
      "extract_dialogue",
      "gen_work_glossary",
@@ -1643,6 +1659,7 @@
    "refs": {
     "imports": [
      "aa_api",
+     "aa_common",
      "argparse",
      "build_term_pool",
      "collections",
@@ -1695,6 +1712,7 @@
    "refs": {
     "imports": [
      "argparse",
+     "gzip",
      "json",
      "os",
      "registry",
@@ -1785,6 +1803,7 @@
    "refs": {
     "imports": [
      "aa_api",
+     "aa_common",
      "argparse",
      "collections",
      "gen_glossary_ai",
@@ -1979,6 +1998,7 @@
     "imports": [
      "aa_translate",
      "collections",
+     "gzip",
      "json",
      "os",
      "pokemon_fixed",
@@ -2139,6 +2159,7 @@
    "env_vars": [],
    "refs": {
     "imports": [
+     "aa_common",
      "collections",
      "json",
      "os",
@@ -2649,6 +2670,7 @@
     "docs": [
      "AGENTS.md",
      "doc/接口文档.md",
+     "doc/方案归档/aaManga冗余数据清理与meta压缩_2026-10-17.md",
      "doc/方案归档/refine_aa独立精译流程方案_2026-09-06.md",
      "doc/方案归档/refine_aa短台词错位修复方案_2026-09-06.md",
      "scripts/README.md"
@@ -2763,6 +2785,7 @@
      "tests.test_refine_line_guard",
      "tests.test_refine_parallel",
      "tests.test_task_display",
+     "tests.test_txt_gz",
      "tools.gen_inventory"
     ],
     "webapp": [
@@ -2772,6 +2795,7 @@
      "AGENTS.md",
      "doc/工作台使用说明.md",
      "doc/接口文档.md",
+     "doc/方案归档/aaManga冗余数据清理与meta压缩_2026-10-17.md",
      "doc/方案归档/refine_aa优化方案_2026-10-03.md",
      "doc/方案归档/refine_aa独立精译流程方案_2026-09-06.md",
      "doc/方案归档/refine_aa短台词错位修复方案_2026-09-06.md",
@@ -3101,6 +3125,7 @@
      "tests.test_stability",
      "tests.test_thin_shell",
      "tests.test_tm",
+     "tests.test_txt_gz",
      "tools.fix_hankaku_fast",
      "tools.fix_hankaku_segs",
      "tools.fix_missed_lines",
@@ -3123,6 +3148,7 @@
      "doc/图片版归档/03_反哺与归档/图片嵌字反哺翻译流程方案_2026-08-18.md",
      "doc/接口文档.md",
      "doc/方案归档/R18分级与章节级判定方案_2026-08-24.md",
+     "doc/方案归档/aaManga冗余数据清理与meta压缩_2026-10-17.md",
      "doc/方案归档/mixed左侧台词错位优化方案_2026-09-01.md",
      "doc/方案归档/refine_aa独立精译流程方案_2026-09-06.md",
      "doc/方案归档/token成本优化方案_2026-09-15.md",
@@ -7822,7 +7848,7 @@
    "top_consts": [],
    "dup_functions": [],
    "has_main_guard": true,
-   "docstring": "备份目录保留策略（2026-10-01 用户指定：同类 `backup_<kind>_<ts>/` 只保留最近 2 次运行）。"
+   "docstring": "备份目录保留策略（2026-10-17 用户指定：同类 `backup_<kind>_<ts>/` 只保留最近 1 次运行）。"
   },
   "scripts/tests/test_board_runner.py": {
    "path": "scripts/tests/test_board_runner.py",
@@ -9752,6 +9778,39 @@
    "has_main_guard": true,
    "docstring": "TM（翻译记忆）单测（2026-09-15 P3）。"
   },
+  "scripts/tests/test_txt_gz.py": {
+   "path": "scripts/tests/test_txt_gz.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_common",
+     "aa_translate",
+     "gzip",
+     "hashlib",
+     "io",
+     "json",
+     "os",
+     "refine_aa",
+     "shutil",
+     "sys",
+     "tempfile",
+     "unittest"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "压缩文本包（.txt.gz）透明层单测 —— 2026-10-17 全库压缩后的口径守护。"
+  },
   "scripts/tests/test_update_chain.py": {
    "path": "scripts/tests/test_update_chain.py",
    "grade": "test",
@@ -10110,6 +10169,7 @@
    "refs": {
     "imports": [
      "argparse",
+     "gzip",
      "os",
      "re",
      "registry",
@@ -10182,6 +10242,7 @@
      "doc/图片版归档/01_嵌字方案与实验/图片版字体加大方案演进_2026-08-14.md",
      "doc/图片版归档/01_嵌字方案与实验/图片版用户楼加大方案_M15_2026-08-14.md",
      "doc/接口文档.md",
+     "doc/方案归档/aaManga冗余数据清理与meta压缩_2026-10-17.md",
      "doc/方案归档/艺术行否决与AA字体内嵌_2026-10-08.md",
      "scripts/README.md"
     ]
@@ -10513,6 +10574,7 @@
    "refs": {
     "imports": [
      "aa_art_kana",
+     "aa_common",
      "argparse",
      "glob",
      "gzip",
@@ -10638,7 +10700,9 @@
     "referenced_by": [],
     "webapp": [],
     "docs": [
-     "doc/接口文档.md"
+     "AGENTS.md",
+     "doc/接口文档.md",
+     "doc/方案归档/aaManga冗余数据清理与meta压缩_2026-10-17.md"
     ]
    },
    "dup_of": null,
@@ -10745,7 +10809,8 @@
     "referenced_by": [],
     "webapp": [],
     "docs": [
-     "doc/接口文档.md"
+     "doc/接口文档.md",
+     "doc/方案归档/aaManga冗余数据清理与meta压缩_2026-10-17.md"
     ]
    },
    "dup_of": null,
@@ -11017,6 +11082,7 @@
    "env_vars": [],
    "refs": {
     "imports": [
+     "aa_common",
      "argparse",
      "concurrent",
      "importlib",
@@ -11303,7 +11369,8 @@
     "referenced_by": [],
     "webapp": [],
     "docs": [
-     "doc/接口文档.md"
+     "doc/接口文档.md",
+     "doc/方案归档/aaManga冗余数据清理与meta压缩_2026-10-17.md"
     ]
    },
    "dup_of": null,
@@ -11574,6 +11641,7 @@
      "doc/同步记录.md",
      "doc/图片版归档/01_嵌字方案与实验/图片版字体加大_行分类override_设计方案_2026-08-13.md",
      "doc/接口文档.md",
+     "doc/方案归档/aaManga冗余数据清理与meta压缩_2026-10-17.md",
      "doc/方案归档/refine_aa独立精译流程方案_2026-09-06.md",
      "doc/方案归档/台词提取与精译设计_2026-08-29.md",
      "doc/方案归档/台词门禁调优方案_2026-08-29.md",
@@ -11981,6 +12049,7 @@
     "docs": [
      "AGENTS.md",
      "doc/接口文档.md",
+     "doc/方案归档/aaManga冗余数据清理与meta压缩_2026-10-17.md",
      "doc/方案归档/main拆分方案_2026-10-14.md",
      "doc/方案归档/候选联网核名与出处高亮方案_2026-10-15.md",
      "scripts/README.md"
@@ -12055,6 +12124,7 @@
    "refs": {
     "imports": [
      "aa_api",
+     "aa_common",
      "argparse",
      "glob",
      "json",
@@ -12231,7 +12301,8 @@
     "referenced_by": [],
     "webapp": [],
     "docs": [
-     "doc/接口文档.md"
+     "doc/接口文档.md",
+     "doc/方案归档/aaManga冗余数据清理与meta压缩_2026-10-17.md"
     ]
    },
    "dup_of": null,
@@ -12420,6 +12491,7 @@
     "webapp": [],
     "docs": [
      "doc/接口文档.md",
+     "doc/方案归档/aaManga冗余数据清理与meta压缩_2026-10-17.md",
      "doc/方案归档/模型配置统一化方案_2026-08-19.md",
      "doc/翻译优化验收归档/02_交付总结/M0-M5_完整总结报告.md",
      "doc/翻译优化验收归档/README.md",
@@ -12467,6 +12539,7 @@
     "webapp": [],
     "docs": [
      "doc/接口文档.md",
+     "doc/方案归档/aaManga冗余数据清理与meta压缩_2026-10-17.md",
      "doc/翻译优化验收归档/01_需求与基线/统计对比报告.md",
      "doc/翻译优化验收归档/02_交付总结/M0-M5_完整总结报告.md",
      "doc/翻译优化验收归档/README.md",

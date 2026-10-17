@@ -5,7 +5,7 @@
   ① 首次推送（镜像还没有该分支）→ 全量重建，之后有新提交 → 增量只重放新提交（远端历史保留、叠加）
   ② 没有新提交 → 不推送、报「已是最新」，远端 tip 不变
   ③ 状态文件丢了也能认出底座（说明+时间对号 + 树校验）
-  ④ 镜像历史被别处改写 → 认不出底座 → 回退全量重建（force push，自愈）
+  ④ 镜像历史被别处改写 → 认不出底座 → **拒绝推送**（rc=3，镜像一字未动；镜像禁止全量重建）
   ⑤ `--full` 强制全量重建（走 main() 的真实分发）
 
 用小假仓库（白名单里就 scripts/ + LICENSE）跑真 git 操作，几十毫秒级。
@@ -133,7 +133,7 @@ class TestMirrorIncremental(unittest.TestCase):
         self.assertEqual(git(self.remote, "rev-parse", "main^").stdout.strip(), tip1)
         self.assertEqual(self._remote_log(), ["第二条提交", "第一条提交"])
 
-    def test_镜像历史被改写则回退全量重建(self):
+    def test_镜像历史被改写则拒绝推送(self):
         self.assertTrue(self._push()[0])
         # 别处把镜像分支改成了一段无关历史
         other = os.path.join(self.tmp, "other")
@@ -145,10 +145,13 @@ class TestMirrorIncremental(unittest.TestCase):
         git(other, "commit", "-q", "-m", "无关历史")
         git(other, "push", "-q", "--force", self.remote, "main:main")
         os.remove(os.path.join(self.repo, "temp", "mirror_state.json"))
+        tip_before = self._remote_tip()
         ok, _h, out = self._push()
-        self.assertTrue(ok, out)
-        self.assertIn("回退全量重建", out)
-        self.assertEqual(self._remote_log(), ["第一条提交"])     # 重建成本地历史
+        # 2026-10-17 用户口径：认不出底座 = 拒绝推送（不自动全量重建、不 force 覆盖镜像）
+        self.assertFalse(ok, out)
+        self.assertEqual(git(self.remote, "log", "--format=%s", "main").stdout.strip(), "无关历史",
+                         "镜像必须一字未动（拿来当「不许 force 覆盖」的断言）")
+        self.assertEqual(self._remote_tip(), tip_before)
 
     def test_full走main强制全量重建(self):
         self.assertTrue(self._push()[0])
