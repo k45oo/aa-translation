@@ -36,10 +36,13 @@ import registry                   # noqa: E402
 NUM = re.compile(r'[0-9０-９]+(?:[.．/／\-－～~][0-9０-９]+)+')
 # ① 插词：数字 + 分隔符 + **汉字串** + 数字（模型把数字当句末，在中间插了词：
 #    `1.变成了1倍`、`1/都说到3`、`3-是3`、`1.无视1倍`）。修法=删掉这段汉字（要求全是汉字）。
-INSERT = re.compile(r'(?<=[0-9０-９])([.．/／\-－～~])([一-龥]{1,6})(?=[0-9０-９])')
+INSERT = re.compile(r'(?<=[0-9０-９])([.．/／\-－～~])([一-龥]{1,8})(?=[0-9０-９])')
 # ② 补位：数字内部夹了空白
 PAD_IN = re.compile(r'([0-9０-９])[ \u3000]+([.．/／\-－～~])[ \u3000]*([0-9０-９])')
 KANA = re.compile(r'[\u3041-\u309f\u30a1-\u30fa]')
+# 三类坏值指纹（用于区分「本次修法该管的行」与「数字被合法意译」的行，如 1/3→三分之一）
+FP_INSERT = re.compile(r'[0-9０-９]\s*[.．/／\-－～~]\s*[一-龥]')
+FP_PAD = re.compile(r'[0-9０-９][ \u3000]+[.．][0-9０-９]')
 
 
 def _kana_runs(s):
@@ -83,6 +86,7 @@ def repair_line(src, zh):
 def scan(work, cfg):
     aa_dir, out_dir = cfg["aa_dir"], cfg["out_dir"]
     rows = []
+    skipped = 0
     for fn in sorted(os.listdir(aa_dir)):
         if not fn.endswith('.txt') or fn.endswith('_台词.txt'):
             continue
@@ -106,10 +110,13 @@ def scan(work, cfg):
             if new and new != z:
                 rows.append({"base": base, "line": i, "cur": z, "new": new, "why": "",
                              "kind": "数字被切", "src": s})
-            elif why != '数字记号已完整':
+            elif why != '数字记号已完整' and (FP_INSERT.search(z) or FP_PAD.search(z)):
+                # 有坏值指纹但机械修不了（数字被换词/吃掉）→ 交重译
                 rows.append({"base": base, "line": i, "cur": z, "new": "", "why": why,
                              "kind": "数字被切", "src": s})
-    return rows
+            else:
+                skipped += 1        # 数字不见了但无坏值指纹：多为合法意译（1/3→三分之一），不管
+    return rows, skipped
 
 
 def main():
@@ -120,10 +127,11 @@ def main():
     a = ap.parse_args()
     cfg = registry.get(a.work)
     T.WORK_ID = a.work
-    rows = scan(a.work, cfg)
+    rows, skipped = scan(a.work, cfg)
     ok = [r for r in rows if not r["why"]]
     todo = [r for r in rows if r["why"]]
-    print(f"[fix_num_split] {a.work}: 机械可修 {len(ok)} 行 | 交重译 {len(todo)} 行")
+    print(f"[fix_num_split] {a.work}: 机械可修 {len(ok)} 行 | 交重译 {len(todo)} 行"
+          f" | 数字形变但无坏值指纹（多为合法意译，如 1/3→三分之一）{skipped} 行")
     for r in ok[:10]:
         print(f"  {r['base']}:{r['line'] + 1}")
         print(f"     OLD: {r['cur'].strip()[:90]}")
