@@ -128,3 +128,34 @@ class TestSegmentLineNumeric(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestArtAnchorNumeric(unittest.TestCase):
+    """记数记号不是 art 列锚点（2026-10-17）。
+
+    `（1.2倍）` 的 `（`/`.`/`）` 与 `1/3` 的 `/` 都在 `_ART_STROKE_CHARS` 里，会被当 art 锚点 →
+    中文译文必然把它们左移 → `art_stroke_preserved` 判失败 → **整行合法译文被拒**
+    （实测 entry_37124:413 的 `（1.2倍）` 三次重译全被拒、成品留日文+「1.翻倍」）。
+    """
+
+    def test_括号数字不再当锚点(self):
+        src = " 味方の繰り出す「パンチ」等の技の命中率を強化（1.2倍）する。"
+        cand = " 强化我方使出的「拳」等招式的命中率（1.2倍）。"
+        self.assertTrue(T.art_stroke_preserved(src, cand))
+
+    def test_纯艺术行里的数字仍是笔画(self):
+        # 两侧是 art/空白 → 不豁免（画面里的数字照样守列位）
+        src = " ／⌒＼　1/3　＼／　"
+        cand = " ／⌒＼　三分之一　＼／　"
+        self.assertFalse(T.art_stroke_preserved(src, cand))
+
+    def test_真笔画位移仍抓得到(self):
+        self.assertFalse(T.art_stroke_preserved(" ／＼　　　│││　", " ／＼│││　"))
+
+    def test_区域覆盖紧贴括号与百分号(self):
+        regs = T._numeric_regions(" 効果は（1.5倍）です ")
+        seg = " 効果は（1.5倍）です "
+        self.assertTrue(regs, "（1.5倍）应被认成记数记号")
+        a, b = regs[0]
+        self.assertIn('（', seg[a:b])
+        self.assertIn('）', seg[a:b])

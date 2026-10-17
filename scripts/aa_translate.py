@@ -702,11 +702,53 @@ def _is_dialogue_char(c):
             or c in '。、…「」『』！？～×※・—')
 
 
+def _numeric_regions(line):
+    """行内「记数记号」的字符区间 [start,end)（含紧贴的括号/百分号）——这些不是笔画（2026-10-17）。
+
+    词头 rescue 的姊妹修正：`（1.2倍）` 的 `（`/`.`/`）` 与 `1/3` 的 `/` 都在 `_ART_STROKE_CHARS`
+    里，会被当成 art 列锚点 → 中文译文必然把它们左移（中文更短）→ `art_stroke_preserved` 判失败 →
+    **整行合法译文被拒**（落 review_inline/半翻，实测 entry_37124:413 的 `（1.2倍）` 三次重译全被拒）。
+    判据与 `tools/line_classify_v2._rescue_inline_numeric` 同源：数字串必须**紧贴非 art 文本**
+    才算记数（纯艺术行里的数字仍是笔画，不豁免）。
+    """
+    try:
+        _tools = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
+        if _tools not in sys.path:
+            sys.path.insert(0, _tools)
+        import line_classify_v2 as LC
+    except Exception:
+        return []
+
+    def _textish(c):
+        return bool(c) and not c.isspace() and not LC.is_art_char(c)
+
+    out = []
+    for m in re.finditer(r'[0-9０-９]+(?:[.．/／\-－～~][0-9０-９]+)*', line):
+        s, e = m.span()
+        if not any('0' <= ch <= '9' or '０' <= ch <= '９' for ch in line[s:e]):
+            continue
+        if not (_textish(line[s - 1] if s else '') or _textish(line[e] if e < len(line) else '')):
+            continue
+        while s > 0 and line[s - 1] in '（(〔[％%':
+            s -= 1
+        while e < len(line) and line[e] in '倍成割%％':
+            e += 1
+        while e < len(line) and line[e] in '）)〕]％%':
+            e += 1
+        out.append((s, e))
+    return out
+
+
 def _art_anchors(line):
-    """返回行内 art 图形字符的 (字符, 显示列) 列表。空白跳过, 台词字符不算。"""
+    """返回行内 art 图形字符的 (字符, 显示列) 列表。空白跳过, 台词字符不算。
+    记数记号（`（1.2倍）`/`1/3`）不算锚点——见 `_numeric_regions`。"""
+    regs = _numeric_regions(line)
     out = []
     col = 0
-    for c in line:
+    for i, c in enumerate(line):
+        if regs and any(a <= i < b for a, b in regs):
+            col += 1 if ord(c) < 128 else 2
+            continue
         if not c.isspace() and c in _ART_STROKE_CHARS and not _is_dialogue_char(c):
             out.append((c, col))
         col += 1 if ord(c) < 128 else 2

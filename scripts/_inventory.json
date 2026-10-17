@@ -2689,7 +2689,8 @@
     ],
     "webapp": [],
     "docs": [
-     "AGENTS.md"
+     "AGENTS.md",
+     "doc/接口文档.md"
     ]
    },
    "dup_of": null,
