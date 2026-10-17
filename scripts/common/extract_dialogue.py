@@ -37,7 +37,7 @@ except ImportError:  # 独立运行兜底：公式**必须与主实现同口径*
 
     def disp_width(s):
         return sum(1 if (ord(c) < 0x100 or 0xFF61 <= ord(c) <= 0xFF9F) else 2 for c in s)
-from aa_common import KANA_RE  # [ぁ-んァ-ヺー]
+from aa_common import KANA_RE, txt_read, txt_existing, meta_load  # [ぁ-んァ-ヺー] + 压缩感知（.txt/.txt.gz）
 FACE_KANA = set('ィヲァフテソヅメトイえごドぅぃヌタカリツムちン')  # 脸部/花纹散落艺术假名
 
 
@@ -255,7 +255,7 @@ def _ensure_meta(meta_dir, base, cfg):
     # 行口径 = aa_translate（read().split('\n')）。曾在此"去尾空"，但落盘 txt 就是
     # '\n'.join(行列表) 的逆运算——末尾行为空串时文件以 '\n' 收尾，去掉它会让行数
     # 比解析端少 1 → 误判"行数不齐"中断（2026-09-13 与 line_meta 行内换行展开同批修）。
-    txt_lines = open(os.path.join(aa_dir, base + '.txt'), encoding='utf-8').read().split('\n')
+    txt_lines = txt_read(txt_existing(os.path.join(aa_dir, base + '.txt')))
     meta = classify_raw_v2(site, raw, txt_lines, eid=eid)
     if meta is None:
         raise RuntimeError(f"[extract_dialogue] {base}: meta 生成失败（行数不齐/站点不支持），中断。")
@@ -312,7 +312,7 @@ def _cli_main():
             out_dir = hanhua_dir
             mode = '汉化'
         else:
-            txt_lines = open(os.path.join(aa_dir, base + '.txt'), encoding='utf-8').read().split('\n')
+            txt_lines = txt_read(txt_existing(os.path.join(aa_dir, base + '.txt')))
             out_dir = aa_dir
             mode = '原文' if a.src else '原文(无汉化文件,降级)'
             if not a.src:
@@ -408,11 +408,11 @@ def ensure_dialogue_file(cfg, base, out_dir=None, src_only=False, overwrite=Fals
     # 目标路径 + 读取源(原文台词读 aa/<base>.txt; 汉化台词读 out/<base>_汉化.txt)
     if src_only:
         target = os.path.join(aa_dir, base + '_台词.txt')
-        src_txt = os.path.join(aa_dir, base + '.txt')
+        src_txt = txt_existing(os.path.join(aa_dir, base + '.txt'))
     else:
         _out = out_dir or cfg['out_dir']
         target = os.path.join(_out, base + '_台词.txt')
-        src_txt = os.path.join(_out, base + '_汉化.txt')
+        src_txt = txt_existing(os.path.join(_out, base + '_汉化.txt'))
     # 已存在且未要求覆盖 → 直接返回（复用现有 v3 meta 口径文件）
     if os.path.exists(target) and not overwrite:
         return target
@@ -421,8 +421,8 @@ def ensure_dialogue_file(cfg, base, out_dir=None, src_only=False, overwrite=Fals
         raise FileNotFoundError(
             f"[extract_dialogue] 汉化文件缺失: {src_txt}。按「禁静默降级」硬约束中断, 需先翻译该章。")
     _ensure_meta(meta_dir, base, cfg)
-    meta = json.load(open(os.path.join(meta_dir, base + '.json'), encoding='utf-8'))
-    txt_lines = open(src_txt, encoding='utf-8').read().split('\n')
+    meta = meta_load(meta_dir, base, {}) or {}
+    txt_lines = txt_read(src_txt)
     entries = extract_dialogue_from_meta(meta, txt_lines, op_names)
     os.makedirs(os.path.dirname(target), exist_ok=True)
     write_dialogue_file(target, entries, overwrite=True)

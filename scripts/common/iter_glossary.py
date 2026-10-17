@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.join(_SCRIPTS, "works"))
 sys.path.insert(0, os.path.join(_SCRIPTS, "tools"))
 
 import aa_api as A
+from aa_common import list_txt   # 压缩感知（.txt/.txt.gz）
 import registry
 from paths import BASE
 import gen_glossary_ai as GA          # 复用 parse_terms / SYSTEM_PROMPT / HAS_KANA
@@ -131,7 +132,7 @@ def iter_work(cfg, eids=None, use_ai=False, backend=None):
     data["更新"] = time.strftime("%Y-%m-%d")
     known = _known_names()
     eid_set = set(map(str, eids)) if eids else None
-    files = sorted(f for f in glob.glob(os.path.join(aa_dir, "*.txt")))
+    files = [os.path.join(aa_dir, n) for n in list_txt(aa_dir, exclude=("_台词.txt", "_汉化.txt"))]
     if eid_set:
         files = [f for f in files if _eid_of_filename(f) in eid_set]
     before = len(data["候选"])

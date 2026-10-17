@@ -54,8 +54,8 @@ def check_file(src_path, tr_path, whitelist, manual_fixes):
     """返回 (report_lines, ok_bool) 单文件检查。"""
     lines = []
     ok = True
-    src = open(src_path, encoding='utf-8').read().split('\n')
-    tr = open(tr_path, encoding='utf-8').read().split('\n')
+    src = T.txt_read(src_path)
+    tr = T.txt_read(tr_path)
     fname = os.path.basename(tr_path)
     # 1. 行数
     if len(src) != len(tr):
@@ -128,10 +128,11 @@ def main():
     han_dir = os.path.join(work_dir, '汉化')
     report_path = args.report or os.path.join(work_dir, 'quality_report.txt')
 
-    src_files = sorted(f for f in os.listdir(aa_dir) if f.endswith('.txt'))
+    src_files = sorted(f for f in T.list_txt(aa_dir, exclude=('_台词.txt', '_汉化.txt')))
     tr_files = [f.replace('.txt', '_汉化.txt') for f in src_files]
-    tr_paths = [os.path.join(han_dir, f) for f in tr_files if os.path.exists(os.path.join(han_dir, f))]
-    missing = [f for f in tr_files if not os.path.exists(os.path.join(han_dir, f))]
+    tr_paths = [T.txt_existing(os.path.join(han_dir, f)) for f in tr_files
+                if os.path.exists(T.txt_existing(os.path.join(han_dir, f)))]
+    missing = [f for f in tr_files if not os.path.exists(T.txt_existing(os.path.join(han_dir, f)))]
 
     if args.chapter:
         src_files = [f for f in src_files if f == f'entry_{args.chapter}.txt']
@@ -139,7 +140,7 @@ def main():
         missing = [f for f in missing if f == f'entry_{args.chapter}_汉化.txt']
 
     # 白名单从全量汉化产物统计（跨章节共享，避免单章频率低误报）
-    all_tr = [os.path.join(han_dir, f) for f in os.listdir(han_dir) if f.endswith('_汉化.txt')]
+    all_tr = [os.path.join(han_dir, f) for f in T.list_txt(han_dir, '_汉化.txt')]
     whitelist = build_whitelist(all_tr)
     manual_fixes = T.load_manual_fixes(work_dir)
 
@@ -149,10 +150,10 @@ def main():
     files_fail = []
     files_checked = 0
     for sname in src_files:
-        tr_path = os.path.join(han_dir, sname.replace('.txt', '_汉化.txt'))
+        tr_path = T.txt_existing(os.path.join(han_dir, sname.replace('.txt', '_汉化.txt')))
         if not os.path.exists(tr_path):
             continue
-        lines, ok = check_file(os.path.join(aa_dir, sname), tr_path, whitelist, manual_fixes)
+        lines, ok = check_file(T.txt_existing(os.path.join(aa_dir, sname)), tr_path, whitelist, manual_fixes)
         files_checked += 1
         if not ok:
             files_fail.append(sname)

@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""备份目录保留策略（2026-10-01 用户指定：同类 `backup_<kind>_<ts>/` 只保留最近 2 次运行）。
+"""备份目录保留策略（2026-10-17 用户指定：同类 `backup_<kind>_<ts>/` 只保留最近 1 次运行）。
 
 覆盖：
   ① `aa_translate.prune_backup_dirs` 本体：保留最新 N、只删目录、只删同前缀、返回释放字节；
-  ② 默认值 BACKUP_KEEP_PER_KIND == 2；keep=1/0 边界；
+  ② 默认值 BACKUP_KEEP_PER_KIND == 1；keep=0 边界；
   ③ 写入方接线（refine/fix/pokemon 各自建完备份后调用）——见 test_fix_lead_kanji 的连跑用例。
 运行：.venv/Scripts/python.exe -m unittest scripts.tests.test_backup_prune -v
 """
@@ -45,19 +45,18 @@ class TestPruneBackupDirs(unittest.TestCase):
     def _names(self, prefix="backup_refine_aa_"):
         return sorted(d for d in os.listdir(self.wd) if d.startswith(prefix))
 
-    def test_keeps_newest_two(self):
+    def test_keeps_newest_one(self):
         for ts in ("20260101010101", "20260102010101", "20260103010101",
                    "20260104010101", "20260105010101"):
             self._mk("backup_refine_aa_" + ts)
         n, freed = T.prune_backup_dirs(self.wd, "backup_refine_aa_")
-        self.assertEqual(n, 3)
-        self.assertEqual(self._names(), ["backup_refine_aa_20260104010101",
-                                         "backup_refine_aa_20260105010101"])
+        self.assertEqual(n, 4)
+        self.assertEqual(self._names(), ["backup_refine_aa_20260105010101"])
         self.assertGreater(freed, 0)
 
-    def test_default_keep_is_two(self):
-        self.assertEqual(T.BACKUP_KEEP_PER_KIND, 2)
-        self.assertEqual(C.BACKUP_KEEP_PER_KIND, 2)          # aa_common 是同一份实现
+    def test_default_keep_is_one(self):
+        self.assertEqual(T.BACKUP_KEEP_PER_KIND, 1)
+        self.assertEqual(C.BACKUP_KEEP_PER_KIND, 1)          # aa_common 是同一份实现
 
     def test_keep_one_and_zero(self):
         for ts in ("20260101010101", "20260102010101", "20260103010101"):
@@ -83,7 +82,6 @@ class TestPruneBackupDirs(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(self.wd, "edits.jsonl")))
 
     def test_nothing_to_prune_when_at_or_below_keep(self):
-        self._mk("backup_tpl_20260101010101")
         self._mk("backup_tpl_20260102010101")
         self.assertEqual(T.prune_backup_dirs(self.wd, "backup_tpl_"), (0, 0))
         self.assertEqual(T.prune_backup_dirs(self.wd, "backup_nonexistent_"), (0, 0))

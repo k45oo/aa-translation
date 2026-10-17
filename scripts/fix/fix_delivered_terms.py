@@ -131,8 +131,8 @@ def process(work, apply=False, todo_path=None, no_todo=False):
         ap = os.path.join(aa_dir, base + ".txt")
         if not os.path.exists(ap):
             continue
-        src = open(ap, encoding="utf-8", errors="ignore").read().split("\n")
-        tr = open(os.path.join(out_dir, fn), encoding="utf-8", errors="ignore").read().split("\n")
+        src = T.txt_read(ap)
+        tr = T.txt_read(os.path.join(out_dir, fn))
         if len(src) != len(tr):
             print(f"[{base}] !! 行数不齐 {len(src)}/{len(tr)} → 跳过")
             continue
@@ -197,10 +197,9 @@ def process(work, apply=False, todo_path=None, no_todo=False):
         bak = os.path.join(work_dir, "backup_fixdelivered_" + time.strftime("%Y%m%d%H%M%S"))
         os.makedirs(bak, exist_ok=True)
         for fn, new in changed_files:
-            p = os.path.join(out_dir, fn)
-            shutil.copy2(p, os.path.join(bak, fn))
-            with open(p, "w", encoding="utf-8") as f:
-                f.write("\n".join(new))
+            p = T.txt_existing(os.path.join(out_dir, fn))
+            shutil.copy2(p, os.path.join(bak, os.path.basename(p)))
+            T.txt_write_form(p, new)
         print(f"[apply] 写回 {len(changed_files)} 文件，备份 {bak}")
         T.prune_backup_dirs(work_dir, "backup_fixdelivered_")
     tp = todo_path or os.path.join(work_dir, "retranslate_todo.txt")

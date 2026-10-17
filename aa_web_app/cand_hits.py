@@ -32,9 +32,9 @@ def _list_src_files(aa_dir):
     except OSError:
         return out
     for fn in names:
-        if not fn.endswith(".txt"):
+        if not (fn.endswith(".txt") or fn.endswith(".txt.gz")):
             continue
-        if fn.endswith(("_台词.txt", "_汉化.txt")):
+        if fn.endswith(("_台词.txt", "_台词.txt.gz", "_汉化.txt", "_汉化.txt.gz")):
             continue
         out.append(fn)
     return out
@@ -51,7 +51,8 @@ def _corpus_digest(aa_dir):
     try:
         with os.scandir(aa_dir) as it:
             for e in it:
-                if not e.name.endswith(".txt") or e.name.endswith(("_台词.txt", "_汉化.txt")):
+                if (not e.name.endswith(".txt") and not e.name.endswith(".txt.gz")) \
+                        or e.name.endswith(("_台词.txt", "_台词.txt.gz", "_汉化.txt", "_汉化.txt.gz")):
                     continue
                 try:
                     st = e.stat()

@@ -55,9 +55,9 @@ def fix_line(line, target_w):
 def main():
     rows = []
     for fname in sorted(os.listdir(AA_DIR)):
-        if not fname.endswith(".txt"):
+        if not (fname.endswith(".txt") or fname.endswith(".txt.gz")):
             continue
-        src = open(os.path.join(AA_DIR, fname), encoding="utf-8").read().split("\n")
+        src = C.txt_read(os.path.join(AA_DIR, fname))
         dst = os.path.join(OUT_DIR, fname.replace(".txt", "_汉化.txt"))
         if not os.path.exists(dst):
             continue

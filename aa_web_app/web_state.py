@@ -275,8 +275,12 @@ def paths_of(cfg):
 
 
 def check_chapter(cfg, fname):
-    """校验章节存在：接受 汉化名(entry_1_汉化.txt) 或 原文名(entry_1.txt)。"""
-    if fname in logic.chapter_order(cfg["out_dir"], cfg.get("name_style")):
+    """校验章节存在：接受 汉化名(entry_1_汉化.txt) 或 原文名(entry_1.txt)。
+
+    2026-10-17: 压缩包（entry_1_汉化.txt.gz）——chapter_order 返回的是带 .gz 的
+    规范名，而前端 toc 传的是基名，故两种写法都认。"""
+    names = logic.chapter_order(cfg["out_dir"], cfg.get("name_style"))
+    if fname in names or (fname + ".gz") in names:
         return
     if os.path.exists(logic.txt_path(cfg["aa_dir"], fname)) and (fname.endswith(".txt") or fname.endswith(".txt.gz")) \
             and not fname.endswith(("_台词.txt", "_台词.txt.gz")):
@@ -695,3 +699,37 @@ def _load_read_state():
             return json.load(f)
     except Exception:
         return {}
+
+
+# ---------- 章收藏（2026-10-17：阅读界面红心 + 「只看收藏夹」筛选）----------
+# 存法 {"<work>": ["<base>", ...]}；base = 原文 txt_key（与 ckpt/其它 work/ 目录同口径，
+# 重译/改标题不影响）。base 顺序 = 收藏先后顺序（目录筛选仍按目录顺序展示）。
+_FAV_FILE = os.path.join(_DATA, "aa_web_app", "data", "favorites.json")
+
+
+def _load_favs():
+    """{work: [base, ...]}；文件缺失/损坏/结构不对一律当空（收藏是辅助数据，绝不因此报错）。"""
+    try:
+        with open(_FAV_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_favs(data):
+    """原子写（.tmp + os.replace）：桌面双击/断电也不留半截 JSON。"""
+    try:
+        os.makedirs(os.path.dirname(_FAV_FILE), exist_ok=True)
+        tmp = _FAV_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, _FAV_FILE)
+    except Exception:
+        pass
+
+
+def _fav_bases(work):
+    """某作品已收藏的章 base 列表（过滤掉非字符串项，容忍手改脏数据）。"""
+    v = _load_favs().get(work)
+    return [b for b in v if isinstance(b, str)] if isinstance(v, list) else []

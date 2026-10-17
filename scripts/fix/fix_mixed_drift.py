@@ -354,8 +354,7 @@ def process_work(work, eids=None, do_write=False):
     if eids:
         files = [f"entry_{e}.txt" for e in eids]
     else:
-        files = sorted(f for f in os.listdir(cfg["aa_dir"]) if f.endswith(".txt")
-                       and not f.endswith("_台词.txt"))
+        files = T.list_txt(cfg["aa_dir"], exclude=("_台词.txt", "_汉化.txt"))
     all_drift = []
     # 2026-10-01: 备份目录按**每次运行**一个（原每章一个），且只保留最近 2 次运行。
     _bak_dir = os.path.join(cfg["work_dir"], "backup_fix_mixed_drift_" + time.strftime("%Y%m%d%H%M%S")) if do_write else ""
@@ -401,15 +400,14 @@ def process_work(work, eids=None, do_write=False):
             # 备份整章（本次运行共用同一个 backup 目录，见 process_work 开头）
             bak = _bak_dir
             os.makedirs(bak, exist_ok=True)
-            shutil.copy2(os.path.join(out_dir, fname.replace(".txt", "_汉化.txt")),
-                         os.path.join(bak, fname.replace(".txt", "_汉化.txt")))
+            _tr_actual = T.txt_existing(os.path.join(out_dir, fname.replace(".txt", "_汉化.txt")))
+            shutil.copy2(_tr_actual, os.path.join(bak, os.path.basename(_tr_actual)))
             new_tr = list(tr)
             for i, s, h, segs, nl, ok, reason, notes in drift_rows:
                 if ok and nl is not None and new_tr[i] == h:
                     new_tr[i] = nl
-            with open(os.path.join(out_dir, fname.replace(".txt", "_汉化.txt")), "w",
-                      encoding="utf-8") as f:
-                f.write("\n".join(new_tr))
+            T.txt_write_form(T.txt_out_path(os.path.join(out_dir, fname.replace(".txt", "_汉化.txt"))),
+                             new_tr)
             print(f"  -> 已写回并备份到 {bak}")
     if do_write and os.path.isdir(_bak_dir):
         # 只保留最近 2 次运行的备份目录（更早的整目录删）

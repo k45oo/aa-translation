@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(BASE, 'scripts', 'tools'))
 import registry
 from sites import fc2 as site
 import aa_to_images as A
-from aa_common import meta_load, json_read_any   # meta 透明读（.json/.json.gz）
+from aa_common import meta_load, json_read_any, list_txt, txt_read   # meta/正文透明读
 from PIL import Image, ImageDraw
 
 
@@ -83,7 +83,7 @@ def main():
     a = ap.parse_args()
 
     cfg = registry.get(a.work)
-    files = sorted(f for f in os.listdir(cfg['out_dir']) if f.endswith('_汉化.txt'))
+    files = list_txt(cfg['out_dir'], '_汉化.txt')
     if a.chapter:
         files = [f for f in files if a.chapter in f]
 
@@ -92,7 +92,7 @@ def main():
 
     for fn in files:
         base = fn.replace('_汉化.txt', '')
-        lines = open(os.path.join(cfg['out_dir'], fn), encoding='utf-8').read().split('\n')
+        lines = txt_read(os.path.join(cfg['out_dir'], fn))
         rows = [(i, l) for i, l in enumerate(lines) if not l.startswith('#')]
         meta = json_read_any(os.path.join(cfg['work_dir'], 'line_meta', base + '.json'), {}) or {}
         v2 = meta_load(os.path.join(cfg['work_dir'], 'line_meta_v2'), base, {}) or {}

@@ -111,7 +111,8 @@ def audit_chapter(work, base, cfg, batch=50, quiet=False):
     """审计单章 → (candidates, stats)。candidates: [dict]（含判据细节，未写盘）"""
     T.AA_DIR, T.OUT_DIR, T.WORK_DIR = cfg["aa_dir"], cfg["out_dir"], cfg["work_dir"]
     T.WORK_ID = work
-    sp, zp = os.path.join(cfg["aa_dir"], base + ".txt"), os.path.join(cfg["out_dir"], base + "_汉化.txt")
+    sp = T.txt_existing(os.path.join(cfg["aa_dir"], base + ".txt"))
+    zp = T.txt_existing(os.path.join(cfg["out_dir"], base + "_汉化.txt"))
     if not (os.path.exists(sp) and os.path.exists(zp)):
         return [], {"skipped": "缺源文/汉化"}
     L = T.txt_read(sp)
@@ -183,14 +184,14 @@ def apply_chapter(work, base, cfg, changes):
     ok = [c for c in changes if not c["why"]]
     if not ok:
         return 0
-    zp = os.path.join(cfg["out_dir"], base + "_汉化.txt")
+    zp = T.txt_existing(os.path.join(cfg["out_dir"], base + "_汉化.txt"))
     ckp = os.path.join(cfg["work_dir"], base + ".txt.ckpt.json")
-    L = T.txt_read(os.path.join(cfg["aa_dir"], base + ".txt"))
+    L = T.txt_read(T.txt_existing(os.path.join(cfg["aa_dir"], base + ".txt")))
     Z = T.txt_read(zp)
     ts = time.strftime("%Y%m%d_%H%M%S")
     bakdir = os.path.join(cfg["work_dir"], "backup_align_" + ts)
     os.makedirs(bakdir, exist_ok=True)
-    shutil.copy2(zp, os.path.join(bakdir, base + "_汉化.txt"))
+    shutil.copy2(zp, os.path.join(bakdir, os.path.basename(zp)))
     ck = {}
     if os.path.exists(ckp):
         shutil.copy2(ckp, os.path.join(bakdir, base + ".txt.ckpt.json"))
@@ -204,7 +205,7 @@ def apply_chapter(work, base, cfg, changes):
             Z[i] = c["new"]
         if str(i) in ck:
             ck[str(i)] = c["new"]
-    open(zp, "w", encoding="utf-8").write("\n".join(Z))
+    T.txt_write_form(zp, Z)
     if ck:
         ck["__lines"] = len(L)
         T._atomic_write_ckpt(ckp, ck)

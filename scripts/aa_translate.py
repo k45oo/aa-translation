@@ -890,8 +890,9 @@ def normalize_lines(lines):
     return out
 
 
-# 同类备份目录（backup_<kind>_<时间戳>/）每个作品只保留最近 N 次运行（2026-10-01 用户指定）。
-BACKUP_KEEP_PER_KIND = 2
+# 同类备份目录（backup_<kind>_<时间戳>/）每个作品只保留最近 N 次运行。
+# 2026-10-01 用户指定 2；2026-10-17 用户改为 1（磁盘体检：backup_* 占 655MB，翻修后 1 份足够回滚）。
+BACKUP_KEEP_PER_KIND = 1
 
 
 def prune_backup_dirs(work_dir, prefix, keep=None, quiet=False):
@@ -1017,7 +1018,6 @@ def meta_list(meta_dir):
 
 def txt_write(path, lines):
     """写 .txt 或 .txt.gz（\n 连接；.gz 走 gzip）。产物同款 CRLF。
-
     行内换行护栏：含换行的行先压平并告警（否则 1 行写成 2 行 → 全章行号错位）。
     """
     _bad = [i for i, l in enumerate(lines) if BREAK_RE.search(l or "")]
@@ -1036,6 +1036,84 @@ def txt_write(path, lines):
     else:
         with open(path, "w", encoding="utf-8") as f:
             f.write(data)
+
+
+# ---------------------------------------------------------------------------
+# 正文 txt 的 .txt ⇄ .txt.gz 透明层（2026-10-17 第二/三期压缩）
+#   与 meta 那两个 helper 同源思路：**枚举别 glob('*.txt')、指纹别直接哈希文件字节、
+#   写别 open(...,'w')**——压缩后这三类写法分别会「漏章 / 指纹失效(全库重校对) /
+#   把明文写进 .gz 文件」。
+# ---------------------------------------------------------------------------
+def list_txt(d, suffix=".txt", exclude=()):
+    """目录内正文 txt 的**规范名**列表（`.txt` 与 `.txt.gz` 都收，去重、升序）。
+
+    suffix 用规范名（如 ".txt" / "_汉化.txt"）；exclude 是规范名后缀元组
+    （如 ("_台词.txt", "_汉化.txt")）。压缩后 `glob('*.txt')` 会一章都看不到。
+    """
+    out = []
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return out
+    for n in sorted(names):
+        if suffix:
+            if not (n.endswith(suffix) or n.endswith(suffix + ".gz")):
+                continue
+        elif not (n.endswith(".txt") or n.endswith(".txt.gz")):
+            continue
+        canon = n[:-3] if n.endswith(".gz") else n
+        if any(canon.endswith(x) for x in exclude):
+            continue
+        if canon not in out:
+            out.append(canon)
+    return out
+
+
+def txt_file_sha1(path):
+    """文件指纹 sha1：`.txt` 按原始字节、`.txt.gz` 按**解压后字节**。
+
+    压缩前后必须相等（gzip 写的是原字节），否则 refine_ckpt / estimate / cand_hits 的
+    「指纹未变→零调用跳过」全部失效 → 全库重校对（花钱）。缺失返回 ""。
+    """
+    import hashlib as _hl
+    if not path:
+        return ""
+    try:
+        if str(path).endswith(".gz"):
+            with gzip.open(path, "rb") as f:
+                data = f.read()
+        else:
+            with open(path, "rb") as f:
+                data = f.read()
+    except OSError:
+        return ""
+    return _hl.sha1(data).hexdigest()
+
+
+def txt_write_form(path, lines):
+    """按 path 的实际形态写（`.gz` 走 gzip），不做补位规范化 / 归一行。
+
+    给「原来直接 open(...,'w') 写汉化」的调用方用：保持原语义，只是支持压缩形态。
+    配合 `txt_out_path()` 使用（目标已是 .gz 就续写 .gz，否则写 .txt）。
+    """
+    data = "\n".join(lines)
+    if str(path).endswith(".gz"):
+        with gzip.open(path, "wt", encoding="utf-8") as f:
+            f.write(data)
+    else:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(data)
+
+
+def txt_out_path(path):
+    """写目标路径：已存在 `.gz` 形态就返回 `.gz`（保持压缩），否则返回原 `.txt` 路径。"""
+    if os.path.exists(path):
+        return path
+    gz = path + ".gz"
+    if os.path.exists(gz):
+        return gz
+    return path
+
 
 
 # ---------------------------------------------------------------------------
@@ -2708,9 +2786,9 @@ def _chunk_context(lines, chunk_first_idx):
 
 
 def process_chapter(path, cfg=None):
-    lines = open(path, encoding="utf-8").read().split("\n")
+    lines = txt_read(path)
     os.makedirs(WORK_DIR, exist_ok=True)
-    base = os.path.basename(path).replace(".txt", "")
+    base = txt_key(os.path.basename(path))
     # 2026-08-24 章节级 R18 驱动: 读 work/prep/<base>.json 的 r18.hit (yes/suspect/no)
     #   high 作品(work_meta r18_level=high) → work_r18=True, low_r18=False (整部 r18 链)
     #   low 作品 yes 章 → work_r18=True, low_r18=True (忽略显式 AA_BACKEND)
@@ -3061,14 +3139,14 @@ def main():
         pilot = None
     os.makedirs(OUT_DIR, exist_ok=True)
     os.makedirs(WORK_DIR, exist_ok=True)
-    files = sorted(f for f in os.listdir(AA_DIR)
-                   if f.endswith(".txt") and not f.endswith("_台词.txt") and not f.endswith("_汉化.txt"))
+    files = sorted(f for f in list_txt(AA_DIR, exclude=("_台词.txt", "_汉化.txt")))
     if pilot:
         def eid_of(name):
             m = __import__("re").search(r'(\d+)', name)
             return int(m.group(1)) if m else 0
         files = [f for f in files if eid_of(f) in pilot]
-    files = [f for f in files if not os.path.exists(os.path.join(OUT_DIR, f.replace(".txt", "_汉化.txt")))]
+    files = [f for f in files
+             if not os.path.exists(txt_existing(os.path.join(OUT_DIR, f.replace(".txt", "_汉化.txt"))))]
     print("chapters to process:", files, flush=True)
     if cfg is not None and len(files) > 1:
         # registry 模式：章节级并行(总并发 ≈ CHAPTER_WORKERS 章, 章内块级再并行)
@@ -3088,9 +3166,8 @@ def main():
                 f, t0 = _inflight.pop(fut)
                 try:
                     out = fut.result()
-                    outp = os.path.join(OUT_DIR, f.replace(".txt", "_汉化.txt"))
-                    with open(outp, "w", encoding="utf-8") as fh:
-                        fh.write("\n".join(out))
+                    outp = txt_out_path(os.path.join(OUT_DIR, f.replace(".txt", "_汉化.txt")))
+                    txt_write_form(outp, out)
                     print(f"DONE {f}: {time.time()-t0:.0f}s", flush=True)
                     _done_cnt += 1
                     TR.heartbeat(phase="翻译", idx=_done_cnt, total=len(files))
@@ -3126,9 +3203,8 @@ def main():
         t0 = time.time()
         try:
             out = process_chapter(os.path.join(AA_DIR, f), cfg)
-            outp = os.path.join(OUT_DIR, f.replace(".txt", "_汉化.txt"))
-            with open(outp, "w", encoding="utf-8") as fh:
-                fh.write("\n".join(out))
+            outp = txt_out_path(os.path.join(OUT_DIR, f.replace(".txt", "_汉化.txt")))
+            txt_write_form(outp, out)
             print(f"DONE {f}: {time.time()-t0:.0f}s", flush=True)
             TR.heartbeat(phase="翻译")
             if TR.check_stop():

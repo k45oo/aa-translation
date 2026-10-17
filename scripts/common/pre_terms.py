@@ -501,7 +501,13 @@ def chapter_corpus(work, base):
     if not (work and base):
         return ""
     p = os.path.join(_aa_dir(work), base + ".txt")
+    if not os.path.exists(p) and os.path.exists(p + ".gz"):
+        p += ".gz"   # 压缩感知（2026-10-17）
     try:
+        if p.endswith(".gz"):
+            import gzip as _gz
+            with _gz.open(p, "rt", encoding="utf-8", errors="replace") as f:
+                return f.read()
         with open(p, encoding="utf-8", errors="replace") as f:
             return f.read()
     except OSError:

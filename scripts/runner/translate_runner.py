@@ -79,7 +79,7 @@ def _local_tr_eids(cfg):
         return out
     for fn in os.listdir(d):
         m = re.search(r"(\d+)", fn)
-        if m and fn.endswith("_汉化.txt"):
+        if m and (fn.endswith("_汉化.txt") or fn.endswith("_汉化.txt.gz")):
             out.add(m.group(1))
     return out
 
@@ -92,7 +92,7 @@ def _local_aa_eids(cfg):
         return out
     for fn in os.listdir(d):
         m = re.search(r"(\d+)", fn)
-        if m and fn.endswith(".txt"):
+        if m and (fn.endswith(".txt") or fn.endswith(".txt.gz")):
             out.add(m.group(1))
     return out
 
@@ -439,7 +439,7 @@ def main():
             # 找到 entry_<eid>_汉化.txt
             for fn in os.listdir(out_dir):
                 m = re.search(r"(\d+)", fn)
-                if m and m.group(1) == eid and fn.endswith("_汉化.txt"):
+                if m and m.group(1) == eid and (fn.endswith("_汉化.txt") or fn.endswith("_汉化.txt.gz")):
                     bk = fn + ".bak"
                     os.replace(os.path.join(out_dir, fn), os.path.join(out_dir, bk))
                     bak[os.path.join(out_dir, bk)] = os.path.join(out_dir, fn)
@@ -490,7 +490,7 @@ def main():
         target_files = []
         for fn in os.listdir(cfg["out_dir"]):
             m = re.search(r"^(\d+)", fn)
-            if m and m.group(1) in set(sel_eids) and fn.endswith("_汉化.txt"):
+            if m and m.group(1) in set(sel_eids) and (fn.endswith("_汉化.txt") or fn.endswith("_汉化.txt.gz")):
                 target_files.append(fn)
         target_files.sort()
 
@@ -712,11 +712,11 @@ def _dir_fix_width(FW, cfg, target_files, env):
         except Exception as e:
             log(f"  {fname}: fix_batch 异常 {e}")
             continue
-        dst = os.path.join(OUT_DIR, fname.replace(".txt", "_汉化.txt"))
-        lines = open(dst, encoding="utf-8").read().split("\n")
+        dst = FW.C.txt_out_path(os.path.join(OUT_DIR, fname.replace(".txt", "_汉化.txt")))
+        lines = FW.C.txt_read(dst)
         for idx, nl in fixed.items():
             lines[idx] = nl
-        open(dst, "w", encoding="utf-8").write("\n".join(lines))
+        FW.C.txt_write_form(dst, lines)
         all_fixed.update(fixed)
         all_failed.extend(failed)
         log(f"  {fname}: fixed {len(fixed)}/{len(frows)}, failed {len(failed)}")

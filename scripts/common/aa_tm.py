@@ -27,6 +27,7 @@ _NUM_TOK = re.compile(r'[0-9０-９]+(?:[.．/／\-－～~][0-9０-９]+)+')
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from aa_common import list_txt, txt_read, txt_existing   # 压缩感知（.txt/.txt.gz）
 # scripts/works 也要在路径里：build() 走 registry 解析作品路径，缺它 → `import registry` 失败
 # → 静默返回 {"error": "no_registry"}、既不打印也不写盘（2026-10-11 实测 CLI 空跑）。
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "works"))
@@ -233,11 +234,11 @@ def build(work, aa_dir=None, out_dir=None, work_dir=None, only_proofread=True,
         pass
     st = {"chapters": 0, "skipped": 0, "lines": 0, "kept": 0, "reject": {}}
     files = 0
-    for sp in sorted(glob.glob(os.path.join(aa_dir, "entry_*.txt"))):
+    for sp in [os.path.join(aa_dir, n) for n in list_txt(aa_dir, exclude=("_台词.txt", "_汉化.txt"))]:
         base = os.path.basename(sp)[:-4]
         if base.endswith("_台词"):
             continue
-        tp = os.path.join(out_dir, base + "_汉化.txt")
+        tp = txt_existing(os.path.join(out_dir, base + "_汉化.txt"))
         if not os.path.exists(tp):
             continue
         if only_proofread and base not in proofread:
@@ -248,8 +249,8 @@ def build(work, aa_dir=None, out_dir=None, work_dir=None, only_proofread=True,
             st["skipped"] += 1
             continue
         try:
-            src = open(sp, encoding="utf-8").read().split("\n")
-            tr = open(tp, encoding="utf-8").read().split("\n")
+            src = txt_read(sp)
+            tr = txt_read(tp)
         except OSError:
             continue
         meta = A.load_meta_0based(meta_dir, base) or {}

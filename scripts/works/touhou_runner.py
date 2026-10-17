@@ -16,7 +16,7 @@ def log(msg):
 def wait_batch(tr_dir, expect, timeout=36000):
     t0 = time.time()
     while time.time() - t0 < timeout:
-        done = [f for f in os.listdir(tr_dir) if f.endswith('_汉化.txt')]
+        done = [f for f in os.listdir(tr_dir) if f.endswith(('_汉化.txt', '_汉化.txt.gz'))]
         if len(done) >= expect:
             return True
         time.sleep(60)
@@ -29,13 +29,13 @@ def main():
     AA_DIR = os.path.join(ROOT, "aaManga", "やる夫のねっとり貞操逆転世界", "aa")
     skip_wait = "--skip-wait" in sys.argv[1:]
 
-    expect = len([f for f in os.listdir(AA_DIR) if f.endswith('.txt')])
+    expect = len([f for f in os.listdir(AA_DIR) if f.endswith(('.txt', '.txt.gz')) and '_台词' not in f])
     if not skip_wait:
         log(f"=== 等待翻译批次 ({expect} 话) ===")
         if not wait_batch(TR_DIR, expect):
             log("TIMEOUT waiting batch")
             return 1
-    done = len([f for f in os.listdir(TR_DIR) if f.endswith('_汉化.txt')])
+    done = len([f for f in os.listdir(TR_DIR) if f.endswith(('_汉化.txt', '_汉化.txt.gz'))])
     log(f"翻译完成: {done} 话")
 
     import pass2 as P2

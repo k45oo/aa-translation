@@ -47,12 +47,13 @@ def process(work, list_path, apply=False, limit=None):
     done = 0
     for fn in sorted(want):
         base = fn[:-len("_汉化.txt")]
-        ap, tp = os.path.join(aa_dir, base + ".txt"), os.path.join(out_dir, fn)
+        ap = C.txt_existing(os.path.join(aa_dir, base + ".txt"))
+        tp = C.txt_existing(os.path.join(out_dir, fn))
         if not os.path.exists(ap) or not os.path.exists(tp):
             print(f"[{base}] 缺原件/产物 → 跳过")
             continue
-        src = open(ap, encoding="utf-8").read().split("\n")
-        tr = open(tp, encoding="utf-8").read().split("\n")
+        src = C.txt_read(ap)
+        tr = C.txt_read(tp)
         if len(src) != len(tr):
             print(f"[{base}] 行数不齐 → 跳过")
             continue
@@ -80,8 +81,7 @@ def process(work, list_path, apply=False, limit=None):
             os.makedirs(bak, exist_ok=True)
             shutil.copy2(tp, os.path.join(bak, fn))
             new = T.normalize_lines(new)
-            with open(tp, "w", encoding="utf-8") as f:
-                f.write("\n".join(new))
+            T.txt_write_form(tp, new)
     print(f"[stat] 重译写回 {done} 行")
     if apply:
         T.prune_backup_dirs(work_dir, "backup_retranslate_")

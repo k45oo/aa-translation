@@ -27,6 +27,7 @@ for _p in (_SCRIPTS, os.path.join(_SCRIPTS, "common"), os.path.join(_SCRIPTS, "w
     sys.path.insert(0, _p)
 
 import registry                      # noqa: E402
+from aa_common import txt_existing   # noqa: E402 压缩感知
 import line_classify_v2 as LC        # noqa: E402
 
 _SITE_CACHE = {}
@@ -49,7 +50,7 @@ def _bases(cfg):
         if not fn.endswith(".html"):
             continue
         eid = fn.replace("entry_", "").replace(".html", "")
-        if not os.path.exists(os.path.join(aa_dir, f"entry_{eid}.txt")):
+        if not os.path.exists(txt_existing(os.path.join(aa_dir, f"entry_{eid}.txt"))):
             continue
         base = f"entry_{eid}" if cfg.get("name_style") == "entry_eid" else fn[:-5]
         out.append((base, fn))

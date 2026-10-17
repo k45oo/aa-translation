@@ -318,9 +318,9 @@ def _corpus_files(aa_dir):
     except OSError:
         return out
     for fn in names:
-        if not fn.endswith(".txt"):
+        if not (fn.endswith(".txt") or fn.endswith(".txt.gz")):
             continue
-        if fn.endswith("_台词.txt"):
+        if fn.endswith(("_台词.txt", "_台词.txt.gz")):
             continue
         out.append(os.path.join(aa_dir, fn))
     return out

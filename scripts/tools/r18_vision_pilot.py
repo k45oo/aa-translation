@@ -34,11 +34,11 @@ def render_chapter(base):
     site = importlib.import_module("sites." + cfg["site"])
     font_path = A.pick_font()
     # 读原文（aa/ 目录, 无汉化）
-    src = os.path.join(cfg["aa_dir"], base + ".txt")
+    src = A.txt_existing(os.path.join(cfg["aa_dir"], base + ".txt"))
     if not os.path.exists(src):
         print(f"  原文不存在: {src}")
         return []
-    lines = open(src, encoding="utf-8").read().split("\n")
+    lines = A.txt_read(src)
     cm = {}
     cmf = os.path.join(cfg["aa_dir"], base + "_colormap.json")
     if os.path.exists(cmf):

@@ -206,10 +206,13 @@ def stage_example(stage):
     src_aa = os.path.join(_ROOT, "aaManga", wdir, "aa")
     out_aa = os.path.join(stage, "aaManga", wdir, "aa")
     os.makedirs(out_aa, exist_ok=True)
-    names = sorted(f for f in os.listdir(src_aa) if f.endswith(".txt") and "_汉化" not in f)[:n]
+    names = sorted(f for f in os.listdir(src_aa)
+                   if (f.endswith(".txt") or f.endswith(".txt.gz"))
+                   and "_汉化" not in f and "_台词" not in f)[:n]
     for fn in names:
         shutil.copy2(os.path.join(src_aa, fn), os.path.join(out_aa, fn))
-        cm = os.path.join(src_aa, fn[:-4] + ".colormap.json")
+        _b = fn[:-3] if fn.endswith(".gz") else fn
+        cm = os.path.join(src_aa, (_b[:-4] if _b.endswith(".txt") else _b) + ".colormap.json")
         if os.path.isfile(cm):
             shutil.copy2(cm, os.path.join(out_aa, os.path.basename(cm)))
     for sub in ("汉化", "work", "raw"):

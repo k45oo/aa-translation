@@ -51,8 +51,8 @@ def _call_api(system, body, **kw):
 def build_whitelist(OUT_DIR):
     """白名单 = 全语料频次>=3 的假名片段(名字/艺术纹理) ∪ 已知名字"""
     freq = collections.Counter()
-    for fname in sorted(os.listdir(OUT_DIR)):
-        for l in open(os.path.join(OUT_DIR, fname), encoding='utf-8'):
+    for fname in C.list_txt(OUT_DIR, "_汉化.txt"):
+        for l in C.txt_read(os.path.join(OUT_DIR, fname)):
             for s in C.kana_runs(l):
                 freq[s] += 1
     return set(s for s, n in freq.items() if n >= 3) | set(C.KNOWN_NAMES)
@@ -95,7 +95,7 @@ def fix_lines(flagged, whitelist):
 def _process_one(path, whitelist, work_dir, review):
     """单个文件：内部轮次串行清理。返回 (fname, 剩余残留数)。"""
     fname = os.path.basename(path)
-    lines = open(path, encoding="utf-8").read().split("\n")
+    lines = C.txt_read(C.txt_existing(path))
     # B2 同步: mixed 段级默认开（AA_USE_MIXED_SEGMENTS=0 关闭）时按 segments 跳过 art 段残留检测
     seg_meta = {}
     if _flag_on("AA_USE_MIXED_SEGMENTS"):
@@ -127,8 +127,7 @@ def _process_one(path, whitelist, work_dir, review):
                 fixed_all.update(fixed)
         for idx, nl in fixed_all.items():
             lines[idx] = nl
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines))
+        C.txt_write_form(C.txt_out_path(path), lines)
     remain = [(i, l) for i, l in enumerate(lines)
               if C.residual_bad_segs(l, seg_meta.get(i), whitelist)
               and not l.startswith(('#', '=')) and not HEADER_RE.match(l)
@@ -148,7 +147,7 @@ def main(work=None):
     whitelist = build_whitelist(OUT_DIR)
     print(f"whitelist size: {len(whitelist)}", flush=True)
     review = []
-    files = sorted(f for f in os.listdir(OUT_DIR) if f.endswith("_汉化.txt"))
+    files = C.list_txt(OUT_DIR, "_汉化.txt")
     paths = [os.path.join(OUT_DIR, f) for f in files]
     if _flag_on("AA_PASS3_PARALLEL") and len(paths) > 1:
         # M2: 文件级并行（单文件内部轮次串行）；429 自适应降并发（批次间生效）

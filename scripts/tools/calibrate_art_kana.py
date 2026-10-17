@@ -22,6 +22,7 @@ BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(BASE, "scripts", "common"))
 sys.path.insert(0, os.path.join(BASE, "scripts", "works"))
 import aa_art_kana as AK          # noqa: E402
+from aa_common import list_txt    # noqa: E402 压缩感知（.txt/.txt.gz）
 
 
 def _read_lines(path):
@@ -35,7 +36,7 @@ def _chapter_pairs(aa_dir, tr_dir, src_ext=".txt", tr_suffix="_汉化.txt"):
     """[(src_lines, tr_lines)] —— 只取两侧都在的章（行数不等 → 跳过并计数）。"""
     import glob
     pairs, skipped = [], 0
-    for p in sorted(glob.glob(os.path.join(aa_dir, "*" + src_ext))):
+    for p in [os.path.join(aa_dir, n) for n in list_txt(aa_dir, src_ext)]:
         base = os.path.basename(p)[: -len(src_ext)]
         if base.endswith("_台词"):
             continue

@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(BASE, "scripts", "works"))
 sys.path.insert(0, os.path.join(BASE, "scripts", "tools"))
 sys.path.insert(0, os.path.join(BASE, "scripts", "common"))
 
+from aa_common import txt_read, txt_existing   # 压缩感知
 import registry
 import work_memory as WM
 
@@ -76,10 +77,10 @@ def _chapter_dialogue(work, base):
     import extract_dialogue as ED
     cfg = registry.get(work)
     aa = cfg["aa_dir"]
-    src_p = os.path.join(aa, base + ".txt")
+    src_p = txt_existing(os.path.join(aa, base + ".txt"))
     if not os.path.exists(src_p):
         return None, None
-    lines = open(src_p, encoding="utf-8").read().split("\n")
+    lines = txt_read(src_p)
     title = lines[0].lstrip("# ").strip() if lines and lines[0].startswith("#") else base
     # 确保 v3 meta 口径 _台词.txt 存在（缺失生成）
     dlg_p = os.path.join(aa, base + "_台词.txt")

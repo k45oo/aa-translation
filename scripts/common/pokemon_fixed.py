@@ -1767,8 +1767,7 @@ def _aa_bases(aa_dir, bases=None):
     if bases:
         return list(bases)
     out = []
-    for f in sorted(glob.glob(os.path.join(aa_dir, "entry_*.txt"))):
-        base = os.path.basename(f)[:-4]
+    for base in A.list_txt(aa_dir, exclude=("_台词.txt", "_汉化.txt")):
         if not base.endswith("_台词"):
             out.append(base)
     return out
@@ -2281,11 +2280,10 @@ def replay(work, bases=None, max_examples=200, aa_dir=None, out_dir=None, work_d
     meta_dir = os.path.join(work_dir, "line_meta_v2")
     if bases is None:
         bases = []
-        for f in sorted(glob.glob(os.path.join(aa_dir, "entry_*.txt"))):
-            base = os.path.basename(f)[:-4]
+        for base in A.list_txt(aa_dir, exclude=("_台词.txt", "_汉化.txt")):
             if base.endswith("_台词"):
                 continue
-            if os.path.exists(os.path.join(out_dir, base + "_汉化.txt")):
+            if os.path.exists(A.txt_existing(os.path.join(out_dir, base + "_汉化.txt"))):
                 bases.append(base)
     res = {"chapters": 0, "lines": 0, "hit_struct": 0, "hit_whole": 0, "hit_rule": 0, "hit_copy": 0,
            "same": 0, "diff": 0, "reject": {}, "examples": [], "by_term": {}}

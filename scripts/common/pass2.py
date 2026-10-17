@@ -56,10 +56,10 @@ def main(work=None):
     cfg = registry.get(work or (args[0] if args else "baitou"))
     OUT_DIR = cfg["out_dir"]
     WORK_DIR = cfg["work_dir"]
-    files = sorted(f for f in os.listdir(OUT_DIR) if f.endswith("_汉化.txt"))
+    files = C.list_txt(OUT_DIR, "_汉化.txt")
     for fname in files:
         path = os.path.join(OUT_DIR, fname)
-        lines = open(path, encoding="utf-8").read().split("\n")
+        lines = C.txt_read(C.txt_existing(path))
         # B2 同步: mixed 段级默认开（AA_USE_MIXED_SEGMENTS=0 关闭）时按 segments 跳过 art 段残留检测
         seg_meta = {}
         if _flag_on("AA_USE_MIXED_SEGMENTS"):
@@ -84,8 +84,7 @@ def main(work=None):
                 missed_all.extend(still)
         for idx, nl in fixed_all.items():
             lines[idx] = nl
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines))
+        C.txt_write_form(C.txt_out_path(path), lines)
         print(f"  fixed {len(fixed_all)}, still missed: {missed_all[:15]}", flush=True)
 
 

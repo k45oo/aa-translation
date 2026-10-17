@@ -17,6 +17,9 @@ sys.path.insert(0, os.path.join(ROOT, "scripts"))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "common"))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "works"))
 
+from aa_common import list_txt, txt_read   # noqa: E402 压缩感知（.txt/.txt.gz）
+
+
 def load_global_roles():
     """读全局 roles.json 角色日文名 → {日文名: 中文译名}（按长度降序，长名优先匹配）
 
@@ -41,10 +44,8 @@ def scan_work(work, roles):
     out_dir = cfg["out_dir"]
     work_dir = cfg.get("work_dir") or os.path.join(ROOT, "aaManga", cfg.get("title", work))
     hits = []
-    for fname in sorted(os.listdir(out_dir)):
-        if not fname.endswith("_汉化.txt"):
-            continue
-        lines = open(os.path.join(out_dir, fname), encoding="utf-8").read().split("\n")
+    for fname in list_txt(out_dir, "_汉化.txt"):
+        lines = txt_read(os.path.join(out_dir, fname))
         for i, line in enumerate(lines):
             if not line.strip():
                 continue

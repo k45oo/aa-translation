@@ -80,17 +80,24 @@ def _eid_of(name):
 
 
 def _file_sha1(p):
-    """文件 sha1（与 refine_aa._file_sha1 同口径；缺失返回 ""）。"""
+    """文件 sha1（与 refine_aa._file_sha1 同口径；缺失返回 ""）。
+    2026-10-17: 压缩感知——`.txt.gz` 按解压后字节哈希，压缩前后指纹不变。"""
+    if p and not os.path.exists(p):
+        gz = p + ".gz"
+        if os.path.exists(gz):
+            p = gz
     if not os.path.exists(p):
         return ""
     try:
-        h = hashlib.sha1()
-        with open(p, "rb") as f:
-            for chunk in iter(lambda: f.read(65536), b""):
-                h.update(chunk)
-        return h.hexdigest()
+        if str(p).endswith(".gz"):
+            import gzip as _gz
+            data = _gz.open(p, "rb").read()
+        else:
+            with open(p, "rb") as f:
+                data = f.read()
     except OSError:
         return ""
+    return hashlib.sha1(data).hexdigest()
 
 
 def _refined_ok(cfg, base):

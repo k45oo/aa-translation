@@ -107,11 +107,11 @@ def _load_gloss_hint(cfg, base):
         if not pairs:
             return ""
         # 按本章原文语料过滤(词在本章出现才注入)
-        src_p = os.path.join(cfg.get("aa_dir", ""), base + ".txt")
+        src_p = T.txt_existing(os.path.join(cfg.get("aa_dir", ""), base + ".txt"))
         corpus = ""
         if os.path.exists(src_p):
             try:
-                corpus = open(src_p, encoding="utf-8", errors="replace").read()
+                corpus = chr(10).join(T.txt_read(src_p))
             except OSError:
                 corpus = ""
         hits = [(jp, zh) for jp, zh in pairs if not corpus or (jp in corpus or zh in corpus)]
@@ -1500,17 +1500,10 @@ def refine_chapter(cfg, base, do_write=False, review_inline=False):
 
 
 def _file_sha1(p):
-    """文件 sha1（章级增量指纹用；缺失返回 ""）。"""
-    if not os.path.exists(p):
-        return ""
-    try:
-        h = hashlib.sha1()
-        with open(p, "rb") as f:
-            for chunk in iter(lambda: f.read(65536), b""):
-                h.update(chunk)
-        return h.hexdigest()
-    except OSError:
-        return ""
+    """文件 sha1（章级增量指纹用；缺失返回 ""）。
+    2026-10-17: 走 `T.txt_file_sha1` —— `.txt.gz` 按**解压后字节**哈希，压缩前后指纹不变
+    （否则全库 refine_ckpt 判失效 → 重校对花钱）。"""
+    return T.txt_file_sha1(p)
 
 
 def _ckpt_path(cfg, base):
@@ -1573,8 +1566,7 @@ def process_work(work, eids=None, do_write=False, review_inline=False, force=Fal
     if eids:
         files = [f"entry_{e}.txt" for e in eids]
     else:
-        files = sorted(f for f in os.listdir(cfg["aa_dir"]) if f.endswith(".txt")
-                       and not f.endswith("_台词.txt"))
+        files = T.list_txt(cfg["aa_dir"], exclude=("_台词.txt", "_汉化.txt"))
     import task_report as TR   # env 无 AA_TASK_ID 自动 no-op(直跑零侵入)
     results = []
     n_files = len(files)
@@ -1654,9 +1646,9 @@ def process_work(work, eids=None, do_write=False, review_inline=False, force=Fal
             # 备份整章（本次运行共用同一个 backup 目录，见 process_work 开头）
             bak = _bak_dir
             os.makedirs(bak, exist_ok=True)
-            shutil.copy2(os.path.join(out_dir, fname.replace(".txt", "_汉化.txt")),
-                         os.path.join(bak, fname.replace(".txt", "_汉化.txt")))
-            new_tr = list(open(os.path.join(out_dir, fname.replace(".txt", "_汉化.txt")), encoding="utf-8").read().split("\n"))
+            _tr_actual = T.txt_existing(os.path.join(out_dir, fname.replace(".txt", "_汉化.txt")))
+            shutil.copy2(_tr_actual, os.path.join(bak, os.path.basename(_tr_actual)))
+            new_tr = list(T.txt_read(_tr_actual))
             for i, s, old, new, act, ok, reason in edits:
                 if ok and new and new != old and new_tr[i] == old:
                     new_tr[i] = T.one_line(new)     # 护栏：行内换行会把 1 行写成 2 行
@@ -1668,8 +1660,8 @@ def process_work(work, eids=None, do_write=False, review_inline=False, force=Fal
                 stats["write_skipped"] = 1
             else:
                 new_tr = T.normalize_lines(new_tr)   # 补位位置规范化（2026-10-11，refine 不走 txt_write）
-                with open(os.path.join(out_dir, fname.replace(".txt", "_汉化.txt")), "w", encoding="utf-8") as f:
-                    f.write("\n".join(new_tr))
+                _tr_out = T.txt_out_path(os.path.join(out_dir, fname.replace(".txt", "_汉化.txt")))
+                T.txt_write_form(_tr_out, new_tr)
                 print(f"  -> 已写回并备份到 {bak}")
         # 2026-09-15 章级增量(P3): 本章校对完成(无论有无改动)即落 ckpt——指纹=原文+汉化文件 sha1。
         #   缺原文/缺 meta/长度不齐的章不落(下次仍会尝试)。

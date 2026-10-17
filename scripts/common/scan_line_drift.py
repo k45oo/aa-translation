@@ -59,12 +59,10 @@ def scan_work(work_dir, work_id=None, verbose=True):
     rows = []
     if not (os.path.isdir(aa_dir) and os.path.isdir(tr_dir)):
         return rows
-    for fname in sorted(os.listdir(aa_dir)):
-        if not fname.endswith(".txt") or fname.endswith("_台词.txt"):
-            continue
+    for fname in T.list_txt(aa_dir, exclude=("_台词.txt", "_汉化.txt")):
         base = T.txt_key(fname)
-        src = _lines(os.path.join(aa_dir, fname))
-        tr = _lines(os.path.join(tr_dir, base + "_汉化.txt"))
+        src = _lines(T.txt_existing(os.path.join(aa_dir, fname)))
+        tr = _lines(T.txt_existing(os.path.join(tr_dir, base + "_汉化.txt")))
         if src is None or tr is None or len(src) == len(tr):
             continue
         kind, detail = classify(src, tr)
@@ -91,8 +89,7 @@ def main():
     all_rows, n_chap = [], 0
     for wid, wdir in targets:
         rows = scan_work(wdir, wid)
-        n_chap += len([f for f in os.listdir(os.path.join(wdir, "汉化"))
-                       if f.endswith("_汉化.txt")]) if os.path.isdir(os.path.join(wdir, "汉化")) else 0
+        n_chap += len(T.list_txt(os.path.join(wdir, "汉化"), "_汉化.txt")) if os.path.isdir(os.path.join(wdir, "汉化")) else 0
         for r in rows:
             r["work"] = wid
         all_rows += rows

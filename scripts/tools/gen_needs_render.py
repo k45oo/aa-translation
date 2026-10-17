@@ -225,8 +225,8 @@ def gaps_all(work, cfg, out, quiet=False, limit=0):
     table = PF.load(work, cfg["work_dir"]) or {}
     terms = PF.merged_terms(work, cfg["work_dir"])
     wd = cfg["work_dir"]
-    files = sorted(f for f in glob.glob(os.path.join(cfg["aa_dir"], "entry_*.txt"))
-                   if not f.endswith("_台词.txt"))
+    files = [os.path.join(cfg["aa_dir"], n)
+             for n in A.list_txt(cfg["aa_dir"], exclude=("_台词.txt", "_汉化.txt"))]
     if limit:
         files = files[:limit]
     gap = collections.defaultdict(collections.Counter)
@@ -308,7 +308,7 @@ def main():
     secs, total, dets = [], collections.Counter(), []
     gap = collections.Counter()
     for base in bases:
-        if not os.path.exists(os.path.join(cfg["aa_dir"], base + ".txt")):
+        if not os.path.exists(A.txt_existing(os.path.join(cfg["aa_dir"], base + ".txt"))):
             print("原文不存在，跳过：%s" % base)
             continue
         gp = [(j, z) for j, z in A._load_glossary_pairs(base) if not j.startswith("re:")]

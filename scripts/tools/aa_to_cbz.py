@@ -29,8 +29,12 @@ def chapter_label(chdir, tr_dir=None):
     无 txt 时从目录名提取 第N話"""
     if tr_dir:
         p = os.path.join(tr_dir, chdir + '_汉化.txt')
+        if not os.path.exists(p) and os.path.exists(p + '.gz'):
+            p += '.gz'
         if os.path.exists(p):
-            first = open(p, encoding='utf-8').readline().strip().translate(FULL2HALF)
+            import gzip as _gz
+            with (_gz.open(p, 'rt', encoding='utf-8') if p.endswith('.gz') else open(p, encoding='utf-8')) as _f:
+                first = _f.readline().strip().translate(FULL2HALF)
             m = re.search(r'第(\d+)[話话]', first)
             if m:
                 return f'第{m.group(1)}话'

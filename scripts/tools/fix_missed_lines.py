@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(BASE, "scripts"))
 sys.path.insert(0, os.path.join(BASE, "scripts", "common"))
 sys.path.insert(0, os.path.join(BASE, "scripts", "works"))
 import registry
-from aa_common import is_text_line, disp_width, pad_to_width
+from aa_common import is_text_line, disp_width, pad_to_width, list_txt, txt_read, txt_existing   # 压缩感知
 
 # AA 艺术字符(排除后才是纯台词)
 ART_CHARS = set('／＼|()（）[]＿_⊂⊃⊆⊇∧∨ミ彡乂爻≧≦ｰ─━┌┐└┘│├┤┬┴┼ーﾆﾄﾘﾉﾊﾞ〃' + '・｡､｢｣')
@@ -58,11 +58,9 @@ def scan_work(work):
         print(f"{work}: 无汉化目录")
         return []
     missed = []   # (tf, idx, src, tr)
-    for tf in sorted(os.listdir(out)):
-        if not tf.endswith("_汉化.txt"):
-            continue
-        tr = open(os.path.join(out, tf), encoding="utf-8").read().split("\n")
-        src = open(os.path.join(aa, tf.replace("_汉化.txt", ".txt")), encoding="utf-8").read().split("\n")
+    for tf in list_txt(out, "_汉化.txt"):
+        tr = txt_read(os.path.join(out, tf))
+        src = txt_read(txt_existing(os.path.join(aa, tf.replace("_汉化.txt", ".txt"))))
         for i, l in enumerate(tr):
             if i >= len(src):
                 continue
@@ -170,10 +168,10 @@ def _fix_lines(work, missed, ctx_lines=5):
 
     total_fixed = 0
     for tf, idxs in by_file.items():
-        tr_path = os.path.join(out, tf)
-        src_path = os.path.join(aa, tf.replace("_汉化.txt", ".txt"))
-        tr = open(tr_path, encoding="utf-8").read().split("\n")
-        src = open(src_path, encoding="utf-8").read().split("\n")
+        tr_path = txt_existing(os.path.join(out, tf))
+        src_path = txt_existing(os.path.join(aa, tf.replace("_汉化.txt", ".txt")))
+        tr = txt_read(tr_path)
+        src = txt_read(src_path)
         for i in sorted(idxs):
             s = src[i].strip()
             # 上下文: 前/后 ctx_lines 楼台词——优先用 汉化/<章>_台词.txt(纯净纯文本)

@@ -46,6 +46,7 @@ sys.path.insert(0, os.path.join(_SCRIPTS, "common"))
 sys.path.insert(0, os.path.join(_SCRIPTS, "works"))
 
 import aa_api as A            # flat 版 re-export：call_api / is_text_line / kana_runs
+from aa_common import list_txt   # 压缩感知（.txt/.txt.gz）
 import registry               # works/registry.py（from paths import BASE）
 
 BASE = registry.BASE
@@ -93,7 +94,7 @@ def _ensure_dialogues(cfg, aa_dir):
     made, failed = 0, []
     if cfg is None:
         return made, failed
-    for fn in sorted(os.listdir(aa_dir)):
+    for fn in list_txt(aa_dir, exclude=("_台词.txt", "_汉化.txt")):
         if not (fn.endswith(".txt") and not fn.endswith(("_台词.txt", "_汉化.txt", "_台词.txt.gz"))):
             continue
         base = fn[:-4]
@@ -111,7 +112,7 @@ def _ensure_dialogues(cfg, aa_dir):
 def _missing_dialogues(aa_dir):
     """返回缺 _台词.txt 的原文章 base 列表（幂等判定, 供 --ensure-dialogues-only 用）。"""
     miss = []
-    for fn in sorted(os.listdir(aa_dir)):
+    for fn in list_txt(aa_dir, exclude=("_台词.txt", "_汉化.txt")):
         if not (fn.endswith(".txt") and not fn.endswith(("_台词.txt", "_汉化.txt", "_台词.txt.gz"))):
             continue
         base = fn[:-4]

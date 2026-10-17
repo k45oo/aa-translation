@@ -10,7 +10,7 @@ sys.path.insert(0, _SCRIPT_DIR)
 sys.path.insert(0, os.path.join(os.path.dirname(_SCRIPT_DIR), "works"))
 
 import registry
-from aa_common import ART_KANJI, disp_width
+from aa_common import ART_KANJI, disp_width, list_txt, txt_existing, txt_read   # 压缩感知（.txt/.txt.gz）
 
 KANA = re.compile(r'[ぁ-んァ-ヶー]')
 
@@ -31,11 +31,11 @@ def main(work=None):
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     cfg = registry.get(work or (args[0] if args else "baitou"))
     AA_DIR, OUT_DIR = cfg["aa_dir"], cfg["out_dir"]
-    files = sorted(f for f in os.listdir(AA_DIR) if f.endswith(".txt"))
+    files = list_txt(AA_DIR, exclude=("_台词.txt", "_汉化.txt"))
     all_rows = []
     for fname in files:
-        src = open(os.path.join(AA_DIR, fname), encoding="utf-8").read().split("\n")
-        dst = os.path.join(OUT_DIR, fname.replace(".txt", "_汉化.txt"))
+        src = txt_read(txt_existing(os.path.join(AA_DIR, fname)))
+        dst = txt_existing(os.path.join(OUT_DIR, fname.replace(".txt", "_汉化.txt")))
         if not os.path.exists(dst):
             continue
         tr = open(dst, encoding="utf-8").read().split("\n")

@@ -361,7 +361,7 @@ def api_work_meta_mat_scan(work: str):
     out = cfg.get("out_dir")
     if not out or not os.path.isdir(out):
         raise HTTPException(400, "无汉化目录")
-    files = _glob.glob(os.path.join(out, "*_汉化.txt"))
+    files = [os.path.join(out, n) for n in logic.list_txt(out, "_汉化.txt")]
     if not files:
         return {"ok": True, "skipped": True, "materials": [], "msg": "无汉化文件"}
     # 2026-08-28: 知识库人物优先(作品专属素材, 精准); 空时回退全局角色表

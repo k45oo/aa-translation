@@ -87,8 +87,7 @@ def corpus_counts(work, terms, quiet=False):
     pat = re.compile("|".join(re.escape(t) for t in sorted(terms, key=len, reverse=True)))
     cnt = collections.Counter()
     name_cnt = collections.Counter()
-    files = sorted(f for f in glob.glob(os.path.join(cfg["aa_dir"], "entry_*.txt"))
-                   if not f.endswith("_台词.txt"))
+    files = [os.path.join(cfg["aa_dir"], n) for n in A.list_txt(cfg["aa_dir"], exclude=("_台词.txt", "_汉化.txt"))]
     for i, f in enumerate(files):
         try:
             txt = "".join(A.txt_read(f))

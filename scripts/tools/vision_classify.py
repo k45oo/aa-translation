@@ -18,7 +18,7 @@ import registry
 import sites  # noqa: 提供站点模块查找
 from sites import fc2 as site  # noqa: overridden in main()
 import aa_to_images as A
-from aa_common import meta_load, json_read_any   # meta 透明读（.json/.json.gz）
+from aa_common import meta_load, json_read_any, list_txt, txt_read   # meta/正文透明读
 from PIL import Image, ImageDraw
 
 V3_DIR_NAME = 'line_meta_v3'
@@ -213,7 +213,7 @@ def process_chapter(base, cfg, site_name, sys_prompt, all_models, limit, retry_f
     models_ordered = [primary] + [m for m in all_models if m != primary]
     log.append(f"{base}: 主力模型={primary[0]}")
 
-    lines = open(os.path.join(cfg['out_dir'], base + '_汉化.txt'), encoding='utf-8').read().split('\n')
+    lines = txt_read(os.path.join(cfg['out_dir'], base + '_汉化.txt'))
     rows = [(i, l) for i, l in enumerate(lines) if not l.startswith('#')]
     meta = {}
     mp = os.path.join(cfg['work_dir'], 'line_meta', base + '.json')
@@ -326,7 +326,7 @@ def main():
     site_name = site_map.get(a.work, 'fc2')
     site = __import__('sites.' + site_name, fromlist=[site_name])
     print(f"[site={site_name}] workers={a.workers}")
-    files = sorted(f for f in os.listdir(cfg['out_dir']) if f.endswith('_汉化.txt'))
+    files = list_txt(cfg['out_dir'], '_汉化.txt')
     if a.chapter:
         chapters = a.chapter if isinstance(a.chapter, list) else [a.chapter]
         files = [f for f in files if any(c in f for c in chapters)]

@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.join(BASE, 'scripts', 'works'))
 import registry
 from sites import fc2 as site
 import aa_to_images as A
-from aa_common import meta_exists, meta_load   # meta 透明读（.json/.json.gz）
+from aa_common import meta_exists, meta_load, list_txt, txt_read   # meta/正文透明读
 
 # 非艺术日文假名连续段(≥2) = 残留嫌疑; 艺术假名(ヽノー等装饰)不算
 ART_KANA = set('ヽノー=―ゝ丶つだりへぢづゑゐいうしふとこっッ・…‥ニミヘトソンイリムハヾレンソノ' 
@@ -112,14 +112,14 @@ def main():
     a = ap.parse_args()
 
     cfg = registry.get(a.work)
-    files = sorted(f for f in os.listdir(cfg['out_dir']) if f.endswith('_汉化.txt'))
+    files = list_txt(cfg['out_dir'], '_汉化.txt')
     if a.chapter:
         files = [f for f in files if a.chapter in f]
 
     all_report = []   # (base, 行号, 残留段, 行内容)
     for fn in files:
         base = fn.replace('_汉化.txt', '')
-        lines = open(os.path.join(cfg['out_dir'], fn), encoding='utf-8').read().split('\n')
+        lines = txt_read(os.path.join(cfg['out_dir'], fn))
         if not meta_exists(os.path.join(cfg['work_dir'], 'line_meta_v2'), base):
             continue
         v2 = meta_load(os.path.join(cfg['work_dir'], 'line_meta_v2'), base, {}) or {}

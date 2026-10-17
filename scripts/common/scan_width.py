@@ -22,7 +22,7 @@ sys.path.insert(0, _SCRIPT_DIR)
 sys.path.insert(0, os.path.join(os.path.dirname(_SCRIPT_DIR), "works"))
 
 import registry
-from aa_common import disp_width, allow_overwidth
+from aa_common import disp_width, allow_overwidth, list_txt, txt_read, txt_existing  # 压缩感知
 
 
 def collect_mismatch(AA_DIR, OUT_DIR, files=None, check_art_align=False, WORK_DIR=None):
@@ -40,8 +40,7 @@ def collect_mismatch(AA_DIR, OUT_DIR, files=None, check_art_align=False, WORK_DI
     另返回 (n_files_checked, skipped_missing, line_count_mismatches) 供调用方汇报。
     """
     if files is None:
-        names = sorted(f for f in os.listdir(AA_DIR) if f.endswith(".txt")
-                       and not f.endswith("_台词.txt"))
+        names = list_txt(AA_DIR, exclude=("_台词.txt", "_汉化.txt"))
     else:
         names = sorted(files)
     rows = []
@@ -58,15 +57,13 @@ def collect_mismatch(AA_DIR, OUT_DIR, files=None, check_art_align=False, WORK_DI
     else:
         load_segments_meta = _verify_art_alignment = None
     for fname in names:
-        src_path = os.path.join(AA_DIR, fname)
-        dst = os.path.join(OUT_DIR, fname.replace(".txt", "_汉化.txt"))
+        src_path = txt_existing(os.path.join(AA_DIR, fname))
+        dst = txt_existing(os.path.join(OUT_DIR, fname.replace(".txt", "_汉化.txt")))
         if not os.path.exists(src_path) or not os.path.exists(dst):
             skipped.append(fname)
             continue
-        with open(src_path, encoding="utf-8") as f:
-            src = f.read().split("\n")
-        with open(dst, encoding="utf-8") as f:
-            tr = f.read().split("\n")
+        src = txt_read(src_path)
+        tr = txt_read(dst)
         if len(src) != len(tr):
             count_mismatch.append((fname, len(src), len(tr)))
             continue
@@ -123,8 +120,7 @@ def main(work=None):
     report_lines = []
     for fname in sorted(set(list(by_file) + [c[0] for c in count_mismatch])):
         items = by_file.get(fname, [])
-        with open(os.path.join(AA_DIR, fname), encoding="utf-8") as f:
-            n_src = sum(1 for _ in f)
+        n_src = len(txt_read(txt_existing(os.path.join(AA_DIR, fname))))
         print(f"{fname[:34]}: {n_src} lines, width-mismatch {len(items)}")
         report_lines.append(f"===== {fname} : {len(items)} mismatches =====")
         for i, wa, wb in items[:40]:

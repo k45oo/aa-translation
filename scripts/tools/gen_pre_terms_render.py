@@ -123,7 +123,8 @@ def _mark(html_line, text, spans, cursor=0):
 
 def render_chapter(work, cfg, base, site, kinds, with_orig=True):
     """返回 (章节 HTML, 统计 dict)。kinds 见 _meta_kinds（text/mixed 才是送模型行）。"""
-    lines = _read(os.path.join(cfg["aa_dir"], base + ".txt"))
+    lines = _read(os.path.join(cfg["aa_dir"], base + ".txt.gz")) if not os.path.exists(
+        os.path.join(cfg["aa_dir"], base + ".txt")) else _read(os.path.join(cfg["aa_dir"], base + ".txt"))
     cm = _colormap(cfg["aa_dir"], base)
     plan = G._blank_plan(lines)
     stat = {"lines": 0, "terms": 0, "rows": 0, "off_terms": 0, "off_rows": 0, "miss_hl": 0,
@@ -198,7 +199,8 @@ def main():
 
     secs, stats = [], []
     for base in bases:
-        if not os.path.exists(os.path.join(cfg["aa_dir"], base + ".txt")):
+        if not os.path.exists(os.path.join(cfg["aa_dir"], base + ".txt.gz")) and not os.path.exists(
+            os.path.join(cfg["aa_dir"], base + ".txt")):
             print("原文不存在，跳过：%s" % base)
             continue
         kinds = _meta_kinds(cfg["work_dir"], base)

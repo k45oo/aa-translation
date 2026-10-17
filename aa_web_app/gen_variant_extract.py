@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(_ROOT, "scripts"))
 sys.path.insert(0, os.path.join(_ROOT, "scripts", "works"))
 sys.path.insert(0, os.path.join(_ROOT, "scripts", "common"))
 
+from aa_common import list_txt, txt_read   # 压缩感知（.txt/.txt.gz）
 import registry
 
 
@@ -28,8 +29,7 @@ def extract_lines(work, word):
     aa_dir, out_dir = cfg["aa_dir"], cfg["out_dir"]
     word_re = re.compile(re.escape(word))
     rows = []
-    for fn in sorted(f for f in os.listdir(aa_dir)
-                     if f.endswith(".txt") and not f.endswith("_台词.txt")):
+    for fn in list_txt(aa_dir, exclude=("_台词.txt", "_汉化.txt")):
         dst = os.path.join(out_dir, fn.replace(".txt", "_汉化.txt"))
         if not os.path.exists(dst):
             continue

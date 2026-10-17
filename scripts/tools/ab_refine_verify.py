@@ -69,11 +69,13 @@ def _find_input(work_dir, eid, bak=None):
     base = f"entry_{eid}"
     if bak:
         d = bak if os.path.isabs(bak) else os.path.join(work_dir, bak)
-        if not os.path.exists(os.path.join(d, base + "_汉化.txt")):
+        if not (os.path.exists(os.path.join(d, base + "_汉化.txt"))
+                or os.path.exists(os.path.join(d, base + "_汉化.txt.gz"))):
             raise SystemExit(f"✗ {d} 里没有 {base}_汉化.txt")
         return d, base
     cands = sorted(d for d in glob.glob(os.path.join(work_dir, "backup_refine_aa_*"))
-                   if os.path.exists(os.path.join(d, base + "_汉化.txt")))
+                   if (os.path.exists(os.path.join(d, base + "_汉化.txt"))
+                       or os.path.exists(os.path.join(d, base + "_汉化.txt.gz"))))
     if not cands:
         raise SystemExit(f"✗ {base}: 找不到 backup_refine_aa_* 里的校对前输入\n"
                          f"  先跑一次: python scripts/fix/refine_aa.py \"{os.path.basename(os.path.dirname(work_dir))}\" "

@@ -32,7 +32,7 @@ try:
 except Exception:                        # 包不在 sys.path 上（极端情况）→ 退回代码根
     _DATA = _ROOT
 
-from aa_common import disp_width, pad_to_width, residual_suspect, HEADER_RE, is_text_line, allow_overwidth, KANA_RE, txt_read, txt_write, txt_key, txt_existing, meta_path, meta_load, meta_list
+from aa_common import disp_width, pad_to_width, residual_suspect, HEADER_RE, is_text_line, allow_overwidth, KANA_RE, txt_read, txt_write, txt_key, txt_existing, meta_path, meta_load, meta_list, list_txt
 
 _GLOSSARY_JSON = os.path.join(_DATA, "glossary.json")
 BACKUP_KEEP = 10          # 每作品滚动保留的备份份数
@@ -1676,7 +1676,7 @@ def extract_author_tripcode(aa_dir):
     import glob
     if not aa_dir or not os.path.isdir(aa_dir):
         return ""
-    files = sorted(glob.glob(os.path.join(aa_dir, "*.txt")))[:12]
+    files = [os.path.join(aa_dir, n) for n in list_txt(aa_dir)][:12]
     from collections import Counter
     votes = Counter()
     for f in files:
@@ -1735,7 +1735,7 @@ def extract_author_cached(work_dir, aa_dir):
     import glob, json
     if not aa_dir or not os.path.isdir(aa_dir):
         return ""
-    files = sorted(glob.glob(os.path.join(aa_dir, "*.txt")))[:12]
+    files = [os.path.join(aa_dir, n) for n in list_txt(aa_dir)][:12]
     if not files:
         return ""
     fp_parts = [f"{os.path.basename(f)}:{os.path.getmtime(f):.0f}:{os.path.getsize(f)}" for f in files]
@@ -2031,7 +2031,7 @@ def material_frequency(out_dir, names):
     import glob
     if not out_dir or not os.path.isdir(out_dir):
         return {}
-    files = glob.glob(os.path.join(out_dir, "*_汉化.txt"))
+    files = [os.path.join(out_dir, n) for n in list_txt(out_dir, "_汉化.txt")]
     if not files:
         return {}
     # 每个素材: 匹配词集合(中文名+日文原名+短名+繁简变体, 2026-08-27 防误判)
@@ -2136,7 +2136,7 @@ def material_frequency_cached(work_dir, out_dir, names):
     import glob, json
     if not out_dir or not os.path.isdir(out_dir) or not names:
         return {}
-    files = sorted(glob.glob(os.path.join(out_dir, "*_汉化.txt")))
+    files = [os.path.join(out_dir, n) for n in list_txt(out_dir, "_汉化.txt")]
     if not files:
         return {}
     # 指纹: 所有汉化文件 mtime+size 的哈希 + 名单(v2: 加章节数结构, 使旧纯数字缓存失效)
@@ -2180,7 +2180,7 @@ def material_chapters(out_dir, name):
     import glob
     if not out_dir or not os.path.isdir(out_dir):
         return {}
-    files = glob.glob(os.path.join(out_dir, "*_汉化.txt"))
+    files = [os.path.join(out_dir, n) for n in list_txt(out_dir, "_汉化.txt")]
     out = {}
     for f in files:
         try:
@@ -2201,7 +2201,7 @@ def material_chapters_cached(work_dir, out_dir, name):
     import glob, json
     if not out_dir or not os.path.isdir(out_dir) or not name:
         return {}
-    files = sorted(glob.glob(os.path.join(out_dir, "*_汉化.txt")))
+    files = [os.path.join(out_dir, n) for n in list_txt(out_dir, "_汉化.txt")]
     if not files:
         return {}
     _fp_key = (out_dir, "mat_chapters", name)
@@ -2280,7 +2280,7 @@ def r18_summary(work_dir, out_dir):
         return {"total": 0, "yes": 0, "suspect": 0, "no": 0, "pct": 0.0,
                 "r18_lines": 0, "text_lines": 0, "conc": 0.0,
                 "yes_chapters": [], "suspect_chapters": []}
-    files = sorted(glob.glob(os.path.join(out_dir, "*_汉化.txt")))
+    files = [os.path.join(out_dir, n) for n in list_txt(out_dir, "_汉化.txt")]
     yes = suspect = no = r18_lines = text_lines = word_hits = 0
     yes_ch, sus_ch = [], []   # 分开初始化（勿共用一个列表, append 会互相污染）
     for f in files:

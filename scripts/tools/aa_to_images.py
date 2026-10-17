@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(BASE, "scripts", "common"))
 sys.path.insert(0, os.path.join(BASE, "scripts", "works"))
 import registry
 from aa_common import (disp_width, is_text_line, ART_HIRA, ART_KATA, ART_KANJI,
-                       meta_path, json_read_any)
+                       meta_path, json_read_any, list_txt)
 
 # 与交付 HTML 同款字体语义: 主=MS PGothic(比例,浏览器实测),缺字回退 SimSun
 # 布局宽度与字形都按"字符在 PGothic cmap 则用 PGothic,否则 SimSun"逐字符决定
@@ -795,7 +795,7 @@ def block_layout(block, width, site, fixed_width=False, fs_bonus=0, text_bonus=0
     return fs, img_w
 
 def chapter_files(tr_dir, name_style):
-    files = sorted(f for f in os.listdir(tr_dir) if f.endswith('_汉化.txt'))
+    files = list_txt(tr_dir, '_汉化.txt')
     if name_style == 'eid_title':
         files = [f for f in files if not f.startswith('entry_')]
     return files

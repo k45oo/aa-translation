@@ -114,11 +114,11 @@ def main():
     aa_dir, out_dir, work_dir = cfg["aa_dir"], cfg["out_dir"], cfg["work_dir"]
     A.WORK_ID = a.work
 
-    src = PT.file_lines(os.path.join(aa_dir, a.base + ".txt"))
+    src = PT.file_lines(A.txt_existing(os.path.join(aa_dir, a.base + ".txt")))
     if not src:
         print("原文不存在: %s" % os.path.join(aa_dir, a.base + ".txt"))
         return 1
-    han = PT.file_lines(os.path.join(out_dir, a.base + "_汉化.txt"))
+    han = PT.file_lines(A.txt_existing(os.path.join(out_dir, a.base + "_汉化.txt")))
     meta = A.load_meta_0based(os.path.join(work_dir, "line_meta_v2"), a.base)
 
     def keep(i, l):

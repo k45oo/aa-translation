@@ -38,20 +38,19 @@ def collect(AA_DIR, OUT_DIR, files=None):
     text/mixed/header/skip 行超宽视为正常扩展，不返回。
     """
     if files is None:
-        names = sorted(f for f in os.listdir(AA_DIR)
-                       if f.endswith(".txt") and not f.endswith("_台词.txt"))
+        names = C.list_txt(AA_DIR, exclude=("_台词.txt", "_汉化.txt"))
     else:
         names = sorted(files)
     rows = []
     for fname in names:
-        src_path = os.path.join(AA_DIR, fname)
+        src_path = C.txt_existing(os.path.join(AA_DIR, fname))
         if not os.path.exists(src_path):
             continue
-        dst = os.path.join(OUT_DIR, fname.replace(".txt", "_汉化.txt"))
+        dst = C.txt_existing(os.path.join(OUT_DIR, fname.replace(".txt", "_汉化.txt")))
         if not os.path.exists(dst):
             continue
-        src = open(src_path, encoding="utf-8").read().split("\n")
-        tr = open(dst, encoding="utf-8").read().split("\n")
+        src = C.txt_read(src_path)
+        tr = C.txt_read(dst)
         for i, (a, b) in enumerate(zip(src, tr)):
             if a.startswith(('#', '=====')):   # 标记行不参与宽度校验
                 continue
@@ -108,11 +107,11 @@ def main(work=None):
     for fname, frows in by_file.items():
         fixed, failed = fix_batch(frows)
         # apply
-        dst = os.path.join(OUT_DIR, fname.replace(".txt", "_汉化.txt"))
-        lines = open(dst, encoding="utf-8").read().split("\n")
+        dst = C.txt_out_path(os.path.join(OUT_DIR, fname.replace(".txt", "_汉化.txt")))
+        lines = C.txt_read(dst)
         for idx, nl in fixed.items():
             lines[idx] = nl
-        open(dst, "w", encoding="utf-8").write("\n".join(lines))
+        C.txt_write_form(dst, lines)
         all_fixed.update(fixed)
         all_failed.extend(failed)
         print(f"{fname.split('_')[0]}: fixed {len(fixed)}/{len(frows)}, failed {len(failed)}", flush=True)

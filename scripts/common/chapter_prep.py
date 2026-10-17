@@ -26,6 +26,7 @@ sys.path.insert(0, _SCRIPTS)
 sys.path.insert(0, os.path.join(_SCRIPTS, "common"))
 sys.path.insert(0, os.path.join(_SCRIPTS, "works"))
 
+from aa_common import list_txt, txt_read   # 压缩感知：枚举/读原文
 import aa_api as A            # flat 版 re-export: kana_runs / is_text_line / HEADER_RE / _raw_glossary_pairs
 import registry
 from paths import BASE
@@ -96,7 +97,7 @@ def _known_names():
 
 def _split_lines(path):
     try:
-        return open(path, encoding="utf-8", errors="replace").read().splitlines()
+        return txt_read(path)
     except OSError:
         return []
 
@@ -110,7 +111,7 @@ def prep_chapter(aa_path, work_dir, raw_pairs=None, is_r18_work=None, level=None
       high(最松):   STRONG≥3 → yes;  NORMAL≥4 个不同词 → yes
       空(no):       不参与章节级判定(阈值用 medium, 结果不被 _chapter_work_r18 消费)
     """
-    base = os.path.basename(aa_path).replace(".txt", "")
+    base = os.path.basename(aa_path)[:-3] if aa_path.endswith(".gz") else os.path.basename(aa_path).replace(".txt", "")
     eid = _eid_of_filename(aa_path)
     lines = _split_lines(aa_path)
     text_lines = [ln.strip() for ln in lines
@@ -206,7 +207,7 @@ def prep_work(cfg, eids=None, ordered=False, work=None):
     work_dir = cfg["work_dir"]
     os.makedirs(os.path.join(work_dir, "prep"), exist_ok=True)
     raw_pairs = _load_raw_pairs()
-    files = sorted(f for f in glob.glob(os.path.join(aa_dir, "*.txt")))
+    files = [os.path.join(aa_dir, f) for f in list_txt(aa_dir, exclude=("_台词.txt", "_汉化.txt"))]
     if eids:
         files = [f for f in files if _eid_of_filename(f) in set(map(str, eids))]
     # 2026-08-26: 从 work_meta 读 r18_level 调判定阈值

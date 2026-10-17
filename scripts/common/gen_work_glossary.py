@@ -24,6 +24,31 @@ BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # scripts/
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "common"))
 
+def _aa_txt_names(aa_dir):
+    """原文正文 txt 规范名（.txt/.txt.gz 都收）——压缩后 endswith(".txt") 会一章都看不到。"""
+    out = []
+    try:
+        names = os.listdir(aa_dir)
+    except OSError:
+        return out
+    for n in sorted(names):
+        if "_汉化" in n or n.endswith(("_台词.txt", "_台词.txt.gz")):
+            continue
+        if n.endswith(".txt") or n.endswith(".txt.gz"):
+            out.append(n)
+    return out
+
+
+def _aa_read_lines(path):
+    """读 .txt/.txt.gz → 行列表。"""
+    if path.endswith(".gz"):
+        import gzip as _gz
+        with _gz.open(path, "rt", encoding="utf-8", errors="replace") as f:
+            return f.read().split("\n")
+    with open(path, encoding="utf-8", errors="replace") as f:
+        return f.read().split("\n")
+
+
 GLOSSARY_JSON = os.path.join(BASE, "glossary.json")
 ROLES_JSON = os.path.join(BASE, "roles.json")
 
@@ -34,11 +59,10 @@ def _corpus_text(aa_dir):
     """作品 aa/ 全部原文拼接。返回字符串(空目录返回 '')。"""
     parts = []
     try:
-        for fn in sorted(os.listdir(aa_dir)):
-            if fn.endswith(".txt") and "_汉化" not in fn:
+        for fn in _aa_txt_names(aa_dir):
+            if True:
                 try:
-                    with open(os.path.join(aa_dir, fn), encoding="utf-8", errors="replace") as f:
-                        parts.append(f.read())
+                    parts.append("\n".join(_aa_read_lines(os.path.join(aa_dir, fn))))
                 except OSError:
                     continue
     except OSError:
@@ -48,7 +72,7 @@ def _corpus_text(aa_dir):
 
 def _chapter_count(aa_dir):
     try:
-        return sum(1 for fn in os.listdir(aa_dir) if fn.endswith(".txt") and "_汉化" not in fn)
+        return len(_aa_txt_names(aa_dir))
     except OSError:
         return 0
 

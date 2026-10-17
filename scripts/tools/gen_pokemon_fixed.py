@@ -56,11 +56,10 @@ def _audit(work, top):
     aa_dir = cfg["aa_dir"]
     meta_dir = os.path.join(work_dir, "line_meta_v2")
     freq_s, freq_w = {}, {}
-    for f in sorted(glob.glob(os.path.join(aa_dir, "entry_*.txt"))):
-        base = os.path.basename(f)[:-4]
+    for base in A.list_txt(aa_dir, exclude=("_台词.txt", "_汉化.txt")):
         if base.endswith("_台词"):
             continue
-        lines = A.txt_read(f)          # txt_read 返回 list（2026-09-22 修：曾误当字符串 split）
+        lines = A.txt_read(A.txt_existing(os.path.join(aa_dir, base + ".txt")))
         meta = A.load_meta_0based(meta_dir, base)
         for i, line in enumerate(lines):
             if not line.strip():

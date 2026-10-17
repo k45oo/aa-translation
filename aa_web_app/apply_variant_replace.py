@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.join(_ROOT, "scripts"))
 sys.path.insert(0, os.path.join(_ROOT, "scripts", "works"))
 sys.path.insert(0, os.path.join(_ROOT, "scripts", "common"))
 
+from aa_common import txt_existing   # 压缩感知（.txt/.txt.gz）
 import registry
 
 # 疑似其他角色/非きらきー的歧义变体（不自动替换，人工确认）
@@ -155,8 +156,8 @@ def apply_by_hitmap(work, word, target, dry_run=True, auto=True):
     touched = []
     with open(work_dir + "/_variant_dry.log", "w", encoding="utf-8") as dlog:
         for ch, lines in sorted(chap_lines.items()):
-            tr_p = os.path.join(out_dir, ch + "_汉化.txt")
-            aa_p = os.path.join(aa_dir, ch + ".txt")
+            tr_p = txt_existing(os.path.join(out_dir, ch + "_汉化.txt"))
+            aa_p = txt_existing(os.path.join(aa_dir, ch + ".txt"))
             if not os.path.exists(tr_p) or not os.path.exists(aa_p):
                 continue
             src_lines = open(aa_p, encoding="utf-8").read().split("\n")

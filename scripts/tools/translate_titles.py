@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(BASE, "scripts", "common"))
 sys.path.insert(0, os.path.join(BASE, "scripts", "works"))
 import registry
 import aa_api
+from aa_common import list_txt, txt_read   # 压缩感知（.txt/.txt.gz）
 
 # 跳过翻译的标题：无假名且无汉字（纯 ASCII/数字/标点）——这类不是日文标题，原样保留
 PURE_NON_CJK = re.compile(r"^[\x20-\x7e0-9（）、．.・\s\u3000]*$")
@@ -40,9 +41,9 @@ def collect_titles(cfg):
     out_dir = cfg["out_dir"]
     pref = (cfg.get("title") or "").strip()
     out = {}
-    for f in sorted(glob.glob(os.path.join(out_dir, "*_汉化.txt"))):
+    for f in [os.path.join(out_dir, n) for n in list_txt(out_dir, "_汉化.txt")]:
         try:
-            title = open(f, encoding="utf-8").readline().strip()
+            title = (txt_read(f) or [""])[0].strip()
         except Exception:
             continue
         if title.startswith("#"):
