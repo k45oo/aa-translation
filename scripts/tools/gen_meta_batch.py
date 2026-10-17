@@ -131,6 +131,85 @@ def _verify_one(job):
     return work, ok, bad, bad_list[:3]
 
 
+def _resegment_one(job):
+    """job=(work, [base...], apply) → 就地按**本次数字记号修法**刷新既有 meta 的段表。
+
+    用途：`tools/line_classify_v2.py` 的 `_rescue_inline_numeric`（2026-10-17 修）生效后，
+    已有 meta 里还是旧分段（raw HTML 多已清理 → 整章重生成不可行）。
+
+    为什么不用 `segment_line` 整行重算：那会把**历年其它判据漂移**（art_kana 表 / _demote /
+    窄汉字合并…）一起灌进存量 meta（实测 ポケの子 会动 3.8 万行），与本次修法无关、风险不可控。
+    做法：从**存量段表**重建逐字符 kind（保留原有粒度与空白归属）→ 只跑 `_rescue_inline_numeric`
+    → 同类相邻段合并回段表（新段按 `_seg_confidence` 补 confidence）。
+    只改真正变化的行；刷新后整行只剩一个 text 段 → kind 由 mixed 改 text 并删 segments
+    （text 行消费端用整行）。返回 (work, 刷新章数, 改动行数, errs)
+    """
+    work, bases, apply = job
+    cfg = registry.get(work)
+    meta_dir = os.path.join(cfg["work_dir"], "line_meta_v2")
+    nch = changed = 0
+    errs = []
+    for base in bases:
+        path = os.path.join(meta_dir, base + ".json")
+        src = os.path.join(cfg["aa_dir"], base + ".txt")
+        if not (os.path.exists(path) and os.path.exists(src)):
+            continue
+        try:
+            meta = json.load(open(path, encoding="utf-8"))
+            lines = open(src, encoding="utf-8").read().split("\n")
+            dirty = False
+            for k, rec in meta.items():
+                if not str(k).isdigit() or not isinstance(rec, dict):
+                    continue
+                old = rec.get("segments")
+                if not isinstance(old, list):
+                    continue                 # text/art 行没有段表，消费端用整行 → 无事可做
+                i = int(k) - 1
+                if not (0 <= i < len(lines)):
+                    continue
+                row = lines[i]
+                ks = [None] * len(row)
+                for sg in old:
+                    for j in range(max(0, sg["start"]), min(len(row), sg["end"])):
+                        ks[j] = sg["kind"]
+                if any(x not in ("art", "text") for x in ks):
+                    continue                 # 段表没覆盖整行（旧格式）→ 不猜，留给整章重生成
+                before = list(ks)
+                LC._rescue_inline_numeric(row, ks)
+                if ks == before:
+                    continue                 # 本次修法不涉及的行不动
+                # 同类相邻合并回段表
+                new, j = [], 0
+                while j < len(row):
+                    e = j
+                    while e < len(row) and ks[e] == ks[j]:
+                        e += 1
+                    sg = {"start": j, "end": e, "kind": ks[j],
+                          "src_width": LC.disp_width(row[j:e])}
+                    conf = LC._seg_confidence(sg["kind"], row[j:e])
+                    if conf < 0.65:
+                        sg["confidence"] = round(conf, 2)
+                    new.append(sg)
+                    j = e
+                if len(new) == 1 and new[0]["kind"] == "text" and new[0]["start"] == 0 \
+                        and new[0]["end"] == len(row):
+                    rec["kind"] = "text"
+                    rec.pop("segments", None)
+                    rec["reason"] = list(rec.get("reason") or []) + ["reseg_text"]
+                else:
+                    rec["segments"] = new
+                dirty = True
+                changed += 1
+            if dirty:
+                nch += 1
+                if apply:
+                    with open(path, "w", encoding="utf-8") as f:
+                        json.dump(meta, f, ensure_ascii=False)
+        except Exception as e:
+            errs.append(f"{base}: {e}")
+    return work, nch, changed, errs[:3]
+
+
 def _chunks(items, n):
     """把 (base, fn) 列表切成 n 段（大作品也能并行）。"""
     size = max(1, (len(items) + n - 1) // n)
@@ -146,9 +225,43 @@ def main():
     ap.add_argument("--dry", action="store_true", help="只统计不写")
     ap.add_argument("--verify", action="store_true",
                     help="校验已有 meta 与落盘 txt 的行号对齐（错位则删；配合 --dry 只报告）")
+    ap.add_argument("--resegment", action="store_true",
+                    help="就地按当前 segment_line 刷新**已有** meta 的段表（切分判据修好后用；零 API、不需要 raw）")
     a = ap.parse_args()
 
     works = a.work or list(registry.all_works())
+
+    if a.resegment:
+        # 段级切分判据修好后刷新存量 meta（只改真正变化的行；text 行无段表 → 不动）
+        rjobs = []
+        for wid in works:
+            cfg = registry.all_works().get(wid)
+            if not cfg:
+                print(f"[skip] registry 无作品 {wid}")
+                continue
+            meta_dir = os.path.join(cfg["work_dir"], "line_meta_v2")
+            if not os.path.isdir(meta_dir):
+                continue
+            bases = sorted(fn[:-5] for fn in os.listdir(meta_dir) if fn.endswith(".json"))
+            if not bases:
+                continue
+            for ch in _chunks(bases, a.workers):
+                rjobs.append((wid, ch, not a.dry))
+        print(f"resegment: {len(rjobs)} 个任务块 / workers={a.workers}"
+              f"（{'dry-run 只报' if a.dry else '写入'}）", flush=True)
+        tot_chap = tot_ch = 0
+        with ProcessPoolExecutor(max_workers=a.workers) as ex:
+            for work, nch, changed, errs in ex.map(_resegment_one, rjobs):
+                tot_chap += nch
+                tot_ch += changed
+                if changed:
+                    print(f"  {work[:44]:46s} 章 {nch:4d} | 行 {changed:6d}", flush=True)
+                for e in errs:
+                    print(f"  [bad] {work} {e}", flush=True)
+        print(f"RESEGMENT DONE | 刷新章 {tot_chap} | 改动行 {tot_ch}"
+              + ("（dry-run 未写）" if a.dry else ""), flush=True)
+        return 0
+
     jobs = []
     planned = 0
     for wid in works:

@@ -200,9 +200,54 @@ def _seg_confidence(kind, text):
     return 0.9               # art 段由 is_art_char 精确判定
 
 
+_NUM_RUN_RE = re.compile(r'[0-9０-９]+(?:[.．/／\-－～~][0-9０-９]+)*')
+_NUM_CHARS = set("0123456789０１２３４５６７８９")
+_INNER_SEP = ('/', '／')      # 词内分隔斜杠
+
+
+def _rescue_inline_numeric(row, kinds):
+    """数字记号/词内斜杠**嵌在文本里**时，把其中每个字符改判 text（2026-10-17）。
+
+    `is_art_char` 把 ASCII 数字与 `. / - ~` 判 art 是对的（AA 笔画大量用它们），但它们
+    **紧贴非 art 文本字符**时是在写数字/词内分隔。段级协议按字符切段，于是
+    `1.5倍` → art `1.` + text `5倍`、`1/3以下` → art `1/` + text `3以下`、
+    `3-3だ` → art `3-` + text `3だ`、`本日5/9付け` → text `…5` + art `/` + text `9付け`
+    —— 送模型的是**残句**：实测译文把数字翻成「1.变成5倍」「1/都说到3」「3-是3」，
+    或整句前半原样留日文（`◎先発で…強化（1.变成了1倍）！`）；art 的 `.` 还要按列位守
+    → 补位被塞进数字里（`（全1　　　.33倍）`）。
+
+    判据（保守；两个都不跨空白、都不碰 art 邻居）：
+      ① 数字串 `[0-9]+([.／/-～~][0-9]+)*` 前后紧邻**非 art 非空白**字符 → 整串 text
+         （`1.5倍`／`（1.1倍）`／`5-3だ`／`1.1～1.5倍`／`1つめ`）；
+      ② 斜杠 `／/` 两侧都是**非 art 非空白**字符 → 该斜杠 text（`あく/じめん` 词内分隔）。
+    反例保护：`人/王`（人=ART_KANJI）、`／⌒＼`、`l. :. :.`、`ﾆ/ﾆ`、`1人`（人 art）
+    两侧是 art/空白 → 不动；个别判 text 的也会被 `_demote_non_dialogue_text_segs`
+    （无决定性台词证据降 art）兜回。
+    """
+    n = len(row)
+
+    def _wordish(c):
+        return bool(c) and not c.isspace() and not is_art_char(c)
+
+    for m in _NUM_RUN_RE.finditer(row):
+        s, e = m.span()
+        if not any(row[j] in _NUM_CHARS for j in range(s, e)):
+            continue
+        if _wordish(row[s - 1] if s else '') or _wordish(row[e] if e < n else ''):
+            for j in range(s, e):
+                kinds[j] = 'text'
+    for i, ch in enumerate(row):
+        if ch in _INNER_SEP and 0 < i < n - 1 \
+                and _wordish(row[i - 1]) and _wordish(row[i + 1]):
+            kinds[i] = 'text'
+
+
 def segment_line(row, treat_hankaku_as_text=False):
     """mixed 行分段 [{start,end,kind,src_width}]，半开区间，覆盖整行无空隙。
     复用 _seg_counts 的逐字符分类口径（含 treat_hankaku_as_text 分支）。
+
+    2026-10-17: 加数字记号/词内斜杠 rescue（见 _rescue_inline_numeric）——`1.5倍`/`1/3以下`
+    /`3-3だ` 曾被切在数字中间，残句送模型后数字被翻坏或前半句留日文。
 
     2026-09-07 修复: DECOR_KANA(ミヘメソニヨケ等) 被静态判 art → 真台词词头被切掉
     (ミルク→ルク、アメリカ→リカ 事故)。分词工具单测正确, 碎片根因在此。
@@ -218,6 +263,8 @@ def segment_line(row, treat_hankaku_as_text=False):
             kinds[i] = 'text'
         else:
             kinds[i] = 'art' if is_art_char(ch) else 'text'
+    # ---- 2026-10-17 数字记号/词内斜杠 rescue（见 _rescue_inline_numeric）----
+    _rescue_inline_numeric(row, kinds)
     # ---- 2026-09-07 词头 rescue: 装饰假名集合成员若与相邻假名构成≥2连串 → 整串 text ----
     # DECOR_KANA(ミヘメソニヨケ等)/FACE_KANA 静态判 art 误伤真台词词头/词中字
     # (ミルク→ルク、アメリカ→リカ 事故)。真正装饰(ミ)(ミ)的 ミ 孤立(两侧非假名连串)。

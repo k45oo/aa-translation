@@ -1,12 +1,12 @@
 {
  "generated_at": null,
  "stats": {
-  "total": 334,
+  "total": 336,
   "legacy": 108,
   "core": 80,
   "tool": 65,
   "deprecated_candidate": 0,
-  "test": 81,
+  "test": 83,
   "hardcoded": 32,
   "top_consts": 49,
   "dup_function_counts": {
@@ -261,6 +261,7 @@
      "tests.test_refine_art_gate",
      "tests.test_refine_line_guard",
      "tests.test_refine_rebuild_guard",
+     "tests.test_segment_numeric",
      "tests.test_stability",
      "tests.test_thin_shell",
      "tests.test_tm",
@@ -3042,6 +3043,7 @@
      "tests.test_refine_art_gate",
      "tests.test_refine_line_guard",
      "tests.test_refine_rebuild_guard",
+     "tests.test_segment_numeric",
      "tests.test_stability",
      "tests.test_thin_shell",
      "tests.test_tm",
@@ -8050,6 +8052,36 @@
    "has_main_guard": false,
    "docstring": "L1 解析器回归测试：5 站点 extract() 对真实 raw 字节级对比现有 aa 语料（黄金样本）。"
   },
+  "scripts/tests/test_favorites.py": {
+   "path": "scripts/tests/test_favorites.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_web_app",
+     "fastapi",
+     "json",
+     "os",
+     "shutil",
+     "tempfile",
+     "unittest"
+    ],
+    "subprocess": [
+     "chapters.py"
+    ],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "章收藏（2026-10-17）：存盘 helper + 收藏/取消收藏路由 + 阅读页接线。"
+  },
   "scripts/tests/test_fix_lead_kanji.py": {
    "path": "scripts/tests/test_fix_lead_kanji.py",
    "grade": "test",
@@ -9240,6 +9272,34 @@
    "dup_functions": [],
    "has_main_guard": true,
    "docstring": "定时任务（2026-09-29，方案 doc/方案归档/定时任务与tokenplan折扣方案_2026-09-29.md）。"
+  },
+  "scripts/tests/test_segment_numeric.py": {
+   "path": "scripts/tests/test_segment_numeric.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_translate",
+     "line_classify_v2",
+     "os",
+     "sys",
+     "unittest"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": [
+     "AGENTS.md"
+    ]
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "段级「数字记号/词内斜杠」rescue 用例（2026-10-17，零 API）。"
   },
   "scripts/tests/test_selection_chain.py": {
    "path": "scripts/tests/test_selection_chain.py",
@@ -10849,6 +10909,7 @@
    "cli": [
     "--dry",
     "--force",
+    "--resegment",
     "--verify",
     "--work",
     "--workers"
@@ -10856,6 +10917,7 @@
    "argparse": [
     "--dry",
     "--force",
+    "--resegment",
     "--verify",
     "--work",
     "--workers"
@@ -10877,6 +10939,7 @@
     "referenced_by": [],
     "webapp": [],
     "docs": [
+     "AGENTS.md",
      "doc/接口文档.md"
     ]
    },
@@ -11410,6 +11473,7 @@
      "tests.test_line_meta",
      "tests.test_mixed_segments",
      "tests.test_refine_batch_guard",
+     "tests.test_segment_numeric",
      "tools.gen_meta_batch"
     ],
     "webapp": [],
