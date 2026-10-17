@@ -77,6 +77,7 @@ FIX_KEEP_TOOL = {"scripts/fix/backfill_aa_comments.py", "scripts/fix/refine_aa.p
                  "scripts/fix/retranslate_lines.py",     # 按行清单重译（与上一件配对）
                  "scripts/fix/fix_lead_kanji_miss.py",   # 首/尾汉字漏译定向补译（有用例守护）
                  "scripts/fix/refix_mixed_segs.py",      # 段级协议存量重译（有用例守护）
+                 "scripts/fix/fix_num_split.py",         # 数字记号被切坏的存量回修（机械修，2026-10-17）
                  "scripts/fix/audit_alignment.py"}       # 对齐审计+回修（块内串行错位，2026-10-16）
 # 保留的工具（独立 CLI/探针/统计/视觉，勿误伤）——tools/ 下默认 tool
 TOOL_DIRS = {"tools"}

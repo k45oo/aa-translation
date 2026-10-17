@@ -22,6 +22,9 @@ import re
 import sys
 import time
 
+# 带分隔符的数字记号（1.5 / 1/4 / 5-3 / 1.1～1.5）——TM 复用护栏 ⑤ 用（2026-10-17）
+_NUM_TOK = re.compile(r'[0-9０-９]+(?:[.．/／\-－～~][0-9０-９]+)+')
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # scripts/works 也要在路径里：build() 走 registry 解析作品路径，缺它 → `import registry` 失败
@@ -105,7 +108,7 @@ def _art_cols(line):
 
 
 def guard(src_line, zh_line, glossary_pairs=()):
-    """四重护栏: ① 宽度放得下 ② 无残留假名 ③ 术语表一致 ④ **art 列位一致**。返回 (ok, reason)。
+    """五重护栏: ① 宽度放得下 ② 无残留假名 ③ 术语表一致 ④ **art 列位一致** ⑤ 数字记号一致。
 
     ④ 是 2026-09-15 A/B 后补的: 归一化 key 会让「内容相同但填充不同」的行互相命中，
     若只校字符序列，art 的相对列位可能漂移（宽对框歪）→ 用显示列逐位比对，漂移即丢弃交回模型。
@@ -121,6 +124,13 @@ def guard(src_line, zh_line, glossary_pairs=()):
         return False, "width"
     if A.kana_runs(core):
         return False, "residual"
+    # ⑤ 数字记号一致（2026-10-17）：源行 `1.5`/`1/4`/`5-3` 这类**带分隔符**的数字记号必须
+    #   原样出现在译文里——段级切分曾把数字切一半送模型，模型把「1.5倍」写成「1.变成5倍」、
+    #   「1/3」写成「1/都说到3」，这类坏值一旦进 TM 就会被**零调用复用**（比一次性错译更黏）。
+    #   代价：数字被合法意译成「三分之一」的那些行不再复用（reject 计数可见）。
+    for _t in _NUM_TOK.findall(src_line):
+        if _t not in core:
+            return False, "num"
     for jp, zh in glossary_pairs or ():
         if not jp or not zh or jp.startswith("re:"):
             continue

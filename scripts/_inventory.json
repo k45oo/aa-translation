@@ -1,12 +1,12 @@
 {
  "generated_at": null,
  "stats": {
-  "total": 336,
+  "total": 338,
   "legacy": 108,
   "core": 80,
-  "tool": 65,
+  "tool": 66,
   "deprecated_candidate": 0,
-  "test": 83,
+  "test": 84,
   "hardcoded": 32,
   "top_consts": 49,
   "dup_function_counts": {
@@ -182,6 +182,7 @@
      "fix.fix_delivered_terms",
      "fix.fix_lead_kanji_miss",
      "fix.fix_mixed_drift",
+     "fix.fix_num_split",
      "fix.refine_aa",
      "fix.refix_mixed_segs",
      "fix.retranslate_lines",
@@ -249,6 +250,7 @@
      "tests.test_backup_prune",
      "tests.test_endpoint_pin",
      "tests.test_fix_lead_kanji",
+     "tests.test_fix_num_split",
      "tests.test_line_meta",
      "tests.test_manual_fix",
      "tests.test_mixed_seg_rule",
@@ -2467,6 +2469,7 @@
     ],
     "subprocess": [],
     "referenced_by": [
+     "fix.fix_num_split",
      "tests.test_audit_alignment",
      "tools.gen_inventory"
     ],
@@ -2652,6 +2655,49 @@
    "dup_functions": [],
    "has_main_guard": true,
    "docstring": "fix_mixed_drift.py —— 重建 mixed 行 art 段漂移错位（2026-09-05）。"
+  },
+  "scripts/fix/fix_num_split.py": {
+   "path": "scripts/fix/fix_num_split.py",
+   "grade": "tool",
+   "cli": [
+    "--apply",
+    "--todo-out",
+    "--work"
+   ],
+   "argparse": [
+    "--apply",
+    "--todo-out",
+    "--work"
+   ],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_translate",
+     "argparse",
+     "audit_alignment",
+     "json",
+     "os",
+     "re",
+     "registry",
+     "sys",
+     "time"
+    ],
+    "subprocess": [],
+    "referenced_by": [
+     "tests.test_fix_num_split",
+     "tools.gen_inventory"
+    ],
+    "webapp": [],
+    "docs": [
+     "AGENTS.md"
+    ]
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "fix_num_split: 回修「数字记号被切坏」的已交付行（零 API，机械修）。"
   },
   "scripts/fix/refine_aa.py": {
    "path": "scripts/fix/refine_aa.py",
@@ -2966,6 +3012,7 @@
      "fix.fix_delivered_terms",
      "fix.fix_lead_kanji_miss",
      "fix.fix_mixed_drift",
+     "fix.fix_num_split",
      "fix.refine_aa",
      "fix.refix_mixed_segs",
      "fix.retranslate_lines",
@@ -3031,6 +3078,7 @@
      "tests.test_audit_alignment",
      "tests.test_backup_prune",
      "tests.test_fix_lead_kanji",
+     "tests.test_fix_num_split",
      "tests.test_line_meta",
      "tests.test_manual_fix",
      "tests.test_mixed_seg_rule",
@@ -8113,6 +8161,32 @@
    "has_main_guard": true,
    "docstring": "定向补译工具（fix_lead_kanji_miss）测试：mock call_api，零 API、零产物写入。"
   },
+  "scripts/tests/test_fix_num_split.py": {
+   "path": "scripts/tests/test_fix_num_split.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_translate",
+     "fix_num_split",
+     "os",
+     "sys",
+     "unittest"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "fix_num_split：回修「数字记号被切坏」的已交付行（2026-10-17，零 API）。"
+  },
   "scripts/tests/test_gen_html.py": {
    "path": "scripts/tests/test_gen_html.py",
    "grade": "test",
@@ -10819,6 +10893,7 @@
      "fix/fix_delivered_terms.py",
      "fix/fix_lead_kanji_miss.py",
      "fix/fix_mixed_drift.py",
+     "fix/fix_num_split.py",
      "fix/refine_aa.py",
      "fix/refix_mixed_segs.py",
      "fix/retranslate_lines.py",
@@ -10829,6 +10904,7 @@
      "scripts/fix/fix_delivered_terms.py",
      "scripts/fix/fix_lead_kanji_miss.py",
      "scripts/fix/fix_mixed_drift.py",
+     "scripts/fix/fix_num_split.py",
      "scripts/fix/refine_aa.py",
      "scripts/fix/refix_mixed_segs.py",
      "scripts/fix/retranslate_lines.py",
@@ -12664,6 +12740,7 @@
      "fix.fix_delivered_terms",
      "fix.fix_lead_kanji_miss",
      "fix.fix_mixed_drift",
+     "fix.fix_num_split",
      "fix.refine_aa",
      "fix.refix_mixed_segs",
      "fix.retranslate_lines",

@@ -143,3 +143,30 @@ class TestBuildRoundTrip(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNumGuard(unittest.TestCase):
+    """护栏 ⑤ 数字记号一致（2026-10-17）：带分隔符的数字记号必须原样出现在译文里。
+
+    来历：段级切分曾把 `1.5倍` 切一半送模型 → 模型写出「1.变成5倍」「1/都说到3」，
+    这类坏值进 TM 后被**零调用复用**（比一次性错译更黏，实测 ポケの子 1 条）。
+    """
+
+    def test_插词坏值被拒(self):
+        ok, why = aa_tm.guard("　「砂嵐」で「特防」が1.5倍になってる　", "　「沙暴」下「特防」为1.变成5倍　", ())
+        self.assertFalse(ok)
+        self.assertEqual(why, "num")
+
+    def test_补位坏值被拒(self):
+        ok, why = aa_tm.guard("　『F-ZERO』…強化（1.1～1.5倍）する。　", "　『F-ZERO』…强化（1　　　.1～1.5倍）。　", ())
+        self.assertFalse(ok)
+        self.assertEqual(why, "num")
+
+    def test_数字完整则通过(self):
+        ok, why = aa_tm.guard("　『F-ZERO』…強化（1.1～1.5倍）する。　", "　『F-ZERO』…强化（1.1～1.5倍）。　", ())
+        self.assertTrue(ok, why)
+
+    def test_无分隔符的纯数字不管(self):
+        # 只护「带分隔符」的记号（1/4、5-3）；裸数字（1つめ/30）不判
+        ok, why = aa_tm.guard("　全30体　", "　全体30只　", ())
+        self.assertTrue(ok, why)
