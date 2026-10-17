@@ -1,12 +1,12 @@
 {
  "generated_at": null,
  "stats": {
-  "total": 333,
+  "total": 334,
   "legacy": 108,
   "core": 80,
   "tool": 65,
   "deprecated_candidate": 0,
-  "test": 80,
+  "test": 81,
   "hardcoded": 32,
   "top_consts": 49,
   "dup_function_counts": {
@@ -117,6 +117,7 @@
    "cli": "argv-manual",
    "argparse": [],
    "env_vars": [
+    "AA_ANCHOR",
     "AA_ART_VETO",
     "AA_BACKEND",
     "AA_CHAPTER_WORKERS",
@@ -241,6 +242,7 @@
      "legacy.translate_yaruobook",
      "runner.refine_runner",
      "runner.translate_runner",
+     "tests.test_anchor",
      "tests.test_art_kana",
      "tests.test_art_veto",
      "tests.test_audit_alignment",
@@ -2468,7 +2470,11 @@
      "tools.gen_inventory"
     ],
     "webapp": [],
-    "docs": []
+    "docs": [
+     "AGENTS.md",
+     "doc/接口文档.md",
+     "doc/方案归档/块内串行错位与对齐审计_2026-10-16.md"
+    ]
    },
    "dup_of": null,
    "hardcoded_path": false,
@@ -3018,6 +3024,7 @@
      "legacy.translate_saki",
      "legacy.translate_yaruobook",
      "runner.refine_runner",
+     "tests.test_anchor",
      "tests.test_art_kana",
      "tests.test_art_veto",
      "tests.test_audit_alignment",
@@ -7579,6 +7586,34 @@
    "has_main_guard": true,
    "docstring": "L4 测试：aa_web_app.logic 纯逻辑（保存校验 / 备份轮转 / 术语应用 / glossary 读写）。"
   },
+  "scripts/tests/test_anchor.py": {
+   "path": "scripts/tests/test_anchor.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_translate",
+     "os",
+     "re",
+     "sys",
+     "unittest"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": [
+     "doc/方案归档/块内串行错位与对齐审计_2026-10-16.md"
+    ]
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "行锚点回显（治「块内串行错位」，2026-10-17）：判据 + 端到端（mock 模型，零 API）。"
+  },
   "scripts/tests/test_art_kana.py": {
    "path": "scripts/tests/test_art_kana.py",
    "grade": "test",
@@ -7663,7 +7698,10 @@
     "subprocess": [],
     "referenced_by": [],
     "webapp": [],
-    "docs": []
+    "docs": [
+     "AGENTS.md",
+     "doc/方案归档/块内串行错位与对齐审计_2026-10-16.md"
+    ]
    },
    "dup_of": null,
    "hardcoded_path": false,

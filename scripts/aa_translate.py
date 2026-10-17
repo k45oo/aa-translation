@@ -1181,6 +1181,96 @@ def parse_result(text):
             res[int(m.group(1))] = m.group(2)
     return res
 
+
+# ---------------------------------------------------------------------------
+# 2026-10-17 P2: 行锚点回显（治「块内串行错位」）
+# 背景：块内清单「行号|原文」偶发**模型丢行后整体串行**——把后面某行的译文写到本行的行号下
+#   （实测 entry_43337：2768←tr(2770)、2910 链、2911←tr(2915) 等；错位值仍按本行源宽补位，
+#   故宽度/残留/照抄/art 四重校验全过）。做法：请求行写成「行号|锚点|原文」，
+#   锚点 = 源行跳过前导空白/边框装饰后的头 2 个字符；要求响应逐字回显该锚点。模型一旦串行，
+#   回显的是**别行的锚点**（且该锚点专属别行）→ 当场判「未验证」，按本行原文重发。
+# 兼容/回退：模型没按格式给锚点（两段式）→ 按旧口径收下（不多花调用、不判失败，见 warnings）。
+# 关闭：`AA_ANCHOR=0`（A/B 对照用）。
+# ---------------------------------------------------------------------------
+_ANCHOR_SKIP = " \u3000｜|│┃┌┐└┘├┤┬┴┼─━═╌╍/\\＿￣–—―-…‥･・:：;；,，.。!！?？"
+_JCHAR = re.compile(r'[\u3040-\u30ff\u4e00-\u9fff\uff61-\uff9f]')
+
+
+def anchor_enabled():
+    """行锚点回显开关（`AA_ANCHOR=0` 关；默认开）。"""
+    return os.environ.get("AA_ANCHOR", "1") not in ("0", "false", "False")
+
+
+def line_anchor(line, n=2):
+    """源行锚点：跳过前导空白/边框装饰后的头 n 个字符（不足取现有；全装饰 → ''）。"""
+    i = 0
+    while i < len(line) and line[i] in _ANCHOR_SKIP:
+        i += 1
+    a = line[i:i + n]
+    return a if a and a.strip() else ""
+
+
+def parse_result_anchored(text, pending):
+    """解析「行号|锚点|译文」→ (res, unverified, plain, ok_n)。
+
+    - 锚点逐字相符 → 收进 res（ok_n + 1）
+    - 回显的是**别行专属**锚点（模型串行）→ num 进 unverified（判未验证 → 按本行原文重发）
+    - 锚点在但没对上（模型把锚点也翻了，如 `【カ`→`【卡`）或模型压根没给锚点 → **剥掉该字段**后
+      按旧口径收下（回退旧行为；绝不把 `锚点|` 留在译文里），计入 plain
+    """
+    anchors = {i: line_anchor(l) for i, l in pending.items()}
+    owners = {}
+    for i, a in anchors.items():
+        if a:
+            owners.setdefault(a, set()).add(i)
+    res, unverified, plain, ok_n = {}, [], 0, 0
+    for ln in text.splitlines():
+        m = re.match(r'^(\d{1,5})\|(.*)$', ln)
+        if not m:
+            continue
+        num, rest = int(m.group(1)), m.group(2)
+        if num not in pending:
+            continue
+        exp = anchors[num]
+        if exp and rest.startswith(exp + "|"):        # 锚点逐字相符
+            res[num] = rest[len(exp) + 1:]
+            ok_n += 1
+            continue
+        m3 = re.match(r'^([^|\s]{1,4})\|(.*)$', rest)
+        if m3:
+            f = m3.group(1)
+            own = owners.get(f)
+            if own and num not in own and _JCHAR.search(f):
+                unverified.append(num)               # 回显别行专属锚点 → 串行
+                continue
+            if _JCHAR.search(f) or f.isalnum():      # 像锚点但没对上 → 剥掉，按旧口径收
+                res[num] = m3.group(2)
+                plain += 1
+                continue
+        res[num] = rest                              # 无锚点 → 旧口径
+        plain += 1
+    return res, unverified, plain, ok_n
+
+
+_ANCHOR_RULE_OLD = "8. 输出格式：每行「序号|翻译后的完整行」，一行一条，不要输出任何其他内容。"
+_ANCHOR_RULE_NEW = ("8. 输出格式：每行「序号|锚点|翻译后的完整行」，一行一条。**锚点必须逐字照抄输入中同一序号后面那个锚点**"
+                    "（两三个字符，不要翻译、不要改动、不要省略），第二个「|」之后才是译文。不要输出任何其他内容。")
+SYSTEM_ANCHOR = SYSTEM.replace(_ANCHOR_RULE_OLD, _ANCHOR_RULE_NEW)
+SYSTEM_ANCHOR = SYSTEM_ANCHOR.replace(
+    "输入:\n0017|　　　　｜　こんにちは、お元気ですか？　｜\n0019|やっぱり俺は魔女になるしかないのか……\n0021|　　　　｜　名前は？　どこからきたの？　｜",
+    "输入:\n0017|こん|　　　　｜　こんにちは、お元気ですか？　｜\n0019|やっ|やっぱり俺は魔女になるしかないのか……\n"
+    "0021|なま|　　　　｜　名前は？　どこからきたの？　｜")
+SYSTEM_ANCHOR = SYSTEM_ANCHOR.replace(
+    "输出:\n0017|　　　　｜　你好，你还好吗？　　　　　｜\n0019|果然我只有成为魔女这一条路可走吗……\n0021|　　　　｜　你叫什么名字？从哪里来的？　　　　　　｜",
+    "输出:\n0017|こん|　　　　｜　你好，你还好吗？　　　　　｜\n0019|やっ|果然我只有成为魔女这一条路可走吗……\n"
+    "0021|なま|　　　　｜　你叫什么名字？从哪里来的？　　　　　　｜")
+SYSTEM_ANCHOR = SYSTEM_ANCHOR.replace(
+    "（0021 的错误反例：『｜　你从哪里来的？　名前は？　どこからきたの？　｜』",
+    "（0021 的错误反例（漏锚点/换行）：『0021|｜　你从哪里来的？　名前は？　どこからきたの？　｜』")
+# 防「改了 SYSTEM 忘了改锚点版」：两处替换必须真的生效
+assert SYSTEM_ANCHOR != SYSTEM and _ANCHOR_RULE_NEW in SYSTEM_ANCHOR and "0017|こん|" in SYSTEM_ANCHOR, \
+    "SYSTEM_ANCHOR 派生失败：SYSTEM 文案改了，请同步 _ANCHOR_RULE_OLD/示例"
+
 def pad_to_width(line, target):
     w = disp_width(line)
     if w == target:
@@ -1513,12 +1603,23 @@ def translate_lines(flagged, work_r18=None, low_r18=False, context="", base=None
     校验：宽度保持 + 残留假名清零（白名单制），可疑行当场补译。
     context(2026-08-25): 前 1 楼台词上下文(治本——「鏡→眼镜」需结合前文场景)。
     base(2026-08-27): 章节 base(entry_<eid>), 穿透给 glossary_prompt_hint(章节简介+按章过滤)。"""
-    body = "\n".join(f"{i:05d}|{_pt(l, base)}" for i, l in flagged)
+    use_anchor = anchor_enabled()
+    sys_base = SYSTEM_ANCHOR if use_anchor else SYSTEM
+
+    def _req(rows):
+        """请求体：锚点开 → 「行号|锚点|原文」；关 → 旧口径「行号|原文」。"""
+        if use_anchor:
+            return "\n".join(f"{i:05d}|{line_anchor(l)}|{_pt(l, base)}" for i, l in rows)
+        return "\n".join(f"{i:05d}|{_pt(l, base)}" for i, l in rows)
+
+    body = _req(flagged)
     if context:
         body = "【上文场景】" + context + "\n" + body
     pending = {i: l for i, l in flagged}
     fixed = {}
     warnings = []
+    _anchor_bad = 0        # 回显别行锚点（串行嫌疑）行数
+    _anchor_plain = 0      # 模型没给锚点的行数（回退旧口径）
     # 2026-09-04: 模型↔行号——包 call_api, 让 usage 落盘带上本次翻的行号
     try:
         from aa_backend import set_usage_lines, clear_usage_lines
@@ -1528,19 +1629,29 @@ def translate_lines(flagged, work_r18=None, low_r18=False, context="", base=None
         if not pending:
             break
         if round_ > 0:
-            body = "\n".join(f"{i:05d}|{_pt(l, base)}" for i, l in pending.items())
+            body = _req(pending.items())
         # M4b: glossary 术语前移（flag 开时注入提示词）+ 2026-08-27 章节简介
         if set_usage_lines:
             # 2026-09-05: usage 行号对齐工作台阅读界面(1-based 文件行号)——
             # flagged 的行号是 0-based enumerate idx, 落盘前 +1。
             set_usage_lines(sorted(k + 1 for k in pending.keys()))
         try:
-            text = call_api(SYSTEM + glossary_prompt_hint(base), body, work_r18=work_r18, low_r18=low_r18)
+            text = call_api(sys_base + glossary_prompt_hint(base), body, work_r18=work_r18, low_r18=low_r18)
         finally:
             if clear_usage_lines:
                 clear_usage_lines()
-        res = parse_result(text)
+        unverified = []
+        if use_anchor:
+            res, unverified, plain_n, _ok = parse_result_anchored(text, pending)
+            _anchor_plain += plain_n
+        else:
+            res = parse_result(text)
         retry = {}   # num -> (orig_line, current_line, reason)
+        # 2026-10-17 P2: 锚点不符 = 模型把别行的内容写到这个行号下 → 按本行原文重发
+        for i in unverified:
+            if i not in fixed:
+                retry.setdefault(i, (pending[i], pending[i], ['锚点不符']))
+                _anchor_bad += 1
         for num, nl in res.items():
             if num in pending and num not in fixed:
                 cand = pad_to_width(nl, disp_width(pending[num]))
@@ -1570,17 +1681,27 @@ def translate_lines(flagged, work_r18=None, low_r18=False, context="", base=None
             hint_lines = []
             for num, (orig_l, cur_l, sus) in retry.items():
                 reason = '、'.join(sus) if sus != ['未返回'] else '未翻译'
-                hint_lines.append(f"{num:05d}|{cur_l}\n问题：{reason}")
-            hint_sys = SYSTEM + glossary_prompt_hint(base) + "\n\n【补译】以下行有残留日语或未翻译，必须把残留的日语翻译成中文并【完整替换】原片段（角色名可保留）：\n" + "\n\n".join(hint_lines)
+                hint_lines.append(f"{num:05d}|{line_anchor(orig_l)}|{cur_l}\n问题：{reason}"
+                                  if use_anchor else f"{num:05d}|{cur_l}\n问题：{reason}")
+            _an = ("每行「行号|锚点|译文」，锚点照抄输入" if use_anchor else "")
+            hint_sys = sys_base + glossary_prompt_hint(base) + \
+                "\n\n【补译】以下行有残留日语/未翻译，或**行号与锚点不符（可能串行到别行）**——" \
+                "必须按该行号对应的原文重译并【完整替换】原片段（角色名可保留），绝不输出别行的内容。" + _an + "：\n" + \
+                "\n\n".join(hint_lines)
             try:
                 if set_usage_lines:
                     set_usage_lines(sorted(retry.keys()))
                 try:
-                    text2 = call_api(hint_sys, "\n".join(f"{num:05d}|{cur_l}" for num, (_, cur_l, _) in retry.items()), work_r18=work_r18, low_r18=low_r18)
+                    req2 = "\n".join(f"{num:05d}|{line_anchor(cur_l)}|{cur_l}" if use_anchor
+                                     else f"{num:05d}|{cur_l}" for num, (_, cur_l, _) in retry.items())
+                    text2 = call_api(hint_sys, req2, work_r18=work_r18, low_r18=low_r18)
                 finally:
                     if clear_usage_lines:
                         clear_usage_lines()
-                res2 = parse_result(text2)
+                if use_anchor:
+                    res2, unver2, _p2, _o2 = parse_result_anchored(text2, pending)
+                else:
+                    res2, unver2 = parse_result(text2), []
                 for num, nl in res2.items():
                     if num in retry and num not in fixed:
                         cand = pad_to_width(nl, disp_width(pending[num]))
@@ -1590,6 +1711,10 @@ def translate_lines(flagged, work_r18=None, low_r18=False, context="", base=None
             except Exception as e:
                 warnings.append(f"补译失败: {e}")
         pending = {i: l for i, l in pending.items() if i not in fixed}
+    if _anchor_bad:
+        warnings.append(f"锚点不符 {_anchor_bad} 行→按原文重发（串行嫌疑）")
+    if _anchor_plain:
+        warnings.append(f"锚点未回显 {_anchor_plain} 行（本块回退旧口径）")
     missed = [i for i in pending if has_kana(pending[i])]
     return fixed, missed, warnings
 
