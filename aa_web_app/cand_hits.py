@@ -16,6 +16,15 @@
 import hashlib
 import json
 import os
+import sys
+
+# 本模块被单测直接 import（不经 aa_web_app 的路径引导）→ 自己补 scripts/common，
+# 否则 `from aa_common import ...` 在那种上下文里 ModuleNotFoundError（与 apply_variant_replace 同做法）。
+_CM = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "common")
+if _CM not in sys.path:
+    sys.path.insert(0, _CM)
+
+from aa_common import txt_key, txt_read   # noqa: E402  压缩感知（.txt/.txt.gz）
 import time
 
 SCHEMA = "候选出处命中 v2"      # v2：加「计数」（真命中行数，不封顶）+ 逐章语料指纹
@@ -98,11 +107,10 @@ def build(aa_dir, terms, max_ch=MAX_CH, max_lines=MAX_LINES):
         by_head.setdefault(t[0], []).append(t)
     raw = {t: {} for t in terms}
     for fn in _list_src_files(aa_dir):
-        base = fn[:-4]
-        path = os.path.join(aa_dir, fn)
+        # 2026-10-17: 压缩感知——fn 可能是 .txt.gz（base 要用 txt_key 剥后缀，读要走 txt_read）
+        base = txt_key(fn)
         try:
-            with open(path, encoding="utf-8", errors="replace") as f:
-                lines = f.read().split("\n")
+            lines = txt_read(os.path.join(aa_dir, fn))
         except OSError:
             continue
         for i, line in enumerate(lines):

@@ -462,14 +462,14 @@ def work_stats(work):
                 # 2026-09-02 修复：读章节首行标题 + 原帖地址（未译作品目录此前 title 全空，只显示文件名）
                 _t, _u = "", ""
                 try:
-                    with open(os.path.join(aa_dir, f), encoding="utf-8") as _fh:
-                        for _ in range(3):
-                            _l = _fh.readline().rstrip("\r\n")
-                            if _l.startswith("# ") and not _t:
-                                _t = _l[2:].strip()
-                            if _l.startswith("# 原帖地址: "):
-                                _u = _l.replace("# 原帖地址: ", "").strip()
-                except OSError:
+                    # 2026-10-17: 压缩感知——f 是**磁盘名**（可能是 .gz），裸 open 当文本读会抛
+                    # UnicodeDecodeError（不是 OSError，旧 except 接不住 → 未译作品章节清单 500）
+                    for _l in logic._txt_head(os.path.join(aa_dir, f), 3):
+                        if _l.startswith("# ") and not _t:
+                            _t = _l[2:].strip()
+                        if _l.startswith("# 原帖地址: "):
+                            _u = _l.replace("# 原帖地址: ", "").strip()
+                except Exception:
                     pass
                 chapters.append({"file": f, "title": _t, "src_url": _u, "stats": {}, "note": "未译",
                                  "backups": 0})
@@ -487,7 +487,9 @@ def work_stats(work):
         keys = {}
         for f in fnames:
             try:
-                s = os.stat(os.path.join(out_dir, f))
+                # 2026-10-17: 压缩感知——f 是规范名(entry_N_汉化.txt)，磁盘可能是 .gz；
+                # 裸 stat 抛 OSError → 缓存键恒 None → 每次请求都把全章判为"待重算"
+                s = os.stat(logic.txt_path(out_dir, f))
                 # v2: 2026-08-24 加 r18_hit/r18_conc 字段 → 版本号进 key 强制重建旧缓存
                 # v3: 2026-08-25 prep mtime 也进 key（r18 判定变化时缓存失效）
                 prep_m = 0

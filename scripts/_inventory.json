@@ -1,12 +1,12 @@
 {
  "generated_at": null,
  "stats": {
-  "total": 339,
+  "total": 340,
   "legacy": 108,
   "core": 80,
   "tool": 66,
   "deprecated_candidate": 0,
-  "test": 85,
+  "test": 86,
   "hardcoded": 32,
   "top_consts": 49,
   "dup_function_counts": {
@@ -9899,6 +9899,37 @@
    "has_main_guard": true,
    "docstring": "usage.jsonl 模型↔行号(lines)落盘逻辑测试(2026-09-04)。"
   },
+  "scripts/tests/test_web_txt_gz.py": {
+   "path": "scripts/tests/test_web_txt_gz.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_web_app",
+     "gzip",
+     "io",
+     "json",
+     "os",
+     "registry",
+     "shutil",
+     "sys",
+     "tempfile",
+     "unittest"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "工作台（aa_web_app）读 aa/汉化 的压缩感知回归 —— 2026-10-17 全量体检后补。"
+  },
   "scripts/tests/test_work_delete.py": {
    "path": "scripts/tests/test_work_delete.py",
    "grade": "test",
@@ -12858,6 +12889,7 @@
      "tests.test_pipeline",
      "tests.test_repatriate",
      "tests.test_snapshot_invalidation",
+     "tests.test_web_txt_gz",
      "tests.test_work_delete",
      "tests.test_work_pack",
      "tools.aa_search",

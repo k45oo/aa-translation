@@ -32,7 +32,7 @@ try:
 except Exception:                        # 包不在 sys.path 上（极端情况）→ 退回代码根
     _DATA = _ROOT
 
-from aa_common import disp_width, pad_to_width, residual_suspect, HEADER_RE, is_text_line, allow_overwidth, KANA_RE, txt_read, txt_write, txt_key, txt_existing, meta_path, meta_load, meta_list, list_txt
+from aa_common import disp_width, pad_to_width, residual_suspect, HEADER_RE, is_text_line, allow_overwidth, KANA_RE, txt_read, txt_write, txt_key, txt_existing, meta_path, meta_load, meta_list, list_txt, txt_bytes
 
 _GLOSSARY_JSON = os.path.join(_DATA, "glossary.json")
 BACKUP_KEEP = 10          # 每作品滚动保留的备份份数
@@ -1373,7 +1373,8 @@ def search_work(out_dir, aa_dir, q, limit=300, name_style=None, regex=False):
         return []
     for fname in fnames:
         tr = read_lines(os.path.join(out_dir, fname))
-        aa_path = os.path.join(aa_dir, src_name_of(fname))
+        # 2026-10-17: 压缩感知——磁盘可能是 <原文名>.gz，裸 exists 会让 src 上下文恒空
+        aa_path = txt_existing(os.path.join(aa_dir, src_name_of(fname)))
         src = read_lines(aa_path) if os.path.exists(aa_path) else []
         for i, l in enumerate(tr):
             if pat.search(l) if pat else (q in l):
@@ -2042,8 +2043,8 @@ def material_frequency(out_dir, names):
     chaps = {n: 0 for n in pk}
     for f in files:
         try:
-            with open(f, encoding="utf-8", errors="replace") as fh:
-                text = fh.read()
+            # 2026-10-17: files 来自 list_txt（规范名 .txt），磁盘可能是 .gz → 走 read_lines
+            text = "\n".join(read_lines(txt_existing(f)))
         except OSError:
             continue
         for n, wl in pk.items():
@@ -2184,8 +2185,7 @@ def material_chapters(out_dir, name):
     out = {}
     for f in files:
         try:
-            with open(f, encoding="utf-8", errors="replace") as fh:
-                cnt = fh.read().count(name)
+            cnt = "\n".join(read_lines(txt_existing(f))).count(name)
         except OSError:
             continue
         if cnt:
@@ -2666,8 +2666,9 @@ def search_lines(cfg, work, q, scope="both", limit=300, workers=8):
         blobs, hmap, all_lns = {}, {}, set()
         for side, path in sides:
             try:
-                with open(path, "rb") as fh:
-                    data = fh.read()
+                # 2026-10-17: 必须 `txt_bytes`（`.gz` 走解压）——裸 open("rb") 读的是 gzip
+                # 压缩字节，搜中日文永远 0 命中（阅读器「搜索不可用」的根因）。
+                data = txt_bytes(path)
             except Exception:
                 continue
             blobs[side] = data                            # 总是留着：取对侧行要用

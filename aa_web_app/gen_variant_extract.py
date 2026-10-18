@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(_ROOT, "scripts"))
 sys.path.insert(0, os.path.join(_ROOT, "scripts", "works"))
 sys.path.insert(0, os.path.join(_ROOT, "scripts", "common"))
 
-from aa_common import list_txt, txt_read   # 压缩感知（.txt/.txt.gz）
+from aa_common import list_txt, txt_read, txt_existing   # 压缩感知（.txt/.txt.gz）
 import registry
 
 
@@ -30,11 +30,12 @@ def extract_lines(work, word):
     word_re = re.compile(re.escape(word))
     rows = []
     for fn in list_txt(aa_dir, exclude=("_台词.txt", "_汉化.txt")):
-        dst = os.path.join(out_dir, fn.replace(".txt", "_汉化.txt"))
+        # 2026-10-17: 压缩感知——规范名 → 实际 .gz（否则 exists 恒假、抽取恒空）
+        dst = txt_existing(os.path.join(out_dir, fn.replace(".txt", "_汉化.txt")))
         if not os.path.exists(dst):
             continue
-        src_lines = open(os.path.join(aa_dir, fn), encoding="utf-8").read().split("\n")
-        tr_lines = open(dst, encoding="utf-8").read().split("\n")
+        src_lines = txt_read(txt_existing(os.path.join(aa_dir, fn)))
+        tr_lines = txt_read(dst)
         for i, s in enumerate(src_lines):
             if word_re.search(s) and i < len(tr_lines):
                 rows.append((fn.replace(".txt", ""), i + 1, s, tr_lines[i]))

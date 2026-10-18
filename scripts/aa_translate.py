@@ -1117,6 +1117,26 @@ def txt_write_form(path, lines):
             f.write(data)
 
 
+def txt_bytes(path):
+    """读 .txt / .txt.gz 的**字节**（压缩包返回解压后字节）——给字节级扫描/指纹用。
+
+    `txt_read` 给「按行处理」的调用方；这个给「在整段字节里找子串 / 算哈希」的调用方：
+    直接 `open(path, "rb")` 读 `.gz` 会拿到 gzip 压缩字节，搜文本**永远 0 命中**
+    （2026-10-17 阅读器全库搜索踩到）。路径同样透明（规范名 → 落到 .gz）。
+    缺失抛 OSError（调用方自行 try/except），与内置 open 一致。
+    """
+    p = str(path)
+    if not p.endswith(".gz") and not os.path.exists(p):
+        _gz = p + ".gz"
+        if os.path.exists(_gz):
+            p = _gz
+    if p.endswith(".gz"):
+        with gzip.open(p, "rb") as f:
+            return f.read()
+    with open(p, "rb") as f:
+        return f.read()
+
+
 def txt_out_path(path):
     """写目标路径：已存在 `.gz` 形态就返回 `.gz`（保持压缩），否则返回原 `.txt` 路径。"""
     if os.path.exists(path):

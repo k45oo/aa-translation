@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.join(_ROOT, "scripts"))
 sys.path.insert(0, os.path.join(_ROOT, "scripts", "works"))
 sys.path.insert(0, os.path.join(_ROOT, "scripts", "common"))
 
-from aa_common import txt_existing   # 压缩感知（.txt/.txt.gz）
+from aa_common import txt_existing, txt_read   # 压缩感知（.txt/.txt.gz）
 import registry
 
 # 疑似其他角色/非きらきー的歧义变体（不自动替换，人工确认）
@@ -160,8 +160,9 @@ def apply_by_hitmap(work, word, target, dry_run=True, auto=True):
             aa_p = txt_existing(os.path.join(aa_dir, ch + ".txt"))
             if not os.path.exists(tr_p) or not os.path.exists(aa_p):
                 continue
-            src_lines = open(aa_p, encoding="utf-8").read().split("\n")
-            tr_lines = open(tr_p, encoding="utf-8").read().split("\n")
+            # 2026-10-17: 压缩感知——aa_p/tr_p 已解析到实际形态，读要过 txt_read（裸 open 读到 gzip 字节）
+            src_lines = txt_read(aa_p)
+            tr_lines = txt_read(tr_p)
             n_changed = 0
             # lines=None → 整章扫描；否则仅命中行
             for idx in (range(len(tr_lines)) if lines is None else [ln - 1 for ln in sorted(lines)]):
