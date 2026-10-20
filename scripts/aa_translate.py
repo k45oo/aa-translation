@@ -2161,6 +2161,53 @@ def art_keep_violation(src_seg, cand):
         return ""
 
 
+_SEG_QUOTE_RE = re.compile(r"^[『「（(《][^』」）)》]{1,24}[』」）)》]$")
+_SEG_ASCII_RE = re.compile(r"[0-9A-Za-z０-９Ａ-Ｚａ-ｚ]")
+
+
+def seg_mark_art(line, segs, si, max_len=1):
+    """段级**误标**判据（2026-10-20）：把「零假名的 AA 笔画碎片」从 text 段降为 art。
+
+    背景：meta 生成端会把夹在画面中间的单字/双字笔画碎片切成 `text` 段
+    （`囗`/`芒符`/`公`/`叭`/`必`/`仆`/`只`/`守`/`刋`/`仏`/`了`/`斧`/`形`/`外竺`…）。
+    这些段送模型只会被原样照抄（偶尔还被译成汉字 → 画面损坏，实测 `ア→啊`、`ヒ→哼`），
+    而我方「整行未译」体检把它们全算成漏译 → 噪声淹没真问题。
+
+    判据（全部满足才降级，宁缺勿错）：
+      ① 段内**零假名**（平/片/半角）；② 不是引号包裹的术语（`『免罪体質』`/`「…」` 要译）；
+      ③ 去空白后 **1 字**（实测：真台词的零假名段几乎都 ≥2 字——`実利`/`仕事内容`/`資格`/`緊張`
+         这类汉字词必须译成简体/中文，降级会把日文汉字原样留下；多字艺术碎片如 `芒符`/`外竺`
+         本版**不降级**，留给语料频次规则）；④ 段内无数字/ASCII（`１Ｆ`/`2F` 这类标签要译）；
+      ⑤ 行内**两侧紧邻都是 art 段**（真台词被画面夹住时长度一般 >4，且有假名）。
+    实测（資格世界の裏街道 全部 meta：text 段 21,975 / 零假名 800 / 去重 326）：
+    被误标的全部满足 ①③⑤，真台词的零假名段全部是引号术语（被 ② 保住）。
+    """
+    if not seg_mark_art_enabled() or not segs or si < 0 or si >= len(segs):
+        return False
+    sg = segs[si]
+    if sg.get("kind") != "text":
+        return False
+    if si == 0 or si + 1 >= len(segs):
+        return False                      # 行首/行尾段两侧不可能都被 art 夹住
+    if segs[si - 1].get("kind") != "art" or segs[si + 1].get("kind") != "art":
+        return False
+    t = (line or "")[sg.get("start", 0):sg.get("end", 0)].strip(" \u3000")
+    if not t or len(t) > max_len:
+        return False
+    if KANA_RE.search(t):                 # 有假名 = 真台词（半角假名 sfx 也算）
+        return False
+    if _SEG_QUOTE_RE.match(t):            # 引号包裹的术语（『免罪体質』/「食堂」）
+        return False
+    if _SEG_ASCII_RE.search(t):           # 数字/ASCII 标签（１Ｆ / 2F / HP）
+        return False
+    return True
+
+
+def seg_mark_art_enabled():
+    """`AA_SEG_MARK_ART=0` 关闭段级误标降级（默认开）。"""
+    return os.environ.get("AA_SEG_MARK_ART", "1").strip() not in ("0", "false", "False", "")
+
+
 def _sendable_text_segs(line, segs):
     """该行**该送模型**的 text 段下标（conf>=0.65 ∩ 非艺术片段）——单一权威（2026-10-10）。
 
@@ -2171,6 +2218,8 @@ def _sendable_text_segs(line, segs):
     for si in _confident_text_segs(segs):
         sg = segs[si]
         if seg_is_art(line[sg['start']:sg['end']]):
+            continue
+        if seg_mark_art(line, segs, si):
             continue
         out.append(si)
     return out

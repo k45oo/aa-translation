@@ -1,12 +1,12 @@
 {
  "generated_at": null,
  "stats": {
-  "total": 340,
+  "total": 343,
   "legacy": 108,
   "core": 80,
-  "tool": 66,
+  "tool": 67,
   "deprecated_candidate": 0,
-  "test": 86,
+  "test": 88,
   "hardcoded": 32,
   "top_consts": 49,
   "dup_function_counts": {
@@ -135,6 +135,7 @@
     "AA_PRE_TERMS",
     "AA_PRE_TERMS_DEBUG",
     "AA_R18",
+    "AA_SEG_MARK_ART",
     "AA_SEG_NEIGHBOR_CTX",
     "AA_TASK_ID",
     "AA_USAGE_FILE",
@@ -185,7 +186,6 @@
      "fix.fix_lead_kanji_miss",
      "fix.fix_mixed_drift",
      "fix.fix_num_split",
-     "fix.fix_pad_art_shift",
      "fix.refine_aa",
      "fix.refix_mixed_segs",
      "fix.retranslate_lines",
@@ -254,9 +254,7 @@
      "tests.test_endpoint_pin",
      "tests.test_fix_lead_kanji",
      "tests.test_fix_num_split",
-     "tests.test_fix_pad_art_shift",
      "tests.test_line_meta",
-     "tests.test_line_retranslate",
      "tests.test_manual_fix",
      "tests.test_mixed_seg_rule",
      "tests.test_mixed_segments",
@@ -269,6 +267,7 @@
      "tests.test_refine_art_gate",
      "tests.test_refine_line_guard",
      "tests.test_refine_rebuild_guard",
+     "tests.test_seg_mark_art",
      "tests.test_seg_neighbor_ctx",
      "tests.test_segment_numeric",
      "tests.test_stability",
@@ -284,6 +283,8 @@
      "tools.gen_pokemon_fixed",
      "tools.gen_pokemon_glossary",
      "tools.gen_pre_terms_report",
+     "tools.line_classify_v2",
+     "tools.scan_seg_misclass",
      "verify.quality_gate",
      "works.fix_comments_yaruobook",
      "works.translate_comments_yaruobook"
@@ -550,6 +551,7 @@
     "referenced_by": [
      "aa_translate",
      "tests.test_art_kana",
+     "tests.test_mixed_tail_overwidth",
      "tools.calibrate_art_kana",
      "tools.line_classify_v2"
     ],
@@ -910,6 +912,7 @@
     "AA_AA_FONT",
     "AA_AA_FONT_AA",
     "AA_AA_FONT_AA_FILE",
+    "AA_AA_FONT_CJK",
     "AA_AA_FONT_FILE",
     "AA_AA_FONT_STACK"
    ],
@@ -926,6 +929,7 @@
     "referenced_by": [
      "common.gen_aa_html",
      "tests.test_aa_font",
+     "tests.test_gen_html_plain",
      "tools.make_aa_font"
     ],
     "webapp": [],
@@ -1048,7 +1052,8 @@
     "docs": [
      "AGENTS.md",
      "doc/接口文档.md",
-     "doc/方案归档/宝可梦固定内容表方案_2026-09-22.md"
+     "doc/方案归档/宝可梦固定内容表方案_2026-09-22.md",
+     "doc/方案归档/段级漏内容根因与预防方案_2026-10-20.md"
     ]
    },
    "dup_of": null,
@@ -1098,6 +1103,7 @@
      "doc/方案归档/术语表注入实验_2026-08-21.md",
      "doc/方案归档/模型配置统一化方案_2026-08-19.md",
      "doc/方案归档/段级协议漏译根因与优化方案_2026-10-10.md",
+     "doc/方案归档/段级漏内容根因与预防方案_2026-10-20.md",
      "doc/方案归档/精译独立流程细化方案_2026-08-30.md",
      "doc/方案归档/翻译进程管理方案_2026-08-29.md",
      "doc/方案归档/脚本优化方案_2026-08-30.md",
@@ -3126,6 +3132,7 @@
      "tests.test_manual_fix",
      "tests.test_mixed_seg_rule",
      "tests.test_mixed_segments",
+     "tests.test_mixed_tail_overwidth",
      "tests.test_opencode_go",
      "tests.test_pad_norm",
      "tests.test_pipeline",
@@ -3134,6 +3141,8 @@
      "tests.test_refine_art_gate",
      "tests.test_refine_line_guard",
      "tests.test_refine_rebuild_guard",
+     "tests.test_seg_mark_art",
+     "tests.test_seg_neighbor_ctx",
      "tests.test_segment_numeric",
      "tests.test_stability",
      "tests.test_thin_shell",
@@ -3146,6 +3155,8 @@
      "tools.gen_pokemon_fixed",
      "tools.gen_pokemon_glossary",
      "tools.gen_pre_terms_report",
+     "tools.line_classify_v2",
+     "tools.scan_seg_misclass",
      "verify.quality_gate",
      "works.fix_comments_yaruobook",
      "works.translate_comments_yaruobook"
@@ -3176,6 +3187,7 @@
      "doc/方案归档/术语表注入实验_2026-08-21.md",
      "doc/方案归档/模型配置统一化方案_2026-08-19.md",
      "doc/方案归档/段级协议漏译根因与优化方案_2026-10-10.md",
+     "doc/方案归档/段级漏内容根因与预防方案_2026-10-20.md",
      "doc/方案归档/精译独立流程细化方案_2026-08-30.md",
      "doc/方案归档/翻译进程管理方案_2026-08-29.md",
      "doc/方案归档/脚本优化方案_2026-08-30.md",
@@ -7552,7 +7564,9 @@
    "grade": "test",
    "cli": "argv-manual",
    "argparse": [],
-   "env_vars": [],
+   "env_vars": [
+    "AA_AA_FONT_CJK"
+   ],
    "refs": {
     "imports": [
      "_work_guard",
@@ -8248,6 +8262,7 @@
    "refs": {
     "imports": [
      "_work_guard",
+     "aa_font",
      "aa_web_app",
      "base64",
      "contextlib",
@@ -8605,13 +8620,16 @@
      "aa_art_kana",
      "aa_translate",
      "os",
+     "refine_aa",
      "sys",
      "unittest"
     ],
     "subprocess": [],
     "referenced_by": [],
     "webapp": [],
-    "docs": []
+    "docs": [
+     "doc/方案归档/段级漏内容根因与预防方案_2026-10-20.md"
+    ]
    },
    "dup_of": null,
    "hardcoded_path": false,
@@ -9389,6 +9407,33 @@
    "has_main_guard": true,
    "docstring": "定时任务（2026-09-29，方案 doc/方案归档/定时任务与tokenplan折扣方案_2026-09-29.md）。"
   },
+  "scripts/tests/test_seg_mark_art.py": {
+   "path": "scripts/tests/test_seg_mark_art.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_translate",
+     "inspect",
+     "line_classify_v2",
+     "os",
+     "sys",
+     "unittest"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "段级误标判据（2026-10-20）：`aa_translate.seg_mark_art` + 分类器接线。"
+  },
   "scripts/tests/test_seg_neighbor_ctx.py": {
    "path": "scripts/tests/test_seg_neighbor_ctx.py",
    "grade": "test",
@@ -9957,7 +10002,9 @@
     "subprocess": [],
     "referenced_by": [],
     "webapp": [],
-    "docs": []
+    "docs": [
+     "doc/方案归档/aaManga冗余数据清理与meta压缩_2026-10-17.md"
+    ]
    },
    "dup_of": null,
    "hardcoded_path": false,
@@ -11680,6 +11727,7 @@
     "imports": [
      "aa_art_kana",
      "aa_common",
+     "aa_translate",
      "importlib",
      "inspect",
      "json",
@@ -11700,6 +11748,7 @@
      "tests.test_line_meta",
      "tests.test_mixed_segments",
      "tests.test_refine_batch_guard",
+     "tests.test_seg_mark_art",
      "tests.test_segment_numeric",
      "tools.gen_meta_batch"
     ],
@@ -12119,6 +12168,7 @@
      "doc/方案归档/aaManga冗余数据清理与meta压缩_2026-10-17.md",
      "doc/方案归档/main拆分方案_2026-10-14.md",
      "doc/方案归档/候选联网核名与出处高亮方案_2026-10-15.md",
+     "doc/方案归档/段级漏内容根因与预防方案_2026-10-20.md",
      "scripts/README.md"
     ]
    },
@@ -12128,6 +12178,46 @@
    "dup_functions": [],
    "has_main_guard": true,
    "docstring": "跑用例的**唯一入口**（2026-10-12）：全量并行 / 只跑与改动相关的模块。"
+  },
+  "scripts/tools/scan_seg_misclass.py": {
+   "path": "scripts/tools/scan_seg_misclass.py",
+   "grade": "tool",
+   "cli": [
+    "--all-works",
+    "--json",
+    "--limit",
+    "--top",
+    "--work"
+   ],
+   "argparse": [
+    "--all-works",
+    "--json",
+    "--limit",
+    "--top",
+    "--work"
+   ],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_translate",
+     "argparse",
+     "collections",
+     "json",
+     "os",
+     "registry",
+     "sys"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "scan_seg_misclass：统计「meta 段级误标」——零假名的 AA 笔画碎片被切成 text 段（**只统计，不改写**）。"
   },
   "scripts/tools/sync_codex_skills.py": {
    "path": "scripts/tools/sync_codex_skills.py",
@@ -12946,6 +13036,7 @@
      "tools.line_classify",
      "tools.line_classify_v2",
      "tools.r18_vision_pilot",
+     "tools.scan_seg_misclass",
      "tools.translate_titles",
      "tools.vision_annotate",
      "tools.vision_classify",

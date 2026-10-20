@@ -365,6 +365,15 @@ def _art_kana_seg_is_art(text):
         return False
 
 
+def _seg_mark_art(row, segs, si):
+    """段级误标判据（2026-10-20）：委托生产链 `aa_translate.seg_mark_art`（单一实现）。"""
+    try:
+        import aa_translate as _T
+        return _T.seg_mark_art(row, segs, si)
+    except Exception:
+        return False
+
+
 def _demote_non_dialogue_text_segs(segs, row):
     """text 段内无决定性台词证据 → 降为 art（2026-10-10 P1；见 segment_line 注释）。
 
@@ -372,12 +381,16 @@ def _demote_non_dialogue_text_segs(segs, row):
     反例保护：单字真台词（`え？`/`あ`）由 `_max_real_dialogue_run>=1` 保住——降级只针对
     **一个字都不算台词**的段（纯装饰/散落笔画）。"""
     out = []
-    for sg in segs:
+    for si, sg in enumerate(segs):
         k = sg['kind']
         if k == 'text':
             _t = row[sg['start']:sg['end']]
             # 2026-10-10 P1-1: 除"无真实台词 run"外，再与生产同一判据(艺术假名表)对齐
             if _max_real_dialogue_run(_t) == 0 or _art_kana_seg_is_art(_t):
+                k = 'art'
+            # 2026-10-20: 段级**误标**（零假名 + 非引号 + ≤4 字 + 两侧紧邻 art + 无数字/ASCII）
+            #   → 与运行期 `aa_translate.seg_mark_art` 同一判据，避免「新 meta 与生产口径不一致」。
+            elif _seg_mark_art(row, segs, si):
                 k = 'art'
         sg = dict(sg, kind=k)
         if out and out[-1]['kind'] == k:
