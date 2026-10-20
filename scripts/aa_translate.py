@@ -2256,6 +2256,30 @@ def _verify_art_alignment(orig_line, cand, segments):
     return True
 
 
+def art_segments_intact(src_line, cand, segments, min_len=3):
+    """art 段内容是否**按序完整**出现在候选中（比 `_verify_art_alignment` 的 ±4 列更严）。
+
+    2026-10-20（refine 艺术损伤实测：entry_22720 L1372 `ﾘ`→中文、entry_22942 L1297
+    `〈しrく`→「做吧」）：refine 的 swallow 路径会**重新切段**，把边界上的艺术假名/笔画
+    并进 text 段 → 译掉。列位置校验放宽到 ±4 列时这类 1~2 字损伤照样通过，故补一条内容级判据：
+    每个 art 段（去空白后 ≥min_len 字）的字符序列必须按序出现在候选里。
+    纯空白差异不算（留白由 pad 调整）。
+    """
+    if not segments:
+        return True
+    cand_s = re.sub(r"[\s\u3000]", "", cand or "")
+    for sg in segments:
+        if sg.get("kind") != "art":
+            continue
+        piece = re.sub(r"[\s\u3000]", "", src_line[sg["start"]:sg["end"]])
+        if len(piece) < min_len:
+            continue
+        it = iter(cand_s)
+        if not all(c in it for c in piece):
+            return False
+    return True
+
+
 def rebuild_mixed_line(orig_line, segments, translations, allow_tail_overwidth=False):
     """按 segments 顺序拼回整行。translations: {seg_index: 译文}。
     art 段与低置信 text 段原样保留；缺译返回 None（调用方回退整行旧逻辑）。
@@ -2343,6 +2367,45 @@ MIXED_SHORT_HINT = ("\n\n【本轮重点】以下片段上一版**宽度不理�
                     "（行尾由系统自动向右扩展），绝对不许删掉实义成分去凑宽度。")
 MIXED_COMPLETE_HINT = ("\n\n【本轮重点】以下片段的上一版译文疑似**遗漏了原文内容**：必须完整译出"
                        "原文的每个实词（名词/动词/形容词/副词一个都不能丢），宁可译文略长也不要省略。")
+
+
+def seg_neighbor_ctx_enabled():
+    """段级请求带「邻行原文」上下文（2026-10-20 A1，`AA_SEG_NEIGHBOR_CTX=1` 开启，默认关）。
+
+    动机：AA 台词常被版面切成两行，段级协议一次只送本行片段 → 模型看不到后半个句子，
+    会把**下一行的谓语补进本行**、同时丢掉本行宾语（实测 entry_22630 L1335 漏「賭博施設/飲酒施設」、
+    L2339 漏『アイドル』、L1904 漏「今の店と同じ系統の」）。
+    做法：请求里给每条片段附「上一行/下一行原文」并标注**勿译**，SYSTEM 加一条
+    「不许补入邻行成分、不许省略本片段实词」。零结构改动，解析侧只认 `行号_段号|` 故上下文行天然被忽略。
+    """
+    return os.environ.get("AA_SEG_NEIGHBOR_CTX", "0").strip() not in ("", "0", "false", "False")
+
+
+_NEIGHBOR_CTX_HINT = ("\n\n【邻行上下文】若片段前面出现【上下文·勿译】行：那是同一楼里紧邻的上一行/下一行原文，"
+                      "**只供理解语境，绝对不要翻译，也不要把它的内容写进译文**。\n"
+                      "本片段可能只是被版面切断的半句：**按本片段自己的意思译**，"
+                      "不要补入邻行的成分，**也不要漏掉本片段里的任何实词**。")
+
+
+def _neighbor_src_lines(lines, idx, span=2, max_len=64):
+    """取该行之前/之后各 up to `span` 条「含假名的非帖头行」原文（跳空行与纯艺术行）。"""
+    out = {"prev": [], "next": []}
+    if not lines:
+        return out
+    j = idx - 1
+    while j >= 0 and len(out["prev"]) < span:
+        s = (lines[j] or "").strip()
+        if s and KANA_RE.search(s) and not re.match(r"^\d{1,5}\s*(：|名前)", s):
+            out["prev"].append(s[:max_len])
+        j -= 1
+    out["prev"].reverse()
+    j = idx + 1
+    while j < len(lines) and len(out["next"]) < span:
+        s = (lines[j] or "").strip()
+        if s and KANA_RE.search(s) and not re.match(r"^\d{1,5}\s*(：|名前)", s):
+            out["next"].append(s[:max_len])
+        j += 1
+    return out
 
 
 def mixed_tail_overwidth_enabled():
@@ -2513,7 +2576,8 @@ def append_mixed_leftover(entries, work_dir=None):
         return 0
 
 
-def translate_lines_mixed(flagged_segs, work_r18=None, low_r18=False, base=None):
+def translate_lines_mixed(flagged_segs, work_r18=None, low_r18=False, base=None,
+                          all_lines=None):
     """flagged_segs: list of (num, line, segments)。Returns (fixed, missed, warnings)。
 
     只发 conf>=0.65 的 text 段；段级 pad 拼回；校验整行宽 == SRC + art 列位守恒 + 段级残留。
@@ -2563,7 +2627,20 @@ def translate_lines_mixed(flagged_segs, work_r18=None, low_r18=False, base=None)
                 hint = st["hint"]
         if not jobs:
             break
-        body = "\n".join(f"{num:05d}_{si}|{seg}" for num, si, seg in jobs)
+        _ctx_on = bool(seg_neighbor_ctx_enabled() and all_lines)
+        _prefix = []
+        if _ctx_on:
+            _seen = set()
+            for num, _si, _seg in jobs:
+                if num in _seen:
+                    continue
+                _seen.add(num)
+                _nb = _neighbor_src_lines(all_lines, num)
+                for _s in _nb["prev"]:
+                    _prefix.append("【上下文·勿译】%05d 上一行|%s" % (num, _s))
+                for _s in _nb["next"]:
+                    _prefix.append("【上下文·勿译】%05d 下一行|%s" % (num, _s))
+        body = "\n".join(_prefix + [f"{num:05d}_{si}|{seg}" for num, si, seg in jobs])
         # 2026-09-04: 模型↔行号——mixed 段翻译也算该行(按行号去重记 lines)
         try:
             from aa_backend import set_usage_lines, clear_usage_lines
@@ -2573,7 +2650,8 @@ def translate_lines_mixed(flagged_segs, work_r18=None, low_r18=False, base=None)
             # 2026-09-05: 同 translate_lines——0-based idx +1 对齐工作台(1-based 文件行号)
             set_usage_lines(sorted({num + 1 for num, _si, _seg in jobs}))
         try:
-            text = call_api(SYSTEM_MIXED + glossary_prompt_hint(base) + hint, body,
+            text = call_api(SYSTEM_MIXED + (_NEIGHBOR_CTX_HINT if _ctx_on else "")
+                            + glossary_prompt_hint(base) + hint, body,
                             work_r18=work_r18, low_r18=low_r18)
         finally:
             if clear_usage_lines:
@@ -3078,7 +3156,7 @@ def process_chapter(path, cfg=None):
             # 2026-08-27: base 穿透(章节简介+按章过滤)
             futs[ex.submit(translate_lines, c, work_r18, low_r18, ctx, base)] = ('n', c)
         for c in mixed_chunks:
-            futs[ex.submit(translate_lines_mixed, c, work_r18, low_r18, base)] = ('m', c)
+            futs[ex.submit(translate_lines_mixed, c, work_r18, low_r18, base, lines)] = ('m', c)
         for fut in concurrent.futures.as_completed(futs):
             if fut.cancelled():
                 continue

@@ -1468,6 +1468,11 @@ def refine_chapter(cfg, base, do_write=False, review_inline=False):
     #   都会命中, 目的是让它们**可见**(原先记 OK 静默写回, 例 L402 日语+中文尾巴共存)。
     _partial = 0
     _half_revert = []          # (行idx, 残留片段)：模型新引入的整段日文 → 不写盘，交人工
+    _art_revert = []           # 行idx：艺术段内容被译掉（refine 重新切段造成）→ 不写盘，交人工
+    _segs_all = T.load_meta_segments_0based(meta_dir, base) or {}
+
+    def _segs_of(idx):
+        return _segs_all.get(idx) or []
     _norm = []
     for (i, s, old, new, act, ok, reason) in edits:
         if ok and new:
@@ -1486,9 +1491,20 @@ def refine_chapter(cfg, base, do_write=False, review_inline=False):
                     ok = False
                     reason = f"{reason}+半译回滚({'/'.join(_new_runs[:2])})"
                     _half_revert.append((i, _new_runs[0]))
+            # 2026-10-20 艺术闸门：refine 会**重新切段**，边界上的艺术假名/笔画被并进 text 段译掉
+            #   （实测 entry_22720 L1372 `ﾘ`→中文、entry_22942 L1297 `〈しrく`→「做吧」）。
+            #   列位置校验（±4 列）抓不到 1~2 字损伤 → 写回前比「art 段内容按序完整出现」。
+            #   `AA_REFINE_ART_KEEP=0` 关闭。
+            if (ok and act != "restore" and new != old
+                    and os.environ.get("AA_REFINE_ART_KEEP", "1").strip() != "0"):
+                _sg = _segs_of(i)
+                if _sg and not T.art_segments_intact(s, new, _sg):
+                    ok = False
+                    reason = f"{reason}+艺术回滚"
+                    _art_revert.append(i)
         _norm.append((i, s, old, new, act, ok, reason))
     edits = _norm
-    if _half_revert and do_write:
+    if (_half_revert or _art_revert) and do_write:
         _rv = os.path.join(work_dir, "review_inline.txt")
         try:
             _seen = set()
@@ -1498,18 +1514,24 @@ def refine_chapter(cfg, base, do_write=False, review_inline=False):
                         _p = _ln.rstrip("\n").split(" | ")
                         if len(_p) >= 2:
                             _seen.add((_p[0], _p[1]))
+            _rows = [(_i, "%s [半译回滚:%s]" % (src[_i].strip(), _run))
+                     for _i, _run in _half_revert]
+            _rows += [(_i, "%s [艺术回滚]" % src[_i].strip()) for _i in _art_revert]
             with open(_rv, "a", encoding="utf-8") as _f:
-                for _i, _run in _half_revert:
+                for _i, _desc in _rows:
                     _key = (base + ".txt", "line %d" % _i)
                     if _key in _seen:
                         continue
                     _seen.add(_key)
-                    _f.write("%s | line %d | %s [半译回滚:%s]\n"
-                             % (base + ".txt", _i, src[_i].strip(), _run))
-            print("[%s] 半译回滚 %d 行（模型新引入日文片段）→ review_inline"
-                  % (base, len(_half_revert)), flush=True)
+                    _f.write("%s | line %d | %s\n" % (base + ".txt", _i, _desc))
+            if _half_revert:
+                print("[%s] 半译回滚 %d 行（模型新引入日文片段）→ review_inline"
+                      % (base, len(_half_revert)), flush=True)
+            if _art_revert:
+                print("[%s] 艺术回滚 %d 行（art 段内容被译掉，保留旧译文）→ review_inline"
+                      % (base, len(_art_revert)), flush=True)
         except Exception as _e:
-            print("[%s] 半译回滚写 review_inline 失败: %s" % (base, _e), flush=True)
+            print("[%s] 回滚写 review_inline 失败: %s" % (base, _e), flush=True)
 
     # P1(2026-10-03): 词表一致性护栏 —— 编辑把"已落地的标准译名"改掉/改回日文 → 丢弃该编辑
     _guard_rej = []
@@ -1538,7 +1560,7 @@ def refine_chapter(cfg, base, do_write=False, review_inline=False):
 
     return base, {"restore": n_restore, "rebuild": n_rebuild, "poly": n_poly,
                   "total": len(edits), "partial_kana": _partial,
-                  "half_revert": len(_half_revert),
+                  "half_revert": len(_half_revert), "art_revert": len(_art_revert),
                   "art_kana_restore": n_artk, "skip_white": n_skip_white,
                   "art_gate_skip": n_art_gate,
                   "term_guard_rejected": len(_guard_rej)}, edits
