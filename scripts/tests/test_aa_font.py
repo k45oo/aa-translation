@@ -129,6 +129,47 @@ class TestSubset(unittest.TestCase):
                          (pg["hhea"].ascent - pg["hhea"].descent) / float(pg["head"].unitsPerEm),
                          "asc+desc 必须与 PGothic 相同（行盒内的基线位置）")
 
+    @unittest.skipUnless(HAVE_FONTTOOLS, "需要 fontTools（工作台 .venv 已装）")
+    def test_aa_chars_收数学符号_收借字(self):
+        """AA 字体子集字符集 = 语料里字体有字形的全部字符（含 CJK 借字）。
+
+        ① 2026-10-19 一改：旧实现 `corpus & base_chars()` 只认 BASE_RANGES 白名单，∧ ∨ ￣ ⌒ ≧ ≪
+        Λ √ ∠ 这些落在数学运算符/希腊/全角符号块里的 AA 画笔字符没进 AA 子集 → 回退
+        AA-SarasaMono，而 Sarasa 里它们是**半宽 0.5em**（AA 字体是 1em）且更粗 → 艺术行被压缩。
+        ② 2026-10-19 三改：**汉字也要进**（狄/爻/竿/羔/冬/乂 这类借字当笔画，排除后落到 Sarasa
+        比 AA 字体重 36%，同图两副笔画）。`AA_AA_FONT_CJK=0` 可退回「汉字一律 Sarasa」。
+        """
+        corpus = set("∧∨￣⌒≧≪Λ√∠∥￢的漢字ミ狄爻竿羔冬乂")
+        got = AF.aa_chars(corpus)
+        for ch in "∧∨￣⌒≧≪Λ√∠∥￢ミ":
+            self.assertIn(ch, got, "%r 是 AA 画笔字符，必须进 AA 字体子集" % ch)
+        for ch in "狄爻竿羔冬乂":
+            self.assertIn(ch, got, "%r 是借字（当笔画用的汉字），必须进 AA 字体子集" % ch)
+        old = os.environ.get("AA_AA_FONT_CJK")
+        try:
+            os.environ["AA_AA_FONT_CJK"] = "0"
+            got0 = AF.aa_chars(corpus)
+            self.assertNotIn("狄", got0, "AA_AA_FONT_CJK=0 → 汉字回退 Sarasa（旧口径）")
+        finally:
+            if old is None:
+                os.environ.pop("AA_AA_FONT_CJK", None)
+            else:
+                os.environ["AA_AA_FONT_CJK"] = old
+        # 现场依据：这些字符在 aahub 里有字形，在 Sarasa 里是半宽
+        from fontTools.ttLib import TTFont
+        aa = TTFont(AF.aa_font_source(), lazy=True)
+        sa = TTFont(AF.font_source(), lazy=True)
+
+        def adv(f, c):
+            upem = f["head"].unitsPerEm
+            return f["hmtx"][f.getBestCmap()[ord(c)]][0] / float(upem)
+        for ch in "∧∨≧≪⌒":
+            self.assertIn(ord(ch), aa.getBestCmap(), "aahub 应有 %r" % ch)
+            self.assertAlmostEqual(adv(aa, ch), 1.0, places=2, msg="aahub 里 %r 是全宽" % ch)
+        for ch in "∧∨≧≪":     # ⌒ 在 Sarasa 里也是 1em（只是字形/字重不同），不算压缩
+            self.assertAlmostEqual(adv(sa, ch), 0.5, places=2,
+                                   msg="Sarasa 里 %r 是半宽（这就是艺术行被压缩的根因）" % ch)
+
     def test_env_switches(self):
         old = {k: os.environ.get(k) for k in ("AA_AA_FONT", "AA_AA_FONT_STACK", "AA_AA_FONT_FILE")}
         try:

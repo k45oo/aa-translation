@@ -1765,15 +1765,16 @@ def _font_parts(cfg, chapters, aa_dir, out_dir, layout, font_mode="auto", font_s
                 shutil.copy2(sub, os.path.join(out_dir, FONT_NAME))
                 font_ref = FONT_NAME
             first = _AF.stack_first() if font_stack is None else (font_stack.lower() != "last")
-            # ── 与 PGothic 度量一致的 AA 字体（aahub）：只在默认栈序（last）里内嵌 ——
+            # ── 与 PGothic 度量一致的 AA 字体（Saitamaar，原 aahub）：只在默认栈序（last）里内嵌 ──
             # 手机/非 Windows 设备没有 MS PGothic，栈里只剩严格 1:2 的 Sarasa → 作者按 PGothic
             # 摆的列位整体漂移（同一艺术行差 40~70 格）= 用户报的「手机端错位」。
-            # 子集只取 AA 相关字符块 ∩ 语料（CJK 汉字两套字体都是 1em，不需要 aahub）。
+            # 子集 = 语料里 AA 字体有字形的全部字符（见 aa_font.aa_chars：按块白名单曾把 ∧∨￣⌒≧
+            # 漏给 Sarasa —— 那里是半宽 0.5em、更粗；汉字借字也会漏，2026-10-19 两处都改过）。
             aa_ref, aa_missing = None, 0
             if (not first) and _AF.aa_font_enabled():
                 aa_src = _AF.aa_font_source()
                 if os.path.exists(aa_src):
-                    aa_sub, aa_missing, _ = _AF.build_subset(corpus & _AF.base_chars(), aa_src)
+                    aa_sub, aa_missing, _ = _AF.build_subset(_AF.aa_chars(corpus), aa_src)
                     if layout == "inline":
                         with open(aa_sub, "rb") as fp:
                             aa_ref = ("data:font/woff2;base64,"
@@ -1790,9 +1791,9 @@ def _font_parts(cfg, chapters, aa_dir, out_dir, layout, font_mode="auto", font_s
                      len(corpus), "first" if first else "last",
                      ("，字体缺 %d 字符→回退" % len(missing)) if missing else ""))
             if aa_ref:
-                print("[font] AA 度量字体（aahub 系, %s, 栈序 last）——手机/非 Windows 端列位与 PC 一致：%s"
+                print("[font] AA 度量字体（Saitamaar 系, %s, 栈序 last）——手机/非 Windows 端列位与 PC 一致：%s"
                       % ("内嵌 base64" if layout == "inline" else FONT_NAME_AA,
-                         ("AA 字符块 ∩ 语料缺 %d 字→回退 Sarasa" % len(aa_missing)) if aa_missing else "覆盖充分"))
+                         ("字体缺 %d 字→回退 Sarasa" % len(aa_missing)) if aa_missing else "覆盖充分"))
         except SystemExit:
             raise
         except Exception as e:

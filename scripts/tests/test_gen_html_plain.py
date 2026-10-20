@@ -382,13 +382,14 @@ class TestPlainSizeHint(unittest.TestCase):
             self.assertIn(base, html, "字号/行高没跟着 --aa-zoom 走：%s" % base)
 
     def test_内嵌两个字体且AA度量体在Sarasa之前(self):
-        """手机端不「错位」的关键：与 PGothic 度量一致的 aahub 排在 Sarasa 之前、PGothic 之后。"""
+        """手机端不「错位」的关键：与 PGothic 度量一致的 AA 字体（现 Saitamaar）排在 Sarasa 之前、PGothic 之后。"""
+        from aa_font import AA_FAMILY
         files, _ = self._gen("aa")
         html = open(files[0], encoding="utf-8", newline="").read()
         self.assertEqual(html.count("@font-face"), 2, "应内嵌 AA 度量字体 + Sarasa 两个")
-        self.assertIn("font-family:'AA-Aahub'", html)
+        self.assertIn("font-family:'%s'" % AA_FAMILY, html)
         stack = re.search(r"pre\.aa\{font-family:([^;}]*)", html.split("@font-face")[-1]).group(1)
-        self.assertIn("'AA-Aahub', 'AA-SarasaMono'", stack)      # 顺序不能反
+        self.assertIn("'%s', 'AA-SarasaMono'" % AA_FAMILY, stack)      # 顺序不能反
         self.assertTrue(stack.strip().startswith('"ＭＳ Ｐゴシック"'), "PC 仍以 PGothic 为准")
         # 手机端行高比 = 桌面 15/17（AA 纵向连续性靠这个比例）
         # 桌面（fukou 走 legacy CSS）：字号/行高按 --aa-zoom 走（倍率默认 1）

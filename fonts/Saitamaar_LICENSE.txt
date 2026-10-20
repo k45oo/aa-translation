@@ -1,0 +1,21 @@
+Saitamaar 字体（fonts/Saitamaar.ttf）
+
+用途：交付 HTML / 手机端 AA 显示字体。
+来源：https://github.com/asciiart-development/SaitamaarFont
+      （fonts/ttf/Saitamaar-Regular.ttf，Version 1.000；作者 keage，**public domain**）
+为什么换它（2026-10-19）：用户手机实测 aahub 仍「有些字偏粗」，参照物是安卓 App
+      「やる夫RSS」(net.r401.yaruorss) —— 反编译其 YaruoDecorator：
+      默认 AA 字体 = assets/fonts/Saitamaar.ttf（z0==1→Monapo / z0==2→RobotoJAA / 其它→Saitamaar，
+      默认 z0=0），font-size 16px、line-height 1.6、`sp_font_bold` 默认 false。
+      实测 Saitamaar 与 MS PGothic 的 advance 差异比 aahub 更小（560 个 AA 常用字符：
+      平均 0.0095em / 最大 0.0898em / >0.05em 仅 1 个；aahub 是 0.0103 / 0.1406 / 7 个），
+      墨量也更接近 PGothic（同一段艺术行 19,622 vs PGothic 22,803 vs aahub 24,536 暗像素）。
+
+本仓库对源文件只做了一处改动：**纵向度量对齐 MS PGothic**
+      （hhea asc/desc/lineGap 与 OS/2 sTypo* 改成 0.859375em / -0.140625em / 0，
+      与 PGothic 逐值相同；glyph 轮廓未动）。原因：列位靠 advance，基线/行盒靠 hhea，
+      不改的话固定 line-height 下每行会整体上下挪位、行间连续性被破坏。
+      重新生成方式见 scripts/common/aa_font.py 的注释（或 tools/make_aa_font.py）。
+
+回退：`AA_AA_FONT_AA_FILE=<仓库>/fonts/aahub.ttf`（aahub 仍保留在仓库里，取证见 aahub_LICENSE.txt），
+      或 `AA_AA_FONT_AA=0` 完全关掉内嵌 AA 字体。
