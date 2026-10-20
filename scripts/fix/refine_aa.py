@@ -49,6 +49,16 @@ HEADER_RE = re.compile(r'^\d+\s*：|^\d+\s*名前')   # 帖头双格式（本棚
 _GLOSS_HINT = ""
 
 
+def _introduced_kana_runs(new, old, extra_names=None):
+    """半译回滚判据（纯函数）：新译文里**旧译文没有**的 ≥3 连续非艺术假名片段。
+
+    与主链同口径（`aa_translate.residual_suspect`：排除艺术假名与 KNOWN_NAMES）。
+    旧译文本来就带这些片段（专名/既有半译）→ 不算"新引入"，不因本条回滚。
+    """
+    _old = old or ""
+    return [r for r in T.residual_suspect(new or "", extra_names) if r not in _old]
+
+
 def _load_gloss_hint(cfg, base):
     """读作品术语表(glossary_<work>.json) manual 确认对, 按本章原文语料过滤, 生成注入段。
     返回空串=无可用术语(非 registry 作品/无表/无命中)。refine 补译/精译用它锁标准译名。
@@ -1457,6 +1467,7 @@ def refine_chapter(cfg, base, do_write=False, review_inline=False):
     #   ② 处理后仍含连续假名(≥2)的行在 reason 标「+残留假名」并计数——半翻行/专名保留
     #   都会命中, 目的是让它们**可见**(原先记 OK 静默写回, 例 L402 日语+中文尾巴共存)。
     _partial = 0
+    _half_revert = []          # (行idx, 残留片段)：模型新引入的整段日文 → 不写盘，交人工
     _norm = []
     for (i, s, old, new, act, ok, reason) in edits:
         if ok and new:
@@ -1464,8 +1475,41 @@ def refine_chapter(cfg, base, do_write=False, review_inline=False):
             if act != "restore" and KANA_RESIDUAL.search(new) and "残留假名" not in reason:
                 reason = f"{reason}+残留假名"
                 _partial += 1
+            # 2026-10-20 半译回滚：本次编辑**新引入**的日文片段（`residual_suspect` 口径：
+            #   ≥3 连续非艺术假名、排除 KNOWN_NAMES）→ 放弃这次改写、保留旧译文，并落人工。
+            #   旧实现只计数（`partial_kana`）不改写 → 半翻行静默进成品（实测 entry_22630 L1826
+            #   前半句整段留日文，且不在 review_inline）。`AA_REFINE_PARTIAL_KEEP=0` 关闭。
+            if (act != "restore" and new != old
+                    and os.environ.get("AA_REFINE_PARTIAL_KEEP", "1").strip() != "0"):
+                _new_runs = _introduced_kana_runs(new, old)
+                if _new_runs:
+                    ok = False
+                    reason = f"{reason}+半译回滚({'/'.join(_new_runs[:2])})"
+                    _half_revert.append((i, _new_runs[0]))
         _norm.append((i, s, old, new, act, ok, reason))
     edits = _norm
+    if _half_revert and do_write:
+        _rv = os.path.join(work_dir, "review_inline.txt")
+        try:
+            _seen = set()
+            if os.path.exists(_rv):
+                with open(_rv, encoding="utf-8") as _f:
+                    for _ln in _f:
+                        _p = _ln.rstrip("\n").split(" | ")
+                        if len(_p) >= 2:
+                            _seen.add((_p[0], _p[1]))
+            with open(_rv, "a", encoding="utf-8") as _f:
+                for _i, _run in _half_revert:
+                    _key = (base + ".txt", "line %d" % _i)
+                    if _key in _seen:
+                        continue
+                    _seen.add(_key)
+                    _f.write("%s | line %d | %s [半译回滚:%s]\n"
+                             % (base + ".txt", _i, src[_i].strip(), _run))
+            print("[%s] 半译回滚 %d 行（模型新引入日文片段）→ review_inline"
+                  % (base, len(_half_revert)), flush=True)
+        except Exception as _e:
+            print("[%s] 半译回滚写 review_inline 失败: %s" % (base, _e), flush=True)
 
     # P1(2026-10-03): 词表一致性护栏 —— 编辑把"已落地的标准译名"改掉/改回日文 → 丢弃该编辑
     _guard_rej = []
@@ -1494,6 +1538,7 @@ def refine_chapter(cfg, base, do_write=False, review_inline=False):
 
     return base, {"restore": n_restore, "rebuild": n_rebuild, "poly": n_poly,
                   "total": len(edits), "partial_kana": _partial,
+                  "half_revert": len(_half_revert),
                   "art_kana_restore": n_artk, "skip_white": n_skip_white,
                   "art_gate_skip": n_art_gate,
                   "term_guard_rejected": len(_guard_rej)}, edits

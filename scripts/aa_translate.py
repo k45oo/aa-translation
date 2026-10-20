@@ -2256,7 +2256,7 @@ def _verify_art_alignment(orig_line, cand, segments):
     return True
 
 
-def rebuild_mixed_line(orig_line, segments, translations):
+def rebuild_mixed_line(orig_line, segments, translations, allow_tail_overwidth=False):
     """按 segments 顺序拼回整行。translations: {seg_index: 译文}。
     art 段与低置信 text 段原样保留；缺译返回 None（调用方回退整行旧逻辑）。
     B3 补充（2026-08-11 行首空白保护）: text 段拼回时先原样保留该段在源行中的
@@ -2283,6 +2283,12 @@ def rebuild_mixed_line(orig_line, segments, translations):
             # 2026-09-01: 译文超宽 → 本地压缩(pad_segment 不压缩直接返回超宽, 会推右 art);
             # 译文不足 → pad_segment 补段尾(art 列不变)。压不动返回 None(重试/落盘)。
             if disp_width(t) > target_w:
+                # 2026-10-20: 行尾 text 段允许向右超宽（其后无 art 段 → 列位不受影响）。
+                # 旧行为是本地压缩(_compress_seg_to_width 会丢字) → 压不动 None → 整行失败，
+                # 而重试提示 MIXED_SHORT_HINT 又鼓励"精简"，最终成品里就是删实词。
+                if allow_tail_overwidth and _seg_is_tail(segments, si):
+                    parts.append(lead + t)
+                    continue
                 t = _compress_seg_to_width(t, target_w)
                 if t is None:
                     return None
@@ -2298,7 +2304,7 @@ SYSTEM_MIXED = """你是やる夫AA漫画的资深汉化翻译。用户会发来
 1. 把每个片段翻译成简体中文：自然、贴切、符合漫画语气，不增删内容。
 2. **必须完整表达原文语义，不得省略任何实词**（名词/动词/形容词/副词一个都不能丢；宁可译文略长，也不要删字凑短）。
 3. 只输出译文片段本身：不要添加任何绘画字符、边框、空格（留白由系统按原宽度补齐）。**绝对不要用空格填充宽度**。
-4. 译文长度尽量接近或短于原文（原片段区域宽度固定，译文太长会放不下）；但**不得因宽度限制而删语义**。
+4. 优先保证语义完整：**宁可译文略长，也不要为凑宽度删掉实词**（行尾留白由系统向右扩展）。
 5. 角色名、专有名词保留日文原文。
 6. 如果片段其实没有可译文字（纯装饰），就原样照抄输出。
 7. 必须翻译【所有】给出的片段，一条都不能漏。
@@ -2329,10 +2335,34 @@ MIXED_SHRINK_FLAG_RATIO = 0.60         # 比 < 该值 → 接受，但记入 wor
 # 确定性失败（照抄画面纹理 / 窄框放不下）必然 3 轮全败。改成按失败原因换提示词。
 MIXED_COPY_HINT = ("\n\n【本轮重点】以下片段**必须译成简体中文**，不许照抄原文；"
                    "只有确实只是画面纹理（无实际词义）的片段才原样照抄。")
-MIXED_SHORT_HINT = ("\n\n【本轮重点】以下片段的区域宽度**固定**，译文必须**比原文短或等长**"
-                    "（可意译/精简），绝对不许照抄原文。")
+# 2026-10-20: 旧文案「必须比原文短或等长（可意译/精简）」是**删实词**的直接来源
+#   （entry_22630 L1335 漏「賭博施設/飲酒施設」、L2339 漏「『アイドル』」）——
+#   模型在"完整"与"精简"之间选了精简。改成"允许略长、绝不删实义成分"。
+MIXED_SHORT_HINT = ("\n\n【本轮重点】以下片段上一版**宽度不理想**：仍然必须**把原文每个实词都译出来**"
+                    "（名词/动词/形容词/副词一个都不能丢）；空间不够时**允许译文略长**"
+                    "（行尾由系统自动向右扩展），绝对不许删掉实义成分去凑宽度。")
 MIXED_COMPLETE_HINT = ("\n\n【本轮重点】以下片段的上一版译文疑似**遗漏了原文内容**：必须完整译出"
                        "原文的每个实词（名词/动词/形容词/副词一个都不能丢），宁可译文略长也不要省略。")
+
+
+def mixed_tail_overwidth_enabled():
+    """末尾 text 段允许向右超宽（2026-10-20，`AA_MIXED_TAIL_OVERWIDTH=0` 关）。
+
+    为什么：AA 台词常被版面切在行尾，源段宽 = 肉眼看到的列宽，中文往往要更宽一点。
+    旧实现把「整行宽必须 == 源宽」当硬约束（`_mixed_assemble`）+ 超宽就 `seg_wide`
+    重试并附 `MIXED_SHORT_HINT`（原文案允许"精简"）→ 模型删实词凑宽度。
+    实测 entry_22630：L1335 漏「賭博施設/飲酒施設」、L861 漏『上の階－２』。
+
+    只放开「该段之后没有 art 段」的情形（行尾段向右扩展，art 列位不受影响）；
+    行尾有边框/画面字符时照旧等宽重试。与 `scan_width` 的既有口径一致
+    （text/mixed 允许超宽，只有 art 行严格等宽）。
+    """
+    return os.environ.get("AA_MIXED_TAIL_OVERWIDTH", "1").strip() not in ("0", "false", "False", "")
+
+
+def _seg_is_tail(segments, si):
+    """该 text 段之后没有 art 段 → 可向右超宽（art 列位不会被推走）。"""
+    return all(sg.get("kind") != "art" for sg in segments[si + 1:])
 
 
 def mixed_shrink_min_ratio():
@@ -2368,11 +2398,15 @@ def _mixed_seg_evidence(piece):
         return True
 
 
-def _mixed_assemble(line, segs, trans, keep, pending_segs=()):
+def _mixed_assemble(line, segs, trans, keep, pending_segs=(), allow_tail_overwidth=None):
     """拼回整行并校验：整行宽 == SRC + art 列位守恒（_verify_art_alignment）。
 
     trans = {段号: 译文}；keep = {段号: True} 表示该段**退回原文**（画面纹理 / 段内放不下）。
-    pending_segs = 本轮仍在重试的段（当成缺译文）→ 返回 None。任一段缺译文 → None。"""
+    pending_segs = 本轮仍在重试的段（当成缺译文）→ 返回 None。任一段缺译文 → None。
+
+    2026-10-20：`allow_tail_overwidth`（默认取 `mixed_tail_overwidth_enabled()`）为真时，
+    **行尾 text 段**允许把整行推到比源行更宽（art 段之后无 art 段 → 列位不受影响）。
+    """
     t2 = dict(trans)
     for si in keep:
         sg = segs[si]
@@ -2380,15 +2414,19 @@ def _mixed_assemble(line, segs, trans, keep, pending_segs=()):
     for si in _sendable_text_segs(line, segs):
         if si not in t2 or si in pending_segs:
             return None
-    cand = rebuild_mixed_line(line, segs, t2)
+    cand = rebuild_mixed_line(line, segs, t2, allow_tail_overwidth=allow_tail_overwidth)
     if cand is None:
         return None
-    if disp_width(cand) != disp_width(line) or not _verify_art_alignment(line, cand, segs):
+    ow = mixed_tail_overwidth_enabled() if allow_tail_overwidth is None else allow_tail_overwidth
+    w_src, w_cand = disp_width(line), disp_width(cand)
+    if w_cand != w_src and not (ow and w_cand > w_src):
+        return None
+    if not _verify_art_alignment(line, cand, segs):
         return None
     return cand
 
 
-def _mixed_seg_verdict(t, orig_seg, is_rule, rule_names, min_ratio, flag_ratio):
+def _mixed_seg_verdict(t, orig_seg, is_rule, rule_names, min_ratio, flag_ratio, is_tail=False):
     """单段校验 → (verdict, reason, hint)，verdict ∈ ok / keep / flag / retry。
 
     keep = 无台词证据的照抄（画面纹理，原样保留）；flag = 译文偏短（接受但记复核清单）；
@@ -2420,6 +2458,10 @@ def _mixed_seg_verdict(t, orig_seg, is_rule, rule_names, min_ratio, flag_ratio):
             return 'retry', 'decor_wide', MIXED_SHORT_HINT
         return 'ok', '', ''
     if disp_width(t) > disp_width(orig_seg):
+        # 2026-10-20: 行尾段超宽不再判失败（不重试 → 不会触发"精简"提示词），
+        # 接受并记入复核清单（overwide_tail）。
+        if is_tail and mixed_tail_overwidth_enabled():
+            return 'flag', 'overwide_tail', ''
         return 'retry', 'seg_wide', MIXED_SHORT_HINT
     wj = disp_width(orig_seg.strip(' \u3000'))
     wt = disp_width(t.strip(' \u3000'))
@@ -2503,7 +2545,11 @@ def translate_lines_mixed(flagged_segs, work_r18=None, low_r18=False, base=None)
         _rule_names = set()
     fail_log = []      # (num, reason) → AA_MIXED_DEBUG
     leftovers = []     # (num, si, 原因, 是否真台词, 原文片段)
+    # 2026-10-20 取证计数器：用于判断「漏内容」是否由"超宽→精简重试"诱发
+    #   （见 doc/方案归档/段级漏内容根因与预防方案_2026-10-20.md §四）
+    _stat = {"lines": len(pending), "rounds": 0, "overwide_tail": 0, "line_revert": 0}
     for round_ in range(3):
+        _stat["rounds"] = round_ + 1
         if not pending:
             break
         jobs, hint = [], ''
@@ -2548,7 +2594,8 @@ def translate_lines_mixed(flagged_segs, work_r18=None, low_r18=False, base=None)
                 orig_seg = line[sg['start']:sg['end']]
                 verdict, why, h = _mixed_seg_verdict(res.get((num, si)), orig_seg,
                                                      bool(sg.get("rule")), _rule_names,
-                                                     min_ratio, flag_ratio)
+                                                     min_ratio, flag_ratio,
+                                                     is_tail=_seg_is_tail(segs, si))
                 if verdict == 'ok':
                     trans[si] = res[(num, si)]
                 elif verdict == 'keep':
@@ -2557,7 +2604,9 @@ def translate_lines_mixed(flagged_segs, work_r18=None, low_r18=False, base=None)
                         leftovers.append((num, si, 'art_keep', False, orig_seg))
                 elif verdict == 'flag':
                     trans[si] = res[(num, si)]
-                    flags.append((si, orig_seg))
+                    flags.append((si, orig_seg, why))
+                    if why == 'overwide_tail':
+                        _stat["overwide_tail"] += 1
                 else:
                     retry.append(si)
                     hint2 = hint2 or h
@@ -2588,8 +2637,9 @@ def translate_lines_mixed(flagged_segs, work_r18=None, low_r18=False, base=None)
                         break
             if cand is not None and not retry:
                 fixed[num] = cand
-                for si, orig_seg in flags:
-                    leftovers.append((num, si, 'shrink_flag', _mixed_seg_evidence(orig_seg), orig_seg))
+                for si, orig_seg, _why in flags:
+                    leftovers.append((num, si, _why or 'shrink_flag',
+                                      _mixed_seg_evidence(orig_seg), orig_seg))
                 continue
             if round_ >= 2 and partial:
                 # ④ 末轮接受部分成功：仍不合格的段退原文，整行照常产出
@@ -2598,14 +2648,16 @@ def translate_lines_mixed(flagged_segs, work_r18=None, low_r18=False, base=None)
                     keep2[si] = True
                 cand2 = _mixed_assemble(line, segs, trans, keep2)
                 if cand2 is None:      # 极端兜底：整行退回原文（至少行宽/art 与原文一致）
+                    _stat["line_revert"] += 1
                     cand2 = _mixed_assemble(line, segs, {}, {si: True for si in range(len(segs))})
                 if cand2 is not None:
                     fixed[num] = cand2
                     for si in retry:
                         orig_seg = line[segs[si]['start']:segs[si]['end']]
                         leftovers.append((num, si, 'revert', _mixed_seg_evidence(orig_seg), orig_seg))
-                    for si, orig_seg in flags:
-                        leftovers.append((num, si, 'shrink_flag', _mixed_seg_evidence(orig_seg), orig_seg))
+                    for si, orig_seg, _why in flags:
+                        leftovers.append((num, si, _why or 'shrink_flag',
+                                          _mixed_seg_evidence(orig_seg), orig_seg))
                     continue
             st["todo"] = retry
             st["hint"] = hint2
@@ -2625,6 +2677,12 @@ def translate_lines_mixed(flagged_segs, work_r18=None, low_r18=False, base=None)
         for num in sorted(bad):
             if num not in missed:
                 missed.append(num)
+    _n_wide = sum(1 for _n, _r in fail_log if _r == 'seg_wide')
+    _n_keep = sum(1 for _r in leftovers if _r[2] in ('revert', 'fit'))
+    if _n_wide or _stat["overwide_tail"] or _n_keep or _stat["line_revert"]:
+        print("[mixed] 行 %d | 轮次 %d | 超宽拒 %d | 末尾超宽接受 %d | 段退原文 %d | 整行回退 %d"
+              % (_stat["lines"], _stat["rounds"], _n_wide, _stat["overwide_tail"],
+                 _n_keep, _stat["line_revert"]), flush=True)
     dbg = os.environ.get("AA_MIXED_DEBUG")
     if dbg:
         try:

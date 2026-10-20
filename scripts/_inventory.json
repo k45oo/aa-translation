@@ -8133,36 +8133,6 @@
    "has_main_guard": false,
    "docstring": "L1 解析器回归测试：5 站点 extract() 对真实 raw 字节级对比现有 aa 语料（黄金样本）。"
   },
-  "scripts/tests/test_favorites.py": {
-   "path": "scripts/tests/test_favorites.py",
-   "grade": "test",
-   "cli": "no-cli",
-   "argparse": [],
-   "env_vars": [],
-   "refs": {
-    "imports": [
-     "aa_web_app",
-     "fastapi",
-     "json",
-     "os",
-     "shutil",
-     "tempfile",
-     "unittest"
-    ],
-    "subprocess": [
-     "chapters.py"
-    ],
-    "referenced_by": [],
-    "webapp": [],
-    "docs": []
-   },
-   "dup_of": null,
-   "hardcoded_path": false,
-   "top_consts": [],
-   "dup_functions": [],
-   "has_main_guard": true,
-   "docstring": "章收藏（2026-10-17）：存盘 helper + 收藏/取消收藏路由 + 阅读页接线。"
-  },
   "scripts/tests/test_fix_lead_kanji.py": {
    "path": "scripts/tests/test_fix_lead_kanji.py",
    "grade": "test",
@@ -8610,6 +8580,32 @@
    "dup_functions": [],
    "has_main_guard": true,
    "docstring": "P0 段级翻译测试（2026-08-18 代码改进测试升级）。"
+  },
+  "scripts/tests/test_mixed_tail_overwidth.py": {
+   "path": "scripts/tests/test_mixed_tail_overwidth.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_art_kana",
+     "aa_translate",
+     "os",
+     "sys",
+     "unittest"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "段级「漏内容」预防的两条守卫（2026-10-20，方案 doc/方案归档/段级漏内容根因与预防方案_2026-10-20.md）："
   },
   "scripts/tests/test_model_choice.py": {
    "path": "scripts/tests/test_model_choice.py",

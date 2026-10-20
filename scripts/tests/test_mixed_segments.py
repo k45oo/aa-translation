@@ -374,7 +374,10 @@ class TestTranslateLinesMixed(unittest.TestCase):
         finally:
             T.call_api = orig
         self.assertNotIn("区域宽度**固定**", seen[0])
-        self.assertIn("区域宽度**固定**", seen[1])
+        # 2026-10-20: 提示词改成「允许略长、不许删实义成分」（旧文案"可意译/精简"是删实词的来源）
+        self.assertIn("实词", seen[1])
+        self.assertIn("允许译文略长", seen[1])
+        self.assertNotIn("可意译/精简", seen[1])
 
     def test_leftover_dedup_and_skip_without_work_dir(self):
         # 清单按 章|行|段 去重；无工作目录时不落盘（单测/裸调用安全）

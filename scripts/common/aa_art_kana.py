@@ -44,10 +44,16 @@ KANA_RE = re.compile(r'[\u3041-\u309f\u30a0-\u30f6\u30f8-\u30fe\uff66-\uff9f]')
 # （写死黑名单 `ART_KANJI` 只有 100 余字，语料表补上剩下的）。
 KANJI_RE = re.compile(r'[\u4e00-\u9fff]')
 _HIRA_RE = re.compile(r'[\u3041-\u309f]')
+_KATA_RE = re.compile(r'[\u30a0-\u30ff\uff61-\uff9f]')
 # 真台词保护（沿用 2026-10-08 `art_line_veto` 的口径）：句末标点/引号 → 不是艺术
 _PUNCT_RE = re.compile(r'[\u3001\u3002\uff01\uff1f\u2026\u300c\u300d\u300e\u300f\uff08\uff09]')
 # 笑声/喘气类重复，不按"同字重复墙"判艺术（沿用 2026-10-08 art_line_veto 的真台词保护口径）
 _LAUGH = set('ハホフふわいうえおあンッ')
+# 2026-10-20: AA 画笔里的**记号字符**——与艺术假名连用的框线/点缀（`ア＾`/`＾＼`/`｜|`）。
+#   它们不在艺术假名表里，旧规则 ① 要求"全部字符都是艺术假名/借字"→ `ア＾` 漏网，
+#   被当 text 段送模型 → 出现 `ア→啊` 的艺术损伤（entry_22630 L2341）。
+#   只用于「≤3 字纯记号码」这一条，不影响其他判据（标点/引号仍受 _PUNCT_RE 保护）。
+_AA_MARK_CHARS = set("＾^｀'´`｜|／/＼\\＿_‐-―─━＝=～~")
 
 _CACHE = {"path": None, "ratios": {}, "obs": {}, "loaded": False}
 _FORCE_PATH = None
@@ -403,8 +409,16 @@ def seg_is_art(body, table=None):
         return False
     if table is None:
         table = ratios()
-    if len(b) <= 3 and all(is_art_kana(c, table) or is_art_kanji(c, table) for c in b):
-        return True                       # ① ≤3 字纯艺术串（`ア`/`ノ`/`ニニ`）
+    if len(b) <= 3 and all(is_art_kana(c, table) or is_art_kanji(c, table)
+                           or c in _AA_MARK_CHARS for c in b):
+        return True                       # ① ≤3 字纯艺术串（`ア`/`ノ`/`ニニ`/`ア＾`）
+    # ①-bis（2026-10-20）：「艺术假名 + AA 记号」混排的短残片（`ア＾`）——`ア` 不在艺术假名表里
+    #   （它在真片假名词里太常见），纯假名判据必然漏网 → 补一条「带 ≥1 个 AA 记号、无平假名、
+    #   无汉字、≤3 字」判艺术。真台词（`えっ？`/`ありがとう`/含引号标点）都不满足。
+    if (len(b) <= 3 and any(c in _AA_MARK_CHARS for c in b)
+            and not _HIRA_RE.search(b) and not KANJI_RE.search(b)
+            and len(_KATA_RE.findall(b)) <= 1):
+        return True
     if len(b) < 2 or _disp(b) < 4:
         return False
     if len(_prod_hira_re().findall(b)) >= 2:
