@@ -226,6 +226,7 @@ def reset_cache():
     """测试/换作品用：清缓存。"""
     _CACHE.update({"path": None, "ratios": {}, "obs": {}, "loaded": False})
     _PATH_CACHE.update({"key": None, "path": ""})
+    _FRAG_CACHE.update({"path": None, "frags": {}, "loaded": False, "key": None})
 
 
 def set_table_path(path):
@@ -635,6 +636,220 @@ def row_all_art(line, segs, table=None):
     return all(seg_is_art_ctx(line, segs, si, table) for si in texts)
 
 
+# ---------------------------------------------------------------------------
+# 丙：作品级「艺术片段表」（2026-10-21）
+#
+# 甲/乙 走结构（画密 + 邻段 + 长度），但**同一幅画的固定笔画串**它们有时够不到
+# （邻段被 meta 切成 text、行里有真台词、段长 5 字…）。丙补这一层：
+#   表 `work/art_frag_<work>.json`，key = **去空白的短片段**（2~6 字，纯 kana）
+#   数据源 = ① `edits.jsonl` 里「中文字→假名」的还原 span（用户亲口说这是画 = 真值）
+#            ② 语料：整行产物==原文的行里出现的短段（art 计数，弱证据）
+#   命中即本地照抄（不送模型）。表缺失/未命中 → 判据退回甲/乙，行为不变。
+# 只按**作品**生效（不同作品各有各的画法），CLI：`tools/calibrate_art_frag.py --work <id>`。
+FRAG_MIN_LEN = 2
+FRAG_MAX_LEN = 6
+FRAG_MIN_ART = 3          # 语料弱证据：整行未动行里至少出现 3 次才进表
+FRAG_RATIO_MIN = 0.5      # 且 art/(art+lost) ≥ 0.5
+# 常用日语词（真台词）——哪怕语料里恰好常出现在画里也不能拦（实测 `これ`/`には`/`うーん` 误伤）
+_FRAG_STOP = frozenset([
+    "これ", "それ", "あれ", "どれ", "ここ", "そこ", "どこ", "には", "では", "ので", "から",
+    "まで", "より", "など", "って", "です", "ます", "うん", "ええ", "はい", "いい", "そう",
+    "どう", "ある", "いる", "こと", "もの", "とき", "ため", "でも", "しか", "ほど", "まま",
+    "よう", "らしい", "ください", "ません", "でした", "じゃ", "あと", "いま", "また",
+])
+_FRAG_CACHE = {"path": None, "frags": {}, "loaded": False}
+
+
+def frag_enabled():
+    """丙「艺术片段表」开关（`AA_ART_FRAG=0` 关）。"""
+    return _envflag("AA_ART_FRAG", default=True)
+
+
+def frag_path(work="", work_dir=""):
+    """表文件：`AA_ART_FRAG_FILE` > `<work_dir>/art_frag_<work>.json` > ""。"""
+    p = os.environ.get("AA_ART_FRAG_FILE")
+    if p and os.path.exists(p):
+        return p
+    if work_dir:
+        base = work or _work_id_of(work_dir)
+        if base:
+            cand = os.path.join(work_dir, "art_frag_%s.json" % base)
+            if os.path.exists(cand):
+                return cand
+    return ""
+
+
+def edits_path(work_dir):
+    return os.path.join(work_dir, "edits.jsonl") if work_dir else ""
+
+
+def restore_spans_from_edits(path):
+    """从 `edits.jsonl` 取「中文字 → 假名」的还原 span（用户亲手改回原文 = 画）→ [片段文本]。"""
+    if not path or not os.path.exists(path):
+        return []
+    import difflib
+    cjk = re.compile("[一-鿿]")
+    out = []
+    try:
+        with io.open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                before, after = r.get("before") or "", r.get("after") or ""
+                if not before or not after:
+                    continue
+                for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(
+                        None, before, after, autojunk=False).get_opcodes():
+                    if tag == "equal":
+                        continue
+                    old, new = before[i1:i2], after[j1:j2]
+                    if cjk.search(old) and not cjk.search(new) and KANA_RE.search(new):
+                        out.append(new)
+    except Exception:
+        return out
+    return out
+
+
+def frag_auto_refresh():
+    """`AA_ART_FRAG_AUTO=0` 关「用 edits.jsonl 现挖补表」（默认开）。"""
+    return _envflag("AA_ART_FRAG_AUTO", default=True)
+
+
+def frags(work="", work_dir="", path=None):
+    """艺术片段表 {frag: {src, edits, art, lost, kept}}（带缓存）。缺表 → {}。
+
+    自更新（2026-10-21）：`work/edits.jsonl` 比表新时，把里面「中文字→假名」的还原 span
+    现挖补进表（零 API、毫秒级）——用户每修一处艺术损伤，下一章就不会再犯。
+    `AA_ART_FRAG_AUTO=0` 关。
+    """
+    p = path or frag_path(work=work, work_dir=work_dir)
+    ep = edits_path(work_dir)
+    emt = os.path.getmtime(ep) if (ep and os.path.exists(ep) and frag_auto_refresh()) else 0
+    ck = (p, emt)
+    if _FRAG_CACHE["loaded"] and _FRAG_CACHE.get("key") == ck:
+        return _FRAG_CACHE["frags"]
+    data = {}
+    if p:
+        try:
+            with io.open(p, encoding="utf-8") as f:
+                raw = json.load(f)
+            data = dict(raw.get("frags") or {})
+        except Exception:
+            data = {}
+    if emt:
+        fresh = mine_frags([], restore_spans_from_edits(ep))
+        for k, v in fresh.items():
+            if k not in data:
+                data[k] = v
+    _FRAG_CACHE.update({"path": p, "frags": data, "loaded": True, "key": ck})
+    return data
+
+
+def reset_frag_cache():
+    _FRAG_CACHE.update({"path": None, "frags": {}, "loaded": False, "key": None})
+
+
+def _frag_norm(b):
+    return "".join((b or "").split())
+
+
+def frag_shape_ok(text):
+    """片段/段是否"像一个纯 kana 的短笔画"（挖掘与命中两侧共用同一口径）。"""
+    b = (text or "").strip()
+    nb = _frag_norm(b)
+    if not (FRAG_MIN_LEN <= len(nb) <= FRAG_MAX_LEN):
+        return False
+    if not KANA_RE.search(nb):
+        return False
+    if _SEG_PUNCT_RE.search(b) or _SEG_DIGIT_RE.search(b) or _SEG_ASCII2_RE.search(b):
+        return False
+    if KANA_RE.sub("", nb):            # 除假名外还有别的字符（汉字/记号）→ 不是纯 kana 片段
+        return False
+    return True
+
+
+def seg_frag_art(body, frag_table=None, line=None, segs=None):
+    """丙：段是否命中作品的艺术片段表（命中 → 是画）。"""
+    if not frag_enabled():
+        return False
+    b = (body or "").strip()
+    nb = _frag_norm(b)
+    if not (FRAG_MIN_LEN <= len(nb) <= FRAG_MAX_LEN):
+        return False
+    if not KANA_RE.search(nb):
+        return False
+    if _SEG_PUNCT_RE.search(b) or _SEG_DIGIT_RE.search(b) or _SEG_ASCII2_RE.search(b):
+        return False
+    if frag_table is None:
+        frag_table = frags()
+    if not frag_table:
+        return False
+    if real_kanji(b):
+        return False
+    if segs is not None and not any(sg.get("kind") == "art" for sg in segs):
+        return False             # 行里没有 art 段 = 不是画行，丙不表态
+    hit = None
+    if nb in frag_table:
+        hit = nb
+    else:
+        for f in frag_table:
+            if len(f) >= 3 and f in nb:      # 短片段被包在更长段里（`ィぅて芹` ⊃ `ィぅて`）
+                hit = f
+                break
+    if not hit or hit in _FRAG_STOP or nb in _FRAG_STOP:
+        return False
+    return True
+
+
+def mine_frags(rows, edits_texts=(), min_art=FRAG_MIN_ART, ratio_min=FRAG_RATIO_MIN):
+    """挖艺术片段表。`rows` = [(src_line, tr_line, segs_or_None)]；`edits_texts` = 用户还原的片段。
+
+    返回 {frag: {"src": "edits"/"corpus"/"both", "edits": n, "art": n, "lost": n, "kept": n}}。
+    口径：edits 命中（真值）直接进表；语料侧要 art ≥ min_art 且 art/(art+lost) ≥ ratio_min。
+    """
+    out = {}
+    for t in edits_texts:
+        if not frag_shape_ok(t):
+            continue
+        nb = _frag_norm(t)
+        rec = out.setdefault(nb, {"src": "", "edits": 0, "art": 0, "lost": 0, "kept": 0})
+        rec["edits"] += 1
+    for src, tr, segs in rows:
+        if not segs:
+            continue
+        for sg in segs:
+            if sg.get("kind") != "text":
+                continue
+            raw = src[sg.get("start", 0):sg.get("end", 0)]
+            if not frag_shape_ok(raw):
+                continue
+            nb = _frag_norm(raw)
+            rec = out.setdefault(nb, {"src": "", "edits": 0, "art": 0, "lost": 0, "kept": 0})
+            if src == tr:
+                rec["art"] += 1
+            elif nb in tr:
+                rec["kept"] += 1
+            else:
+                rec["lost"] += 1
+    keep = {}
+    for frag, rec in out.items():
+        if frag in _FRAG_STOP:
+            continue
+        a, l = rec["art"], rec["lost"]
+        corpus_ok = a >= min_art and (a / float(a + l) >= ratio_min if (a + l) else False)
+        edits_ok = rec["edits"] > 0
+        if not (corpus_ok or edits_ok):
+            continue
+        rec["src"] = "both" if (corpus_ok and edits_ok) else ("edits" if edits_ok else "corpus")
+        keep[frag] = rec
+    return keep
+
+
 def line_is_art(line, table=None):
     """甲-lite：**没有 segments 的行**整行就是画（2026-10-21）。
 
@@ -665,8 +880,46 @@ def line_is_art(line, table=None):
     return True
 
 
-def seg_is_art_ctx(line, segs, si, table=None):
-    """Rule A ∪ 乙（带行/邻段上下文的选段判据）——主链/校对共用入口。"""
+def line_frag_art(line, frag_table=None):
+    """丙-行级：整行的**每个假名都落在艺术片段表的匹配区间里** → 整行是画。
+
+    比"任意命中"严得多：台词行里的助词/活用一定是表外假名 → 不会命中。专治
+    `ﾉﾉ斗ぅて` / `ﾐｬｯネ` / `ニム` 这类**没有 meta 段**的整行协议行（甲/乙 够不到，
+    模型会把整行重写）。实测（本作 LOCO 留一章）：拦 53 行、覆盖 16/108 损伤行，
+    被拦的非损伤行全是尚未修的同款损伤（`喵`/`呜`/`战斗`），零真台词误伤。
+    """
+    if not frag_enabled() or not line:
+        return False
+    if _SYS_MARK_RE.search(line) or _SEG_PUNCT_RE.search(line) or _SEG_DIGIT_RE.search(line):
+        return False
+    body = [c for c in line if not c.isspace()]
+    if not body:
+        return False
+    aset = art_charset()
+    art = sum(1 for c in body if c in aset)
+    if art < max(6, len(body) * ROW_DENSE_RATIO):
+        return False
+    kana_pos = [i for i, c in enumerate(line) if KANA_RE.match(c)]
+    if not kana_pos:
+        return False
+    if frag_table is None:
+        frag_table = frags()
+    if not frag_table:
+        return False
+    covered = set()
+    have = set(line)
+    for frag in frag_table:
+        if len(frag) < FRAG_MIN_LEN or frag in _FRAG_STOP or frag[0] not in have:
+            continue                      # 首字符不在行内 → 必然不命中（省 28×find/行）
+        start = line.find(frag)
+        while start >= 0:
+            covered.update(range(start, start + len(frag)))
+            start = line.find(frag, start + 1)
+    return all(i in covered for i in kana_pos)
+
+
+def seg_is_art_ctx(line, segs, si, table=None, frag_table=None):
+    """Rule A ∪ 乙（短 kana 片段）∪ 丙（作品片段表）——主链/校对共用入口。"""
     if not segs or si < 0 or si >= len(segs):
         return False
     if table is None:
@@ -675,7 +928,9 @@ def seg_is_art_ctx(line, segs, si, table=None):
     body = (line or "")[sg.get("start", 0):sg.get("end", 0)]
     if seg_is_art(body, table):
         return True
-    return seg_short_art(body, table, line=line, segs=segs, si=si)
+    if seg_short_art(body, table, line=line, segs=segs, si=si):
+        return True
+    return seg_frag_art(body, frag_table, line=line, segs=segs)
 
 
 def art_keep_violation(src, cand, table=None):

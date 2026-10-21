@@ -1,12 +1,12 @@
 {
  "generated_at": null,
  "stats": {
-  "total": 343,
+  "total": 352,
   "legacy": 108,
   "core": 80,
-  "tool": 67,
-  "deprecated_candidate": 0,
-  "test": 88,
+  "tool": 68,
+  "deprecated_candidate": 1,
+  "test": 95,
   "hardcoded": 32,
   "top_consts": 49,
   "dup_function_counts": {
@@ -186,6 +186,7 @@
      "fix.fix_lead_kanji_miss",
      "fix.fix_mixed_drift",
      "fix.fix_num_split",
+     "fix.fix_pad_art_shift",
      "fix.refine_aa",
      "fix.refix_mixed_segs",
      "fix.retranslate_lines",
@@ -247,6 +248,7 @@
      "runner.refine_runner",
      "runner.translate_runner",
      "tests.test_anchor",
+     "tests.test_art_frag",
      "tests.test_art_kana",
      "tests.test_art_veto",
      "tests.test_audit_alignment",
@@ -254,7 +256,9 @@
      "tests.test_endpoint_pin",
      "tests.test_fix_lead_kanji",
      "tests.test_fix_num_split",
+     "tests.test_fix_pad_art_shift",
      "tests.test_line_meta",
+     "tests.test_line_retranslate",
      "tests.test_manual_fix",
      "tests.test_mixed_seg_rule",
      "tests.test_mixed_segments",
@@ -531,17 +535,20 @@
    "cli": "no-cli",
    "argparse": [],
    "env_vars": [
+    "AA_ART_FRAG_FILE",
     "AA_ART_KANA",
     "AA_ART_KANA_KANJI_RATIO",
     "AA_ART_KANA_KEEP_RATIO",
     "AA_ART_KANA_MIN_OBS",
     "AA_ART_KANA_OVERRIDE_OBS",
     "AA_ART_KANA_OVERRIDE_RATIO",
-    "AA_ART_KANA_RATIO"
+    "AA_ART_KANA_RATIO",
+    "AA_ART_SHORTSEG_KANJI"
    ],
    "refs": {
     "imports": [
      "aa_translate",
+     "difflib",
      "io",
      "json",
      "os",
@@ -550,8 +557,10 @@
     "subprocess": [],
     "referenced_by": [
      "aa_translate",
+     "tests.test_art_frag",
      "tests.test_art_kana",
      "tests.test_mixed_tail_overwidth",
+     "tools.calibrate_art_frag",
      "tools.calibrate_art_kana",
      "tools.line_classify_v2"
     ],
@@ -627,7 +636,9 @@
      "aa_translate",
      "benchmark.eval_translation",
      "common.gen_chapter_summaries",
+     "common.gen_glossary_ai",
      "common.pokemon_fixed",
+     "common.screen_term_pool",
      "common.term_web_verify",
      "fix.backfill_aa_comments",
      "fix.refine_aa",
@@ -702,6 +713,7 @@
      "common.scan_width",
      "fix.fix_delivered_terms",
      "fix.fix_mixed_drift",
+     "fix.fix_pad_art_shift",
      "fix.refine_aa",
      "fix.retranslate_lines",
      "legacy.analyze_mismatch",
@@ -711,13 +723,16 @@
      "legacy.proofread",
      "legacy.refill_manual_saki_v2",
      "legacy.scan_width_fc2",
+     "sites.yaruobook",
      "tests.test_aa_common",
      "tests.test_backup_prune",
      "tests.test_pad_norm",
      "tests.test_pipeline",
+     "tests.test_site_yaruobook",
      "tests.test_thin_shell",
      "tests.test_txt_gz",
      "tools.aa_to_images",
+     "tools.calibrate_art_frag",
      "tools.calibrate_art_kana",
      "tools.fix_hankaku_fast",
      "tools.fix_hankaku_segs",
@@ -792,6 +807,7 @@
      "runner.translate_runner",
      "tests.test_aa_env",
      "tests.test_endpoint_pin",
+     "tests.test_line_retranslate",
      "tests.test_model_choice",
      "tests.test_opencode_go",
      "tests.test_prompt_prefix",
@@ -1434,6 +1450,7 @@
      "common.gen_chapter_summaries",
      "common.gen_glossary_ai",
      "runner.refine_runner",
+     "tests.test_dialogue_compressed",
      "tools.build_release"
     ],
     "webapp": [],
@@ -1532,6 +1549,7 @@
      "tests.test_gen_html",
      "tests.test_gen_html_plain",
      "tests.test_sfx_marks",
+     "tests.test_site_yaruobook",
      "tools.freeze_delivery_golden",
      "tools.gen_needs_render",
      "tools.gen_pre_terms_render"
@@ -1669,10 +1687,13 @@
     "--top",
     "--work"
    ],
-   "env_vars": [],
+   "env_vars": [
+    "AA_R18"
+   ],
    "refs": {
     "imports": [
      "aa_api",
+     "aa_backend",
      "aa_common",
      "argparse",
      "build_term_pool",
@@ -2032,6 +2053,7 @@
      "fix.fix_delivered_terms",
      "fix.refine_aa",
      "tests.test_pad_norm",
+     "tests.test_pokemon_fixed",
      "tests.test_pre_terms",
      "tests.test_refine_batch_guard",
      "tools.gen_needs_render",
@@ -2255,6 +2277,7 @@
    "refs": {
     "imports": [
      "aa_api",
+     "aa_backend",
      "argparse",
      "collections",
      "json",
@@ -2406,6 +2429,8 @@
      "common.pre_terms",
      "fix.refine_aa",
      "runner.translate_runner",
+     "tests.test_line_retranslate",
+     "tests.test_task_manager",
      "tests.test_work_pipeline",
      "works.pokemon_runner"
     ],
@@ -2577,12 +2602,14 @@
    "cli": [
     "--apply",
     "--no-todo",
+    "--rules",
     "--todo",
     "--work"
    ],
    "argparse": [
     "--apply",
     "--no-todo",
+    "--rules",
     "--todo",
     "--work"
    ],
@@ -2741,6 +2768,50 @@
    "has_main_guard": true,
    "docstring": "fix_num_split: 回修「数字记号被切坏」的已交付行（零 API，机械修）。"
   },
+  "scripts/fix/fix_pad_art_shift.py": {
+   "path": "scripts/fix/fix_pad_art_shift.py",
+   "grade": "deprecated_candidate",
+   "cli": [
+    "--all-works",
+    "--apply",
+    "--base",
+    "--eids",
+    "--limit",
+    "--work"
+   ],
+   "argparse": [
+    "--all-works",
+    "--apply",
+    "--base",
+    "--eids",
+    "--limit",
+    "--work"
+   ],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_common",
+     "aa_translate",
+     "argparse",
+     "json",
+     "os",
+     "registry",
+     "shutil",
+     "sys",
+     "time"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "fix_pad_art_shift: 修「补位位置规范化」在**艺术行**上误伤导致的错位（零 API）。"
+  },
   "scripts/fix/refine_aa.py": {
    "path": "scripts/fix/refine_aa.py",
    "grade": "core",
@@ -2792,6 +2863,7 @@
     "subprocess": [],
     "referenced_by": [
      "legacy.batch_fill_missed",
+     "tests.test_art_kana",
      "tests.test_mixed_tail_overwidth",
      "tests.test_opencode_go",
      "tests.test_pre_terms",
@@ -3062,6 +3134,7 @@
      "fix.fix_lead_kanji_miss",
      "fix.fix_mixed_drift",
      "fix.fix_num_split",
+     "fix.fix_pad_art_shift",
      "fix.refine_aa",
      "fix.refix_mixed_segs",
      "fix.retranslate_lines",
@@ -3122,13 +3195,16 @@
      "legacy.translate_yaruobook",
      "runner.refine_runner",
      "tests.test_anchor",
+     "tests.test_art_frag",
      "tests.test_art_kana",
      "tests.test_art_veto",
      "tests.test_audit_alignment",
      "tests.test_backup_prune",
      "tests.test_fix_lead_kanji",
      "tests.test_fix_num_split",
+     "tests.test_fix_pad_art_shift",
      "tests.test_line_meta",
+     "tests.test_line_retranslate",
      "tests.test_manual_fix",
      "tests.test_mixed_seg_rule",
      "tests.test_mixed_segments",
@@ -6531,7 +6607,9 @@
      "dl_touhou.py",
      "extract_all.py"
     ],
-    "referenced_by": [],
+    "referenced_by": [
+     "tests.test_runner_entries"
+    ],
     "webapp": [
      "aa_web_app/task_manager.py"
     ],
@@ -7217,6 +7295,8 @@
    "refs": {
     "imports": [
      "_base",
+     "aa_common",
+     "html",
      "json",
      "os",
      "re",
@@ -7224,7 +7304,9 @@
      "sys"
     ],
     "subprocess": [],
-    "referenced_by": [],
+    "referenced_by": [
+     "tests.test_site_yaruobook"
+    ],
     "webapp": [],
     "docs": [
      "doc/接口文档.md"
@@ -7724,6 +7806,38 @@
    "has_main_guard": true,
    "docstring": "行锚点回显（治「块内串行错位」，2026-10-17）：判据 + 端到端（mock 模型，零 API）。"
   },
+  "scripts/tests/test_art_frag.py": {
+   "path": "scripts/tests/test_art_frag.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_art_kana",
+     "aa_translate",
+     "io",
+     "json",
+     "os",
+     "shutil",
+     "sys",
+     "tempfile",
+     "unittest"
+    ],
+    "subprocess": [
+     "test_art_frag.py"
+    ],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "艺术片段表（丙，2026-10-21）：挖掘 / 命中 / 守卫 / 接线。"
+  },
   "scripts/tests/test_art_kana.py": {
    "path": "scripts/tests/test_art_kana.py",
    "grade": "test",
@@ -7737,6 +7851,7 @@
      "io",
      "json",
      "os",
+     "refine_aa",
      "shutil",
      "sys",
      "tempfile",
@@ -7764,6 +7879,7 @@
    "cli": "no-cli",
    "argparse": [],
    "env_vars": [
+    "AA_ART_ROWSEG",
     "AA_ART_VETO"
    ],
    "refs": {
@@ -7890,7 +8006,6 @@
      "fastapi",
      "json",
      "os",
-     "re",
      "shutil",
      "sys",
      "task_manager",
@@ -7973,6 +8088,35 @@
    "has_main_guard": true,
    "docstring": "候选确认 API 测试：列表排序 / 确认 / 删除 / 待确认区清理联动。"
   },
+  "scripts/tests/test_chapter_order_move.py": {
+   "path": "scripts/tests/test_chapter_order_move.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_web_app",
+     "fastapi",
+     "json",
+     "os",
+     "shutil",
+     "sys",
+     "tempfile",
+     "unittest"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "目录拖拽排序（2026-10-19）：纯重排函数 + logic.move_chapter 落盘 + 路由。"
+  },
   "scripts/tests/test_chapter_prep.py": {
    "path": "scripts/tests/test_chapter_prep.py",
    "grade": "test",
@@ -8034,6 +8178,35 @@
    "dup_functions": [],
    "has_main_guard": true,
    "docstring": "章节简介生成的作品术语表注入测试：gen_chapter_summaries._work_glossary_names。"
+  },
+  "scripts/tests/test_dialogue_compressed.py": {
+   "path": "scripts/tests/test_dialogue_compressed.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "extract_dialogue",
+     "gzip",
+     "json",
+     "os",
+     "shutil",
+     "sys",
+     "tempfile",
+     "unittest"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "台词提取的压缩感知（.txt.gz / line_meta_v2/*.json.gz）回归测试（2026-10-20）。"
   },
   "scripts/tests/test_edit_server.py": {
    "path": "scripts/tests/test_edit_server.py",
@@ -8160,6 +8333,36 @@
    "has_main_guard": false,
    "docstring": "L1 解析器回归测试：5 站点 extract() 对真实 raw 字节级对比现有 aa 语料（黄金样本）。"
   },
+  "scripts/tests/test_favorites.py": {
+   "path": "scripts/tests/test_favorites.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_web_app",
+     "fastapi",
+     "json",
+     "os",
+     "shutil",
+     "tempfile",
+     "unittest"
+    ],
+    "subprocess": [
+     "chapters.py"
+    ],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "章收藏（2026-10-17）：存盘 helper + 收藏/取消收藏路由 + 阅读页接线。"
+  },
   "scripts/tests/test_fix_lead_kanji.py": {
    "path": "scripts/tests/test_fix_lead_kanji.py",
    "grade": "test",
@@ -8216,6 +8419,35 @@
    "dup_functions": [],
    "has_main_guard": true,
    "docstring": "fix_num_split：回修「数字记号被切坏」的已交付行（2026-10-17，零 API）。"
+  },
+  "scripts/tests/test_fix_pad_art_shift.py": {
+   "path": "scripts/tests/test_fix_pad_art_shift.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_translate",
+     "fix",
+     "json",
+     "os",
+     "shutil",
+     "sys",
+     "tempfile",
+     "unittest"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "fix_pad_art_shift：修「补位位置规范化」在艺术行上造成的错位（2026-10-19 entry_48695 事故）。"
   },
   "scripts/tests/test_gen_html.py": {
    "path": "scripts/tests/test_gen_html.py",
@@ -8284,7 +8516,9 @@
     "subprocess": [],
     "referenced_by": [],
     "webapp": [],
-    "docs": []
+    "docs": [
+     "AGENTS.md"
+    ]
    },
    "dup_of": null,
    "hardcoded_path": false,
@@ -8446,6 +8680,39 @@
    "dup_functions": [],
    "has_main_guard": true,
    "docstring": "M4a line_meta 接入单元测试。零依赖 unittest。\n运行：cd scripts/tests && python -m unittest test_line_meta -v"
+  },
+  "scripts/tests/test_line_retranslate.py": {
+   "path": "scripts/tests/test_line_retranslate.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [
+    "AA_BACKEND"
+   ],
+   "refs": {
+    "imports": [
+     "aa_config",
+     "aa_translate",
+     "aa_web_app",
+     "json",
+     "os",
+     "shutil",
+     "sys",
+     "tempfile",
+     "unittest",
+     "work_pipeline"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "阅读器「行重译」（Shift+右键行号）—— 判据层，不花 API。"
   },
   "scripts/tests/test_manual_fix.py": {
    "path": "scripts/tests/test_manual_fix.py",
@@ -8725,6 +8992,7 @@
      "aa_translate",
      "os",
      "pre_terms",
+     "re",
      "sys",
      "unittest"
     ],
@@ -8815,6 +9083,7 @@
      "json",
      "os",
      "pokemon_fixed",
+     "pre_terms",
      "re",
      "shutil",
      "sys",
@@ -9325,6 +9594,7 @@
    "env_vars": [],
    "refs": {
     "imports": [
+     "dl_runner",
      "json",
      "os",
      "shutil",
@@ -9613,6 +9883,33 @@
    "has_main_guard": true,
    "docstring": "sfx 样式（半角假名拟声词译文特效）标记测试（2026-09-15）。"
   },
+  "scripts/tests/test_site_yaruobook.py": {
+   "path": "scripts/tests/test_site_yaruobook.py",
+   "grade": "test",
+   "cli": "no-cli",
+   "argparse": [],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_common",
+     "gen_aa_html",
+     "os",
+     "sys",
+     "unittest",
+     "yaruobook"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "yaruobook 解析器：正文红字片段 → colormap 片段着色（2026-10-21）。"
+  },
   "scripts/tests/test_snapshot_invalidation.py": {
    "path": "scripts/tests/test_snapshot_invalidation.py",
    "grade": "test",
@@ -9650,6 +9947,7 @@
    "cli": "no-cli",
    "argparse": [],
    "env_vars": [
+    "AA_BACKEND",
     "AA_ENV",
     "AA_ENV_PATH"
    ],
@@ -9724,7 +10022,8 @@
      "tempfile",
      "time",
      "types",
-     "unittest"
+     "unittest",
+     "work_pipeline"
     ],
     "subprocess": [
      "_fake_runner.py",
@@ -10666,6 +10965,57 @@
    "dup_functions": [],
    "has_main_guard": true,
    "docstring": "把工作台打包成 **单文件 exe**（PyInstaller）→ `scripts/tools/dist/AA工作台.exe`。"
+  },
+  "scripts/tools/calibrate_art_frag.py": {
+   "path": "scripts/tools/calibrate_art_frag.py",
+   "grade": "tool",
+   "cli": [
+    "--dir",
+    "--from-edits-only",
+    "--min-art",
+    "--no-write",
+    "--ratio",
+    "--report",
+    "--top",
+    "--work"
+   ],
+   "argparse": [
+    "--dir",
+    "--from-edits-only",
+    "--min-art",
+    "--no-write",
+    "--ratio",
+    "--report",
+    "--top",
+    "--work"
+   ],
+   "env_vars": [],
+   "refs": {
+    "imports": [
+     "aa_art_kana",
+     "aa_common",
+     "argparse",
+     "difflib",
+     "gzip",
+     "io",
+     "json",
+     "os",
+     "re",
+     "registry",
+     "sys",
+     "time"
+    ],
+    "subprocess": [],
+    "referenced_by": [],
+    "webapp": [],
+    "docs": []
+   },
+   "dup_of": null,
+   "hardcoded_path": false,
+   "top_consts": [],
+   "dup_functions": [],
+   "has_main_guard": true,
+   "docstring": "艺术**片段表**标定 CLI（丙，零 API）——实现见 `scripts/common/aa_art_kana.py`。"
   },
   "scripts/tools/calibrate_art_kana.py": {
    "path": "scripts/tools/calibrate_art_kana.py",
@@ -12210,7 +12560,10 @@
     "subprocess": [],
     "referenced_by": [],
     "webapp": [],
-    "docs": []
+    "docs": [
+     "doc/接口文档.md",
+     "doc/方案归档/段级漏内容预防_实测对比_2026-10-20.md"
+    ]
    },
    "dup_of": null,
    "hardcoded_path": false,
@@ -12294,6 +12647,7 @@
     "referenced_by": [],
     "webapp": [],
     "docs": [
+     "AGENTS.md",
      "doc/同步记录.md",
      "doc/图片版归档/01_嵌字方案与实验/图片版字体加大_行分类override_设计方案_2026-08-13.md",
      "doc/接口文档.md",
@@ -12992,6 +13346,7 @@
      "fix.fix_lead_kanji_miss",
      "fix.fix_mixed_drift",
      "fix.fix_num_split",
+     "fix.fix_pad_art_shift",
      "fix.refine_aa",
      "fix.refix_mixed_segs",
      "fix.retranslate_lines",
@@ -13022,6 +13377,7 @@
      "tools.aa_to_cbz",
      "tools.aa_to_images",
      "tools.ab_refine_verify",
+     "tools.calibrate_art_frag",
      "tools.calibrate_art_kana",
      "tools.check_registry",
      "tools.compress_text_pkg",

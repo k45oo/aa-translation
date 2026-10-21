@@ -1198,6 +1198,10 @@ def is_translatable(idx, line, meta):
     #   译成「喵哈哈」（实测本作 153 行纯笔画行会进模型，无一例真台词）。
     if line_is_art(line):
         return False
+    # 2026-10-21 丙-行级：整行的假名全被「作品艺术片段表」覆盖（`ﾉﾉ斗ぅて`/`ﾐｬｯネ`/`ニム`）
+    #   → 整行照抄。这类行 meta 没切出段、又含 `八`/`斗` 借字，甲-lite 的"零实义汉字"过不去。
+    if line_frag_art(line):
+        return False
     if meta is not None and idx in meta:
         entry = meta[idx]
         if isinstance(entry, tuple):
@@ -2144,6 +2148,29 @@ def art_kana_tab():
         return {}
 
 
+_FRAG_TAB = {"key": None, "tab": {}}
+
+
+def art_frag_tab():
+    """本作品的艺术片段表（丙；缺表 → {}）。
+
+    进程内按 (WORK_ID, WORK_DIR) 缓存：`aa_art_kana.frags()` 每次调用要 stat 两次表/edits，
+    而 `is_translatable` 是**每行**调用 → 不缓存等于每章多 1 秒。
+    """
+    key = (WORK_ID or "", WORK_DIR or "")
+    if _FRAG_TAB["key"] == key:
+        return _FRAG_TAB["tab"]
+    m = _ak_mod()
+    tab = {}
+    if m is not None:
+        try:
+            tab = m.frags(work=WORK_ID or "", work_dir=WORK_DIR or "")
+        except Exception:
+            tab = {}
+    _FRAG_TAB.update({"key": key, "tab": tab})
+    return tab
+
+
 def seg_is_art(text):
     """该文本片段是否「没有可译内容」（艺术笔画碎片）——Rule A（选段层）。"""
     m = _ak_mod()
@@ -2156,17 +2183,17 @@ def seg_is_art(text):
 
 
 def seg_is_art_ctx(line, segs, si):
-    """段的"是画"判定（Rule A ∪ 乙「短 kana 笔画片段」），带行/邻段上下文。
+    """段的"是画"判定（Rule A ∪ 乙「短 kana 笔画片段」∪ 丙「作品片段表」），带行/邻段上下文。
 
     2026-10-21：同一批人工修正复核发现 Rule A 有三条盲区（③≥2平假名 / ②太短 / ⑦决定性假名），
-    本作用 んう・ぅて・ヒり・ア 当笔画 → 被送模型译成 1~2 个汉字。乙用结构判据补这个缺口，
-    判据与实测见 `aa_art_kana.seg_short_art`。
+    本作用 んう・ぅて・ヒり・ア 当笔画 → 被送模型译成 1~2 个汉字。乙用结构判据补这个缺口、
+    丙用「本作已确认的艺术片段表」补结构够不到的固定笔画串，判据与实测见 `aa_art_kana`。
     """
     m = _ak_mod()
     if m is None or not segs:
         return False
     try:
-        return m.seg_is_art_ctx(line, segs, si, art_kana_tab())
+        return m.seg_is_art_ctx(line, segs, si, art_kana_tab(), art_frag_tab())
     except Exception:
         return False
 
@@ -2206,6 +2233,21 @@ def row_all_art(line, segs):
         return False
     try:
         return m.row_all_art(line, segs, art_kana_tab())
+    except Exception:
+        return False
+
+
+def line_frag_art(line):
+    """丙-行级：整行的假名全被「艺术片段表」覆盖 → 整行是画（2026-10-21）。
+
+    专治 no-meta 的整行协议行（`ﾉﾉ斗ぅて`/`ﾐｬｯネ`/`ニム`）：甲-lite 要求零实义汉字，
+    这些行含 `八`/`斗` 等借字就过不去；丙只看"每个假名都是已确认的笔画串"。
+    """
+    m = _ak_mod()
+    if m is None or not line:
+        return False
+    try:
+        return m.line_frag_art(line, art_frag_tab())
     except Exception:
         return False
 
