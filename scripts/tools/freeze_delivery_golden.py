@@ -123,12 +123,14 @@ def freeze(works, check_only=False):
     data = {"frozen": time.strftime("%Y-%m-%d"),
             "note": "交付页黄金样本哈希清单：每章 <pre class=\"aa\"> 正文（剥 sfx 包装后）的 sha1[:16] 与行数。"
                     "重建/更新：python scripts/tools/freeze_delivery_golden.py（渲染口径真要变时，先确认变更再重建）。",
-            "works": {}, "skipped": {}}
+            "works": {}, "skipped": {}, "removed": {}}
     if os.path.exists(OUT_JSON) and not check_only and not works:
         try:                                          # 保留没重新校验的旧条目
             old = json.load(open(OUT_JSON, encoding="utf-8"))
             data["works"] = old.get("works", {})
             data["skipped"] = old.get("skipped", {})
+            # 已删除作品的留档（2026-10-21）：重建基线时别把"某作品被删"的记录抹掉
+            data["removed"] = old.get("removed", {})
         except Exception:
             pass
     try:
@@ -168,6 +170,7 @@ def freeze(works, check_only=False):
                 "tr_lines": [n for _, n in new],
             }
             data["skipped"].pop(work, None)
+            data["removed"].pop(work, None)      # 作品回来了 → 不再是"已删除"
             print("  ✓ 冻结 %d 章基线（%s）" % (len(new), vs))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

@@ -229,8 +229,19 @@ class TestDeliveryFolder(unittest.TestCase):
             self.skipTest("缺交付页黄金样本清单: fixtures/delivery_golden.json")
         gold = json.load(open(GOLDEN_JSON, encoding="utf-8"))
         self.assertTrue(gold["works"], "黄金样本清单为空")
+        checked, missing = 0, []
         for work, exp in sorted(gold["works"].items()):
-            cfg = registry.WORKS[work]
+            # 作品可能被删除（2026-10-21 起 registry 里查不到 / 数据目录已清）→ 跳过并记原因，
+            # 别用 registry.WORKS[work] 抛 KeyError（那会让整个用例炸掉，看不出是"作品没了"）。
+            try:
+                cfg = registry.get(work)
+            except (SystemExit, KeyError):
+                missing.append(work + "（registry 里已删除）")
+                continue
+            if not os.path.isdir(cfg.get("aa_dir") or ""):
+                missing.append(work + "（数据目录不存在）")
+                continue
+            checked += 1
             orig_out = cfg["html_out"]
             tmp = tempfile.mkdtemp(prefix="hermes-test-gold-")
             try:
@@ -260,6 +271,27 @@ class TestDeliveryFolder(unittest.TestCase):
             finally:
                 cfg["html_out"] = orig_out
                 shutil.rmtree(tmp, ignore_errors=True)
+        if missing:
+            print("[golden] 跳过 %d 部不在 registry/无数据目录的作品：%s"
+                  % (len(missing), "、".join(missing)))
+        self.assertGreater(checked, 0,
+                           "黄金样本清单里的作品一部都跑不了（全部已删除/无数据）：%s" % missing)
+
+    def test_golden_works_registered_or_removed(self):
+        """基线清单里的作品必须"注册在册"或"已登记为删除"——删作品时同步挪进 `removed`。
+
+        2026-10-21：jikan_teishi 等作品从 registry 删除后，`test_tr_matches_golden_hashes`
+        直接 `registry.WORKS[work]` 抛 KeyError（整例炸掉、看不出是"作品没了"）。现在那条用例
+        会跳过缺失作品，这里补一道**清单新鲜度**守卫：漏移的作品在这里点名，并告诉你怎么修。
+        """
+        gold = json.load(open(GOLDEN_JSON, encoding="utf-8"))
+        removed = gold.get("removed") or {}
+        stale = [w for w in gold["works"] if w not in registry.WORKS]
+        self.assertEqual(stale, [],
+                         "基线清单里有已删除作品 %s → 把它们从 works 移到 removed"
+                         "（或恢复 registry 条目）" % stale)
+        dup = [w for w in removed if w in (gold.get("works") or {})]
+        self.assertEqual(dup, [], "removed 与 works 重复登记：%s" % dup)
 
     def test_retired_snapshots_documented(self):
         """退役的旧快照只留档、不断言存在（别再留会失败的存在性断言）。"""
@@ -280,6 +312,43 @@ class TestDeliveryFolder(unittest.TestCase):
         base = os.path.basename(tr_gz[0])[:-len("_汉化.txt.gz")]
         self.assertEqual(_gzip_text(tr_gz[0]),
                          gen_aa_html._read_lines(os.path.join(cfg["out_dir"], base + "_汉化.txt")))
+
+    def test_no_unsubstituted_placeholders(self):
+        """TAIL_JS 的 `__占位符__` 必须被**两条产出路径都**替换干净。
+
+        2026-10-19 事故：2026-10-11 给 TAIL_JS 加 `__OFFSET__/__SELF__/__PLAIN__/__TRONLY__`
+        时只改了 plain 简版路径，交付夹（和 `--one` 单章试读）路径漏了 4 个 → 生成物里
+        `var OFF = __OFFSET__;` 抛 ReferenceError → **整页 JS 死掉**，永远停在「正在载入章节数据…」，
+        而生成命令照样打印「written …」= 又一次「报成功但产物是坏的」。只验生成物能抓到。
+        """
+        pat = re.compile(r"__[A-Z][A-Z_]{2,}__")
+        left = {}
+        for root, _dirs, files in os.walk(self.SHARED):
+            for fn in files:
+                if not fn.endswith((".html", ".js")):
+                    continue
+                s = open(os.path.join(root, fn), encoding="utf-8", errors="replace").read()
+                got = sorted(set(pat.findall(s)))
+                if got:
+                    left[fn] = got
+        self.assertEqual(left, {}, f"交付物里有未替换的占位符（页面 JS 会 ReferenceError）: {left}")
+
+    def test_desktop_aa_size_16_18(self):
+        """桌面 AA 字号/行高 = 16px/18px（2026-10-19 用户指定，= 原站 yaruobook 口径）。
+
+        为什么钉 16px：MS PGothic 的制表符 `─/━` 只在**部分字号**下被网格对齐各挤掉 1px →
+        `────` 显示成短划、框线碎成多段；实测 12/13/14/**16**/18/20/24px 不会，**15/17/22/26/28px** 会。
+        旧值 15px/17px 正好落在「会」的那一档。详见技能 aa-web-review-app 的
+        `references/aa-box-drawing-seam-20261019.md`。行号列/编辑行的高度（CSS_UI 的 --aa-lh）必须同步。
+        """
+        html = open(os.path.join(self.SHARED, "index.html"),
+                    encoding="utf-8", newline="").read()
+        self.assertIn("font-size:calc(16px * var(--aa-zoom,1));line-height:calc(18px * var(--aa-zoom,1))",
+                      html, "桌面 AA 字号/行高不是 16px/18px")
+        self.assertIn("--aa-lh:calc(18px * var(--aa-zoom,1))", html,
+                      "行号列/编辑行高没跟着改 → 与正文逐行错位")
+        self.assertNotIn("calc(15px * var(--aa-zoom,1))", html, "桌面字号回退到 15px（16px 才是无缝那档）")
+        self.assertNotIn("--aa-lh:calc(17px * var(--aa-zoom,1))", html, "行高回退到 17px")
 
     def test_page_js_syntax(self):
         """交付页内联 JS 必须语法正确。
