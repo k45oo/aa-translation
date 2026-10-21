@@ -27,6 +27,8 @@
 env（全部有默认，`AA_ART_KANA_*` 可回滚）
     `AA_ART_KANA`(表文件路径覆盖) `AA_ART_KANA_RATIO`(0.8) `AA_ART_KANA_MIN_OBS`(20)
     `AA_ART_KANA_KEEP`(1) `AA_ART_KANA_KEEP_RATIO`(0.9)
+    `AA_ART_SHORTSEG`(1) 乙「短 kana 笔画片段」`AA_ART_SHORTSEG_KANJI`(0)
+    `AA_ART_ROWSEG`(1) 甲「整行是画」
 """
 import io
 import json
@@ -177,8 +179,24 @@ def keep_ratio():
         return 0.9
 
 
+_PATH_CACHE = {"key": None, "path": ""}
+
+
 def table_path(work="", work_dir=""):
-    """表文件解析顺序：`AA_ART_KANA` > `<work_dir>/art_kana_<work>.json` > 内置基线 > ""。"""
+    """表文件解析顺序：`AA_ART_KANA` > `<work_dir>/art_kana_<work>.json` > 内置基线 > ""。
+
+    2026-10-21：结果按 (work, work_dir, env, baseline) 缓存——原来每次调用都 `os.listdir(work_dir)`，
+    而甲/乙判据是**每行每段**都要表 → 单章上万次目录扫描（实测整部 11 万行跑不完 3 分钟）。
+    """
+    key = (work, work_dir, os.environ.get("AA_ART_KANA") or "", baseline_enabled())
+    if _PATH_CACHE["key"] == key:
+        return _PATH_CACHE["path"]
+    p = _table_path_uncached(work, work_dir)
+    _PATH_CACHE.update({"key": key, "path": p})
+    return p
+
+
+def _table_path_uncached(work="", work_dir=""):
     p = os.environ.get("AA_ART_KANA")
     if p and os.path.exists(p):
         return p
@@ -207,6 +225,7 @@ def _work_id_of(work_dir):
 def reset_cache():
     """测试/换作品用：清缓存。"""
     _CACHE.update({"path": None, "ratios": {}, "obs": {}, "loaded": False})
+    _PATH_CACHE.update({"key": None, "path": ""})
 
 
 def set_table_path(path):
@@ -444,6 +463,219 @@ def seg_is_art(body, table=None):
     if len(kj) >= 2 and not re.search(r"(.)\1", b):
         return False
     return True
+
+
+# ---------------------------------------------------------------------------
+# 甲/乙：**短 kana 笔画片段**（2026-10-21）
+#
+# 背景（資格世界の裏街道 edits.jsonl 复核）：121 处「艺术笔画被译成中文」全是 1~2 个汉字
+# 吃掉 1~4 个假名（んう→嗯唔、ぅて→唔、ヒり→哔哩、ア→啊、んら→嗯啦）。实测这些段全被
+# Rule A 放过：③「≥2 平假名 = 台词」96 段、②「太短放行」44 段、⑦「有决定性假名」21 段
+# （ヒ/ト/ア 不在写死表里）。**字符级语料表救不了这一类**——本作 ん=0.50 / う=0.03 /
+# て=0.006 / ア=0.24，这些字符在真台词里同样常见，粒度不对。
+#
+# 两条新判据都走**结构与上下文**，不猜字符语义：
+#   乙 `seg_short_art`：2~4 字纯 kana、无标点/数字、平假名 ≤2、实义汉字 ≤阈值、
+#      左或右邻段是 art、本行无系统标记（※【】『』「」♪/数字）→ 是画
+#   甲 `row_is_art`  ：整行画密（艺术字符 ≥45%）+ 每个 text 段都符合乙的形状 + 无系统标记
+#      → 整行本地照抄（这类行没有任何可译内容，送模型只会改画面）
+#
+# 实测（本作 113 章；真值 = 用户 108 条「中文字→假名」修正行）：乙拦 377 行、甲拦 77 行，
+# 合起来覆盖 33 行（31%）；被拦的非损伤段 65 个里约 85% 是尚未修的同款损伤
+# （∠ア17 / トゝ沙9 / シノ6 / ア゛4 / ィぅて芹4 …），真台词误判约 10 段（`これ`/`サンも`/
+# `お前と` 型，被误判时结果是"留日文"，会被漏译体检捞回——方向安全）。
+# 开关 `AA_ART_SHORTSEG=0` / `AA_ART_ROWSEG=0`。
+_SYS_MARK_RE = re.compile('[※【】『』「」＊♪]|[0-9０-９]')
+_SEG_BLOCK_RE = re.compile('[、。！？…「」『』（）]|[0-9A-Za-z０-９Ａ-Ｚａ-ｚ]')
+# 乙用的宽松口径：句读/数字/两个以上 ASCII 才挡——单个 ASCII 字母在本作是笔画
+# （`んぅr'` 的 r、`‐t゛ア` 的 t），按 `_SEG_BLOCK_RE` 会连真笔画一起放过。
+_SEG_PUNCT_RE = re.compile('[、。！？…「」『』（）]')
+_SEG_DIGIT_RE = re.compile('[0-9０-９]')
+_SEG_ASCII2_RE = re.compile('[A-Za-zＡ-Ｚａ-ｚ]{2,}')
+ROW_DENSE_RATIO = 0.45
+_ARTSET = {"set": None}
+
+
+def shortseg_enabled():
+    """乙「短 kana 片段判画」开关（`AA_ART_SHORTSEG=0` 关）。"""
+    return _envflag("AA_ART_SHORTSEG", default=True)
+
+
+def rowseg_enabled():
+    """甲「整行是画」开关（`AA_ART_ROWSEG=0` 关）。"""
+    return _envflag("AA_ART_ROWSEG", default=True)
+
+
+def shortseg_kanji_max():
+    """甲/乙 允许的**实义汉字**上限（`AA_ART_SHORTSEG_KANJI`，默认 0）。
+
+    0 = 段内不许有实义汉字（`お前と`/`様は`/`決める` 这类真台词因此不会被误判成画）；
+    调到 1 可多拦住 `トゝ沙`/`‐く公`/`ら然`（本作实测 +6 条损伤行），代价是
+    `お前と`/`お前に`/`様は`/`今のお` 4 处真台词会被留日文。
+    """
+    try:
+        return int(os.environ.get("AA_ART_SHORTSEG_KANJI") or 0)
+    except ValueError:
+        return 0
+
+
+def art_charset():
+    """艺术字符集（写死表 ∪ 借字 ∪ 笔画记号）——只用于甲的行级"画密度"。"""
+    if _ARTSET["set"] is None:
+        hira, kata, small, kj = builtin_sets()
+        try:
+            import aa_translate as T
+            stroke = set(T._ART_STROKE_CHARS)
+        except Exception:
+            stroke = set()
+        _ARTSET["set"] = set(hira) | set(kata) | set(small) | set(kj) | stroke
+    return _ARTSET["set"]
+
+
+def _seg_norm(b):
+    """去全部空白（含 U+3000 等 Unicode 空格）——`str.split()` 无参即为全空白口径。"""
+    return "".join((b or "").split())
+
+
+def seg_short_art(body, table=None, line=None, segs=None, si=None):
+    """乙：短 kana 笔画片段（2~4 字）→ 是画，不该送模型。
+
+    `segs`/`si` 给了就要求「左或右邻段是 art」；只给 segs 不给 si 无法查邻段 → 返回 False
+    （保守：没有上下文就不拦）。`line` 用于排除系统行（安価/骰子/※ 提示行必须翻译）。
+    """
+    if not shortseg_enabled():
+        return False
+    b = (body or "").strip()
+    nb = _seg_norm(b)
+    if not (2 <= len(nb) <= 4):
+        return False
+    if _SEG_PUNCT_RE.search(b) or _SEG_DIGIT_RE.search(b) or _SEG_ASCII2_RE.search(b):
+        return False
+    if line is not None:
+        # 系统标记只看**段附近**（±6 字）：`ヒり`/`トゝ沙`/`んうヾ` 常出现在「画 + 『台词』」
+        # 的混合行里，按整行判会把真艺术放过（实测本作 15 行损伤栽在这）。而 `では` 这类
+        # 骰子安価短句的标记就在它旁边，窗口判据仍能挡住。
+        if segs is not None and si is not None and 0 <= si < len(segs):
+            _a = int(segs[si].get("start", 0) or 0)
+            _b = int(segs[si].get("end", 0) or 0)
+            if _SYS_MARK_RE.search(line[max(0, _a - 6):_b + 6]):
+                return False
+        elif _SYS_MARK_RE.search(line):
+            return False
+    if table is None:
+        table = ratios()
+    if len(real_kanji(b, table)) > shortseg_kanji_max():
+        return False
+    if len(_prod_hira_re().findall(b)) > 2:
+        return False
+    if segs is not None:
+        if si is None or si < 0 or si >= len(segs):
+            return False
+        left = segs[si - 1].get("kind") if si > 0 else None
+        right = segs[si + 1].get("kind") if si + 1 < len(segs) else None
+        if left != "art" and right != "art":
+            return False
+    return True
+
+
+def row_is_art(line, segs, table=None):
+    """甲：整行就是画（行内没有任何可译内容）→ 本地照抄，别送模型。
+
+    与 `seg_short_art` 的分工：乙管"行里有一小段笔画、其余是别的"，甲管"整行都是笔画"。
+    甲比乙严——要求画密度 ≥45%、每个 text 段都符合乙的形状、且无系统标记/无标点数字。
+    """
+    if not rowseg_enabled() or not line or not segs:
+        return False
+    if _SYS_MARK_RE.search(line):
+        return False
+    aset = art_charset()
+    # 密度按**非空白**字符算：AA 行里 U+3000 占位极多，按整行长算会把画密摊薄
+    body = [c for c in line if not c.isspace()]
+    if not body:
+        return False
+    art = sum(1 for c in body if c in aset)
+    if art < max(6, len(body) * ROW_DENSE_RATIO):
+        return False
+    if table is None:
+        table = ratios()
+    texts = [sg for sg in segs if sg.get("kind") == "text"]
+    if not texts:
+        return False
+    short_kana = False
+    for sg in texts:
+        b = line[sg.get("start", 0):sg.get("end", 0)].strip()
+        if _SEG_BLOCK_RE.search(b):
+            return False                      # 标点/数字 = 真台词（動機？/はい。/おや？）
+        if len(real_kanji(b, table)) > shortseg_kanji_max():
+            return False
+        if len(_prod_hira_re().findall(b)) > 2:
+            return False
+        if len(_seg_norm(b)) > 4:
+            return False
+        if KANA_RE.search(b):
+            short_kana = True
+    return short_kana
+
+
+def row_all_art(line, segs, table=None):
+    """该行**所有 text 段都判画**（Rule A ∪ 乙）→ 整行没有可译内容（2026-10-21）。
+
+    补的是"有 segments 但没有一段可发"的行：旧实现只看 `_sendable_text_segs` 是否为空，
+    空了就把该行退回**整行协议**——模型于是把画一起改写（`ﾉﾉ斗ぅて`→唔 这类事故就是这么来的）。
+    注意它比 `row_is_art` 宽（不要求画密度/段长），但只看"每段都判画"，不动低置信段：
+    低置信段（conf<0.65）不在此列，仍由 `mixed_seg_rule_enabled` 那条老路去补。
+    """
+    if not rowseg_enabled() or not line or not segs:
+        return False
+    if table is None:
+        table = ratios()
+    texts = [si for si, sg in enumerate(segs) if sg.get("kind") == "text"]
+    if not texts:
+        return False
+    return all(seg_is_art_ctx(line, segs, si, table) for si in texts)
+
+
+def line_is_art(line, table=None):
+    """甲-lite：**没有 segments 的行**整行就是画（2026-10-21）。
+
+    与 `row_is_art` 同一口径，但只看行本身（meta 没切出段的行拿不到"对话区"）：
+    无系统标记 / 无句读 / 无数字 + 艺术字符占比 ≥45% + 零实义汉字 + 假名 1~4 个。
+    实测本作（113 章）：命中 20,231 行，其中"当前还会被送模型"的 153 行全是没有可译内容的
+    纯笔画行（`ﾆﾐﾉ`×34 / `じトﾄﾉ`×25 / `ﾛﾛ､`×22 …），唯一产物含中文的那行本身就是艺术损伤
+    （`ﾆﾁｬｱ`→喵哈哈）。
+    """
+    if not rowseg_enabled() or not line:
+        return False
+    if _SYS_MARK_RE.search(line) or _SEG_PUNCT_RE.search(line) or _SEG_DIGIT_RE.search(line):
+        return False
+    aset = art_charset()
+    body = [c for c in line if not c.isspace()]
+    if not body:
+        return False
+    art = sum(1 for c in body if c in aset)
+    if art < max(6, len(body) * ROW_DENSE_RATIO):
+        return False
+    if table is None:
+        table = ratios()
+    if real_kanji(line, table):
+        return False
+    kana = [c for c in line if KANA_RE.match(c)]
+    if not kana or len(kana) > 4:
+        return False
+    return True
+
+
+def seg_is_art_ctx(line, segs, si, table=None):
+    """Rule A ∪ 乙（带行/邻段上下文的选段判据）——主链/校对共用入口。"""
+    if not segs or si < 0 or si >= len(segs):
+        return False
+    if table is None:
+        table = ratios()
+    sg = segs[si]
+    body = (line or "")[sg.get("start", 0):sg.get("end", 0)]
+    if seg_is_art(body, table):
+        return True
+    return seg_short_art(body, table, line=line, segs=segs, si=si)
 
 
 def art_keep_violation(src, cand, table=None):

@@ -1193,6 +1193,11 @@ def is_translatable(idx, line, meta):
     """
     if art_veto_enabled() and art_line_veto(line):
         return False
+    # 2026-10-21 甲-lite：整行是画（艺术字符 ≥45% + 零实义汉字 + 假名 ≤4 + 无标点/数字/系统标记）
+    #   → 本地照抄。补的是"meta 没切出段"的行——它们走整行协议，模型会把 `ﾆﾁｬｱ` 这类笔画
+    #   译成「喵哈哈」（实测本作 153 行纯笔画行会进模型，无一例真台词）。
+    if line_is_art(line):
+        return False
     if meta is not None and idx in meta:
         entry = meta[idx]
         if isinstance(entry, tuple):
@@ -2150,6 +2155,61 @@ def seg_is_art(text):
         return False
 
 
+def seg_is_art_ctx(line, segs, si):
+    """段的"是画"判定（Rule A ∪ 乙「短 kana 笔画片段」），带行/邻段上下文。
+
+    2026-10-21：同一批人工修正复核发现 Rule A 有三条盲区（③≥2平假名 / ②太短 / ⑦决定性假名），
+    本作用 んう・ぅて・ヒり・ア 当笔画 → 被送模型译成 1~2 个汉字。乙用结构判据补这个缺口，
+    判据与实测见 `aa_art_kana.seg_short_art`。
+    """
+    m = _ak_mod()
+    if m is None or not segs:
+        return False
+    try:
+        return m.seg_is_art_ctx(line, segs, si, art_kana_tab())
+    except Exception:
+        return False
+
+
+def row_is_art(line, segs):
+    """整行是画（甲，2026-10-21）——主链 `flagged` 前过滤用，返回 True 则本地照抄不进模型。"""
+    m = _ak_mod()
+    if m is None or not segs:
+        return False
+    try:
+        return m.row_is_art(line, segs, art_kana_tab())
+    except Exception:
+        return False
+
+
+def line_is_art(line):
+    """整行是画（甲-lite，2026-10-21）——**没有 segments 的行**用，接线在 `is_translatable`。
+
+    实测本作：命中 2 万行，其中当前还会被送模型的 153 行全是纯笔画行（无一例真台词）。
+    """
+    m = _ak_mod()
+    if m is None or not line:
+        return False
+    try:
+        return m.line_is_art(line, art_kana_tab())
+    except Exception:
+        return False
+
+
+def row_all_art(line, segs):
+    """该行所有 text 段都判画 → 整行无可译内容（2026-10-21，`flagged` 前过滤用）。
+
+    防的是"有 segments 但一段都发不出去"的行退回整行协议后模型改写画面。
+    """
+    m = _ak_mod()
+    if m is None or not segs:
+        return False
+    try:
+        return m.row_all_art(line, segs, art_kana_tab())
+    except Exception:
+        return False
+
+
 def art_keep_violation(src_seg, cand):
     """译文是否丢掉了源段里的艺术假名（→ 该段回滚照抄）——Rule B。返回原因串或 ''。"""
     m = _ak_mod()
@@ -2208,16 +2268,25 @@ def seg_mark_art_enabled():
     return os.environ.get("AA_SEG_MARK_ART", "1").strip() not in ("0", "false", "False", "")
 
 
-def _sendable_text_segs(line, segs):
+def _sendable_text_segs(line, segs, stats=None):
     """该行**该送模型**的 text 段下标（conf>=0.65 ∩ 非艺术片段）——单一权威（2026-10-10）。
 
     「要不要把这段发进模型」的决策点全部走这里（选段 / 拼回校验 / fix_width 段级 / 行级分流），
     否则修一处漏一处（bulk-pipeline-changes §一.3）。
+
+    2026-10-21：`seg_is_art` 升级成带上下文的 `seg_is_art_ctx`（Rule A ∪ 乙「短 kana 片段」）。
+    `stats` 给了 dict 就累计 `{'ruleA': n, 'short': n}`（章节日志用）。
     """
     out = []
     for si in _confident_text_segs(segs):
         sg = segs[si]
         if seg_is_art(line[sg['start']:sg['end']]):
+            if stats is not None:
+                stats['ruleA'] = stats.get('ruleA', 0) + 1
+            continue
+        if seg_is_art_ctx(line, segs, si):
+            if stats is not None:
+                stats['short'] = stats.get('short', 0) + 1
             continue
         if seg_mark_art(line, segs, si):
             continue
@@ -3046,11 +3115,28 @@ def process_chapter(path, cfg=None):
             meta = load_meta_0based(meta_dir, base) if meta_dir else None
         if meta is None:
             print(f"  [M4a] meta 缺失/损坏, fallback is_text_line", flush=True)
+    seg_meta = None
+    if mixed_segments_enabled() and meta is not None:
+        seg_meta = load_meta_segments_0based(meta_dir, base)
     if meta is not None:
         flagged = [(idx, l) for idx, l in enumerate(lines) if is_translatable(idx, l, meta)]
     else:
         # 2026-10-08: 走 is_translatable(meta=None) 而非裸 is_text_line——同样过 art_line_veto
         flagged = [(idx, l) for idx, l in enumerate(lines) if is_translatable(idx, l, None)]
+    # 2026-10-21 甲：整行是画（短 kana 笔画 + 画密度 ≥45% + 无系统标记）→ 本地照抄，不进模型。
+    #   判据/实测见 aa_art_kana.row_is_art；实测本作拦 77 行、无误杀（`動機？`/`はい。`/`お前と`
+    #   这类真台词被标点/汉字守卫挡住）。`AA_ART_ROWSEG=0` 关。
+    if seg_meta:
+        _keep, _n_row = [], 0
+        for _idx, _l in flagged:
+            _segs_row = seg_meta.get(_idx)
+            if _segs_row and (row_is_art(_l, _segs_row) or row_all_art(_l, _segs_row)):
+                _n_row += 1
+                continue
+            _keep.append((_idx, _l))
+        if _n_row:
+            flagged = _keep
+            print(f"  [art-row] {_n_row} 行整行是画 → 本地照抄(不进模型)", flush=True)
     if art_veto_enabled():
         _av = sum(1 for l in lines if is_text_line(l) and art_line_veto(l))
         if _av:
@@ -3068,11 +3154,12 @@ def process_chapter(path, cfg=None):
             print(f"  ckpt fingerprint mismatch ({data.get('__lines')} vs {len(lines)}), discard", flush=True)
     # B2: mixed 段级翻译分流（AA_USE_MIXED_SEGMENTS=1 且 meta 含 segments 且有可发段）
     mixed_segs = {}
-    if mixed_segments_enabled() and meta is not None:
-        seg_meta = load_meta_segments_0based(meta_dir, base)
-        if seg_meta is not None:
-            mixed_segs = {idx: segs for idx, segs in seg_meta.items()
-                          if _sendable_text_segs(lines[idx], segs)}
+    if seg_meta is not None:
+        _seg_st = {}
+        mixed_segs = {idx: segs for idx, segs in seg_meta.items()
+                      if _sendable_text_segs(lines[idx], segs, _seg_st)}
+        if _seg_st.get('short'):
+            print(f"  [art-short] {_seg_st['short']} 个短笔画段 → 本地照抄(不进模型)", flush=True)
     # 2026-09-15 P2-a: meta 置信度不足(整章 text 段 0.4)的 mixed 行 → 规则抠台词段补进段级协议。
     # 只补 kind=mixed（纯 text 行没有 art 可省）；校验不过由 translate_lines_mixed 回退整行。
     rule_added = set()   # 2026-09-15: 规则抠段接管的行（校验失败必须回退整行，不能静默落人工）

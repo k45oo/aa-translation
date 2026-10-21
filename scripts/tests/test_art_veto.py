@@ -70,12 +70,17 @@ class TestArtLineVeto(unittest.TestCase):
 
     def test_env_switch(self):
         old = os.environ.get('AA_ART_VETO')
+        old_row = os.environ.get('AA_ART_ROWSEG')
         try:
             os.environ['AA_ART_VETO'] = '0'
             self.assertFalse(T.art_veto_enabled())
-            # 关闭后 is_translatable 不看 veto（meta 说 text 就送）
+            # 2026-10-21: 艺术行还有第二道闸门（甲-lite `line_is_art`，`AA_ART_ROWSEG`）——
+            # 两道都关才真的送模型（单关 veto 时仍被甲-lite 拦，这是有意的分层）
+            os.environ['AA_ART_ROWSEG'] = '0'
             self.assertTrue(T.is_translatable(0, ART_LINES[0], {0: 'text'}))
             self.assertTrue(T.is_translatable(0, ART_LINES[0], None))
+            os.environ.pop('AA_ART_ROWSEG', None)
+            self.assertFalse(T.is_translatable(0, ART_LINES[0], {0: 'text'}))
             os.environ['AA_ART_VETO'] = '1'
             self.assertTrue(T.art_veto_enabled())
             self.assertFalse(T.is_translatable(0, ART_LINES[0], {0: 'text'}))
@@ -85,6 +90,10 @@ class TestArtLineVeto(unittest.TestCase):
                 os.environ.pop('AA_ART_VETO', None)
             else:
                 os.environ['AA_ART_VETO'] = old
+            if old_row is None:
+                os.environ.pop('AA_ART_ROWSEG', None)
+            else:
+                os.environ['AA_ART_ROWSEG'] = old_row
 
     def test_meta_text_line_still_vetoed(self):
         # meta 判 text 的艺术行也必须被否决（本次改动的主要目的）

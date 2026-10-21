@@ -483,25 +483,33 @@ SYSTEM_SWALLOW = """你是やる夫AA漫画的日文台词翻译。该台词来�
 3. 只输出译文本身，不要解释、不要加引号或编号。"""
 
 
-def _art_kana_only(body):
+def _art_kana_only(body, line=None, segs=None, si=None):
     """段内只有艺术/小写假名、无**决定性**台词证据 → 不该送模型。
 
     P2(2026-10-03)：本季两起事故（`ミニニニニ`→「迷你尼尼尼」、`ﾆﾆﾆ`→「你你你哈」）都是
     swallow 把纯艺术假名段当台词段送模型。判据复用主链的 `_rule_dialogue_run_ok`
     （艺术假名 ART_HIRA/ART_KATA 与小写假名都不算证据）。
+
+    2026-10-21（乙）：给了 `line`/`segs`/`si` 就再问一次主链 `seg_is_art_ctx`
+    （Rule A ∪ 短 kana 片段判据）——`んう`/`ぅて`/`ヒり`/`ア` 这类 2 字笔画 Rule A 全放过
+    （③≥2平假名 / ⑦决定性假名），实测这是本作"艺术被译成 1~2 个汉字"的主通道。
     """
     b = (body or "").strip(" \u3000\u200a\u2002\u2005\u2006\u2009")
     if not b or not re.search(r"[\u3040-\u30ff\uff61-\uff9f]", b):
         return False
     if re.fullmatch(r"([\uff61-\uff9f]{1,2})\1{2,}", b):
         return True        # 半角假名单元重复 ≥3 次（ﾆﾆﾆ / ｶﾞｶﾞｶﾞ）= 项目既有口径的"艺术装饰"
-    return not T._rule_dialogue_run_ok(b)
+    if not T._rule_dialogue_run_ok(b):
+        return True
+    if segs is not None and si is not None and T.seg_is_art_ctx(line, segs, si):
+        return True
+    return False
 
 
 def _restore_art_kana(s, h, segs):
     """TR 里"艺术假名段"被译成中文 → 段级还原为 SRC 原文（零模型）。返回新行或 None。"""
     out, shift, hit = h, 0, False
-    for sg in segs:
+    for _si, sg in enumerate(segs):
         if sg.get("kind") != "text":
             continue
         a, b = sg["start"] + shift, sg["end"] + shift
@@ -509,7 +517,7 @@ def _restore_art_kana(s, h, segs):
             continue
         raw = s[sg["start"]:sg["end"]]
         body = raw.strip(" \u3000\u200a\u2002\u2005\u2006\u2009")
-        if len(body) < 2 or not _art_kana_only(body):
+        if len(body) < 2 or not _art_kana_only(body, s, segs, _si):
             continue
         span = out[a:b]
         if span == raw or not re.search(r"[\u4e00-\u9fff]", span) \
@@ -550,7 +558,7 @@ def _tail_dial_seg(s, segs):
         return None
     if FMD._looks_graphic_fragment(t, w):
         return None
-    if _art_kana_only(body):
+    if _art_kana_only(body, s, segs, segs.index(seg)):
         return None             # P2: 纯艺术/小假名段（ミニニニニ/ﾆﾆﾆ 型）不该当台词送模型
     kana_n = len([ch for ch in body if "\u3040" <= ch <= "\u30ff"])
     cjk_n = len([ch for ch in body if "\u4e00" <= ch <= "\u9fff"])
@@ -1279,7 +1287,7 @@ def refine_chapter(cfg, base, do_write=False, review_inline=False):
                 continue
             if _looks_graphic_fragment(_t, _w):
                 continue
-            if _art_kana_only(_body):
+            if _art_kana_only(_body, s, segs, _si):
                 continue        # P2: 纯艺术/小假名段不是台词（送模型必被译坏）
             if len([c for c in _body if "\u3040" <= c <= "\u30ff"]) >= 2 or \
                (re.search(r"[\u4e00-\u9fff]", _body) and re.search(r"[\u3040-\u30ff]", _body)):
