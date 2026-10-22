@@ -175,7 +175,9 @@ def stage_assets(stage):
             _log("  ⚠️ fonts/OFL.txt 缺失 —— 随包分发字体必须带 OFL 许可证文本")
         # AA 字体：2026-10-11 起「手机端列位不错位」全靠它（与 MS PGothic 度量一致，见根
         # AGENTS.md「交付页内嵌 AA 等宽字体」）——包里缺它就渲染出源站手机上那种漂移 ~127 格。
-        for fn in ("aahub.ttf", "aahub_LICENSE.txt"):
+        # 2026-10-19 起默认 AA 字体 = Saitamaar（aahub 保留作回退，`AA_AA_FONT_AA_FILE` 可指它）。
+        for fn in ("Saitamaar.ttf", "Saitamaar_LICENSE.txt",
+                   "aahub.ttf", "aahub_LICENSE.txt"):
             src = os.path.join(_ROOT, "fonts", fn)
             if os.path.isfile(src):
                 shutil.copy2(src, os.path.join(dst, fn))
@@ -337,27 +339,39 @@ def transform_aa_env(stage):
 
 
 def transform_image_manga(stage):
-    r"""main.py：清空 `IMAGE_MANGA` 图片漫画注册表。
+    r"""清空 `IMAGE_MANGA` 图片漫画注册表。
 
     表里那两条是**生成者本机的图片目录**（`aaManga\交付HTML\東方新異譚\comic_seamless`、
     `manhuagui_\comic_seamless`），使用者机器上不存在——留着只会让 `/manga` 表格显示
     两行死路径（而且脱敏后还会变成 `<repo>\...` 的怪路径）。清空 = 表格无行，页面照常。
+
+    **2026-10-14 起 main.py 拆成 web_state.py + routers/**，常量搬到了 `web_state.py`；
+    旧实现只找 main.py → 打包行进到这里就 SystemExit（2026-10-22 实测）。两份都找，
+    命中即改、改完返回（兼容旧布局）。
     """
-    p = os.path.join(stage, "aa_web_app", "main.py")
-    lines, eol = _read_lines(p)
-    try:
-        s = next(i for i, l in enumerate(lines) if l.startswith("IMAGE_MANGA = {"))
-        e = next(i for i in range(s + 1, len(lines)) if lines[i] == "}")
-    except StopIteration:
-        raise SystemExit("[main.py] 找不到 IMAGE_MANGA 块（结构变了，同步改本脚本）")
     block = [
         "IMAGE_MANGA = {}",
         "# 发行包：图片漫画注册表已清空（原条目是生成者本机的图片目录，使用者没有；",
         "# 留着只会让 /manga 表格显示死路径）。要挂自己的图片漫画：",
         '#   IMAGE_MANGA = {"名称": r"<章节根目录>"}   # 子目录=章节，目录内图片按文件名排序',
     ]
-    _write_lines(p, lines[:s] + block + lines[e + 1:], eol)
-    _log("  变换 main.py          IMAGE_MANGA 图片漫画注册表 → 空（原 %d 条）" % (e - s - 1))
+    for rel in (("aa_web_app", "web_state.py"), ("aa_web_app", "main.py")):
+        p = os.path.join(stage, *rel)
+        if not os.path.exists(p):
+            continue
+        lines, eol = _read_lines(p)
+        try:
+            s = next(i for i, l in enumerate(lines) if l.startswith("IMAGE_MANGA = {"))
+        except StopIteration:
+            continue
+        try:
+            e = next(i for i in range(s + 1, len(lines)) if lines[i] == "}")
+        except StopIteration:
+            raise SystemExit("[%s] IMAGE_MANGA 块没有收尾（结构变了，同步改本脚本）" % rel[-1])
+        _write_lines(p, lines[:s] + block + lines[e + 1:], eol)
+        _log("  变换 %-18s IMAGE_MANGA 图片漫画注册表 → 空（原 %d 条）" % (rel[-1], e - s - 1))
+        return
+    raise SystemExit("[web_state.py] 找不到 IMAGE_MANGA 块（结构变了，同步改本脚本）")
 
 
 def write_skeletons(stage):
@@ -643,6 +657,7 @@ def gates(stage):
             # 许可：代码 MIT + 字体 OFL（分发字体必须随附 OFL 文本，缺了就是不合规分发）
             "LICENSE", os.path.join("fonts", "OFL.txt"),
             # AA 字体 + 许可（手机端列位靠它，见根 AGENTS.md「交付页内嵌 AA 等宽字体」）
+            os.path.join("fonts", "Saitamaar.ttf"), os.path.join("fonts", "Saitamaar_LICENSE.txt"),
             os.path.join("fonts", "aahub.ttf"), os.path.join("fonts", "aahub_LICENSE.txt"),
             os.path.join("aaManga", EXAMPLE["dir"], "work", "glossary_%s.json" % EXAMPLE["id"])]
     missing = [m for m in must if not os.path.exists(os.path.join(stage, m))]

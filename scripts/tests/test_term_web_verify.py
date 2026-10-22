@@ -229,9 +229,15 @@ class TestApply(unittest.TestCase):
 
 class TestKeyMissing(unittest.TestCase):
     def test_无key整体跳过(self):
+        # 不断言具体作品：临时 work_dir + 候选文件（发行包里 registry 只有示例作品，
+        # 写死 jinrou 会 `未知作品` 直接 SystemExit —— 与「无 key 跳过」语义无关）
+        d = tempfile.mkdtemp()
+        with open(os.path.join(d, "glossary_candidates.json"), "w", encoding="utf-8") as f:
+            f.write('{"ai_候选": []}')
         with mock.patch.dict(os.environ, {"TAVILY_API_KEY": ""}, clear=False):
-            with mock.patch.object(M, "tavily_key", return_value=""):
-                r = M.verify_work("jinrou")
+            with mock.patch.object(M, "tavily_key", return_value=""), \
+                 mock.patch.object(M.registry, "get", return_value={"work_dir": d}):
+                r = M.verify_work("some_work")
         self.assertFalse(r["ok"])
         self.assertEqual(r["error"], "无 TAVILY_API_KEY")
 

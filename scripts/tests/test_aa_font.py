@@ -23,6 +23,7 @@ TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.dirname(TESTS_DIR)
 sys.path.insert(0, os.path.join(SCRIPTS, "common"))
 sys.path.insert(0, os.path.join(SCRIPTS, "works"))
+sys.path.insert(0, TESTS_DIR)      # `_work_guard`（单独跑本模块时 discover 不会帮我们插）
 
 import aa_font as AF
 import gen_aa_html
@@ -70,7 +71,9 @@ class TestSubset(unittest.TestCase):
         self.assertNotIn(AF.AA_FAMILY, first, "严格网格模式不放 AA 度量字体")
 
     def test_aa_font_env_and_source_exists(self):
-        self.assertTrue(os.path.exists(AF.aa_font_source()), "仓库里得有 fonts/aahub.ttf（交付靠它内嵌）")
+        self.assertTrue(os.path.exists(AF.aa_font_source()),
+                        "仓库里得有 fonts/Saitamaar.ttf（或 AA_AA_FONT_AA_FILE 指定的 AA 字体）")
+
         old = {k: os.environ.get(k) for k in ("AA_AA_FONT_AA", "AA_AA_FONT_AA_FILE")}
         try:
             os.environ.pop("AA_AA_FONT_AA", None)
