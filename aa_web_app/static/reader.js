@@ -30,6 +30,7 @@
   // ---- 行内插入式编辑：编辑行插入正文流（与行号列逐行对齐），控件在悬浮编辑面板（2026-09-03 改 fixed 悬浮，不占位不遮正文） ----
   const mask = document.getElementById('edit-mask');
   let curIdx = -1, curSrcW = null;
+  let reTrBusy = false;    // 行重译（Shift+右键行号）在途标志：防连点重复烧调用
   // 编辑框草稿：窗口重建抹掉 .edit-row 时的兜底（历史 bug：editK 口径错 → paint 误重建 → 「保存没反应」丢改动）
   let editDraft = '', editDraftIdx = -1;
   let __restoreSave = null;   // 2026-09-03: Shift+R 还原原文并保存的回调（openEdit 内绑定，closeEdit 清除）
@@ -146,6 +147,7 @@
           <label><input type="radio" name="em-type" value="漏译"> 漏译</label>
           <label><input type="radio" name="em-type" value="错位"> 错位</label>
           <label><input type="radio" name="em-type" value="校对"> 校对</label>
+          <label><input type="radio" name="em-type" value="重译" title="机器重译过这一行（阅读器 Shift+右键行号 = 行重译）"> 重译</label>
         </div>
         <div id="em-width"></div>
         <div class="actions">
@@ -332,6 +334,61 @@
     }
   }
 
+  // Shift+右键行号 = 行重译（只 text/mixed 行）：模型重译该行后**就地写入**，
+  // 与右键「还原原文」同族的就地操作（无需开面板；结果不满意可再 Shift+右键一次，
+  // 或右键还原原文、或点行号手工改）。
+  // 分工：后端 `POST .../line/<idx>/retranslate` 只**重译并返回新译文、不写盘**；
+  // 写盘仍走同一 `PUT /line/<idx>` 入口（宽度硬约束 / pad / edits.jsonl 台账 / 统计失效口径唯一），
+  // 类型固定「重译」——事后在「修改记录」里能把这些机器重译行与自动分类行分开。
+  async function retranslateLine(lineNo, btn) {
+    const idx = lineNo - 1;
+    const pm = document.getElementById('chapter-pre')?.dataset.mode;
+    if (!CFG.hasTr) { toast('本章未汉化，仅原文可读，不可重译', false); return; }
+    if (pm === 'src') { toast('原文模式不可重译，请切回汉化', false); return; }
+    const mk = ((btn && btn.className) || '').match(/\blt-([a-z]+)/);
+    const kind = mk ? mk[1] : '';
+    if (kind !== 'text' && kind !== 'mixed') {
+      const cn = { aa: 'AA 艺术', art: 'AA 艺术', header: '帖头', blank: '空行' }[kind] || kind || '未知';
+      toast(`该行是 ${cn} 行，不重译（只支持文本行 / 混合行）`, false);
+      return;
+    }
+    if (reTrBusy) { toast('上一次行重译还在进行，稍等…', false); return; }
+    reTrBusy = true;
+    toast(`第 ${lineNo} 行重译中…（走模型，稍候）`);
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 180000);
+    try {
+      const r = await fetch(`${base}/line/${idx}/retranslate`, { method: 'POST', signal: ctl.signal });
+      const j = await r.json();
+      if (!r.ok) { toast('重译失败：' + (j.detail || JSON.stringify(j)), false); return; }
+      if (window.__aaWin) { try { await window.__aaWin.ensureVisible(lineNo); } catch (e) {} }
+      const r2 = await fetch(`${base}/line/${idx}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: j.text, type: '重译' })
+      });
+      const j2 = await r2.json();
+      if (!r2.ok) { toast('重译写入失败：' + (j2.detail || JSON.stringify(j2)), false); return; }
+      if (j2.result === 'unchanged') { toast('重译结果与当前内容相同，未改动'); return; }
+      if (window.__aaWin) {
+        await window.__aaWin.markChanged(idx);
+      } else {
+        const frag = await (await fetch(`${base}/line/${idx}/html`)).json();
+        const span = document.querySelector(`#chapter-pre span.aa-line[data-idx="${idx}"]`);
+        if (span) { span.innerHTML = frag.html || ' '; }
+      }
+      flashNo(lineNo, 1500);
+      const src = j.source === 'fixed' ? '（固定表直出，零调用）' : (j.track === 'mixed-seg' ? '（段级重译）' : '');
+      const via = j.backend ? ' · ' + j.backend : '';
+      toast(`已重译 ✓（第 ${lineNo} 行${src}${via}${j2.padded ? '；已自动补齐宽度' : ''} · 类型：重译）`);
+    } catch (e) {
+      toast((e && e.name === 'AbortError') ? '重译超时（180s）已取消' : '网络错误：' + e, false);
+    } finally {
+      clearTimeout(timer);
+      reTrBusy = false;
+    }
+  }
+
   // ---- 行分类 override：行号列每行 hover 出 ⚙ 小图标 → 六选一菜单（text/art/mixed/header/blank + 还原为自动） ----
   // 只写 work/line_meta_overrides/<base>.json（图片加大消费），翻译数据/flag 不动；选中后 lt-<type> 类即时同步。
   // 顺序：前三为高频易错项（aa艺术/混合/文本），配快捷键 a/s/d；header/blank/auto 无键。
@@ -407,16 +464,18 @@
       closeOvMenu(); openEdit(+b.dataset.line);
     }
   });
-  // 右键行号 = 直接还原原文并保存（2026-09-03；屏蔽浏览器右键菜单）
+  // 右键行号 = 直接还原原文并保存；**Shift+右键** = 行重译（2026-10-19）。
+  // 两者同族（不经编辑面板的就地操作），按 shiftKey 分流；都屏蔽浏览器右键菜单。
   document.getElementById('line-col').addEventListener('contextmenu', e => {
     const b = e.target.closest('.lc-no');
     if (!b) return;
     e.preventDefault();
     e.stopPropagation();
     closeOvMenu();
-    // 若正打开编辑面板，先收起再还原，避免 .er-tr 残留互相干扰
+    // 若正打开编辑面板，先收起再操作，避免 .er-tr 残留互相干扰
     if (window.__aaEditing) closeEdit();
-    restoreAndSaveLine(+b.dataset.line);
+    if (e.shiftKey) retranslateLine(+b.dataset.line, b);
+    else restoreAndSaveLine(+b.dataset.line);
   });
   if (mask) mask.addEventListener('click', closeEdit);
   // Shift+R = 还原原文并保存（2026-09-03）：编辑中（__aaEditing）触发，回调在 openEdit 内绑定
@@ -533,7 +592,10 @@
   // 粗细 = 位移双印加粗（text-shadow），不改变字形宽度，不会错位；
   // 勿用 font-weight≥600：真粗体字形变宽且 ASCII/全角增量不同，行间字符列会漂移
   const FONT_KEY = 'aa_reader_font';
-  const BASE_FS = 14, BASE_LH = 16, FS_MIN = 10, FS_MAX = 24;
+  // 2026-10-19（用户指定）：**默认 16px** —— 原站（yaruobook）AA 就是 16px/18px，是字形渲染最准的字号
+  // （MS PGothic 的 ─/━ 只在部分字号下被网格对齐各挤掉 1px → `────` 变短划、列位偏差，16px 不在其中；
+  //   实测 15/17/22/26/28px 会露）。其他字号照旧可用，但界面上会给「可能错位」提示（见 fs-warn）。
+  const BASE_FS = 16, BASE_LH = 18, FS_MIN = 10, FS_MAX = 24;
   const BOLD_SHADOW = '0.6px 0 0 currentColor, -0.6px 0 0 currentColor';
   function loadFont() {
     try { return Object.assign({ fs: BASE_FS, bold: false }, JSON.parse(localStorage.getItem(FONT_KEY) || '{}')); }
@@ -547,7 +609,12 @@
     r.setProperty('--aa-lh', lh + 'px');
     r.setProperty('--aa-shadow', font.bold ? BOLD_SHADOW : 'none');
     const val = document.getElementById('fs-val');
-    if (val) val.textContent = font.fs + 'px';
+    if (val) {
+      val.textContent = font.fs + 'px';
+      val.classList.toggle('off', font.fs !== BASE_FS);       // 非 16px：字号标黄
+    }
+    const warn = document.getElementById('fs-warn');
+    if (warn) warn.hidden = (font.fs === BASE_FS);            // 非 16px：给「可能错位」提示
     document.querySelectorAll('.fw-btn').forEach(b =>
       b.classList.toggle('on', (+b.dataset.bold === 1) === font.bold));
     // 窗口化：行高变了 → 几何表/窗口重算（滚动位置由浏览器保持）
@@ -1177,6 +1244,75 @@
               '\n注意是原样透传——捕到日文就还是日文；要中文再补一对（如 re:こうげき → 攻击），或把该词收进作品术语表。' +
               '\n想让新章翻译时自动生效：宝可梦链写进 补充术语.json 的「模板」段（那里用 {名} 写法）。' },
     ];
+    // ＋术语表（2026-09-14 历史记录用；2026-10-16 抽成 trGlossBtn，「替换对」行共用同一实现）：
+    // 把一对 (查找 → 替换为) 手动加进本作品术语表（类别「专名」、来源 manual）——只影响以后的
+    // 翻译/校对 prompt，不改现有文本。**服务端 add-pair 是唯一权威**（added/exists/conflict 由它回），
+    // 前端 trGlossMap 只用来把已在表里的条目显示成「✓ 已加入 / ✓ 已有」并禁用（不依赖本次会话点没点过）。
+    const trGlossReg = [];        // [{btn, sync}] —— 状态从 trGlossMap 派生，变了就统一刷新
+    const trGlossSyncAll = () => trGlossReg.forEach(x => {
+      if (x.btn.isConnected) { try { x.sync(); } catch (e) {} }
+    });
+    const trGlossBtn = (getPair) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn tiny ghost th-add';
+      const sync = () => {
+        const p = getPair() || {};
+        const find = String(p.find == null ? '' : p.find).trim();
+        const repl = p.repl == null ? '' : String(p.repl);
+        const has = !!find && trGlossMap.has(find);
+        const cur = has ? (trGlossMap.get(find) || {}) : {};
+        if (!find) {
+          btn.textContent = '＋术语表'; btn.disabled = true; btn.title = '先在左侧填「查找」串';
+        } else if (!repl) {
+          btn.textContent = '＋术语表'; btn.disabled = true;
+          btn.title = '「替换为」为空的这条是「删除该串」，不是译名，不能加入术语表';
+        } else if (has && (cur.zh || '') === repl) {
+          btn.textContent = '✓ 已加入'; btn.disabled = true;
+          btn.title = '本作品术语表已有这一条：' + find + ' → ' + repl + (cur.cat ? '（类别「' + cur.cat + '」）' : '');
+        } else if (has) {
+          btn.textContent = '✓ 已有'; btn.disabled = true;
+          btn.title = '本作品术语表已有「' + find + '」→「' + (cur.zh || '') + '」，不覆盖（要改去术语表页改）';
+        } else {
+          btn.textContent = '＋术语表'; btn.disabled = false;
+          btn.title = '把这一对加入本作品术语表：' + find + ' → ' + repl +
+            '（类别「专名」、来源 manual）。只影响以后的翻译/校对 prompt，不改现有文本。';
+        }
+      };
+      sync();
+      btn.addEventListener('click', async (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        const p = getPair() || {};
+        const find = String(p.find == null ? '' : p.find).trim();
+        const repl = p.repl == null ? '' : String(p.repl);
+        if (!find || !repl) return;
+        btn.disabled = true; btn.textContent = '加入中';
+        try {
+          const r = await fetch(`/api/glossary/${encodeURIComponent(CFG.work)}/add-pair`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jp: find, zh: repl, cat: '专名' })
+          });
+          const j = await r.json().catch(() => ({}));
+          if (j.added) {
+            trGlossMap.set(find, { zh: repl, cat: '专名' });
+            toast('已加入本作品术语表：' + find + ' → ' + repl + '（专名）✓', true);
+          } else if (j.reason === 'exists') {
+            trGlossMap.set(find, { zh: repl, cat: '专名' });
+            toast('术语表里已有这一条，无需重复添加（' + find + ' → ' + repl + '）', true);
+          } else if (j.reason === 'conflict') {
+            trGlossMap.set(find, { zh: j.current_zh || '', cat: '' });
+            toast('术语表已有「' + find + '」→「' + j.current_zh + '」，未覆盖（要改去术语表页改）', false);
+          } else {
+            toast('加入术语表失败：' + (j.detail || j.error || JSON.stringify(j)), false);
+          }
+        } catch (e) {
+          toast('网络错误：' + e, false);
+        }
+        trGlossSyncAll();     // 状态由 trGlossMap 派生 → 所有按钮（历史 + 替换对）一起刷新
+      });
+      trGlossReg.push({ btn: btn, sync: sync });
+      return btn;
+    };
     const trRow = (findVal, replVal, sfxVal) => {
       const row = document.createElement('div');
       row.className = 'tr-pair';
@@ -1186,10 +1322,18 @@
         '<label class="tr-sfxbox" title="sfx 样式（拟声词/效果音）：这一对命中的片段替换后一并打 sfx 标记 → 阅读器渲染成楷体+斜体+小一点（span.sfx）。人工逐对选择，不影响其它对。">' +
         '<input type="checkbox" class="tr-sfx"> sfx</label>' +
         '<button type="button" class="tr-del btn tiny ghost" title="删除该对">✕</button>';
-      row.querySelector('.tr-find').value = findVal || '';
-      row.querySelector('.tr-repl').value = replVal || '';
+      const fIn = row.querySelector('.tr-find');
+      const rIn = row.querySelector('.tr-repl');
+      fIn.value = findVal || '';
+      rIn.value = replVal || '';
       row.querySelector('.tr-sfx').checked = !!sfxVal;
       row.querySelector('.tr-del').addEventListener('click', () => row.remove());
+      // ＋术语表（2026-10-16 用户要求）：一对也能直接进本作品术语表；输入变了即时刷新按钮状态
+      // （注意：只刷按钮，不动预览——输入框的改动本来就由 trPairsKey 判定「未预览」）
+      const gbtn = trGlossBtn(() => ({ find: fIn.value, repl: rIn.value }));
+      row.insertBefore(gbtn, row.querySelector('.tr-del'));
+      fIn.addEventListener('input', trGlossSyncAll);
+      rIn.addEventListener('input', trGlossSyncAll);
       return row;
     };
     // 历史替换记录（2026-09-13）：逐条勾选是否启用；勾选的与手工对合并后一起预览/应用
@@ -1291,73 +1435,8 @@
         meta.className = 'th-meta';
         meta.textContent = trShortTs(it.ts) + (it.n > 1 ? ' ×' + it.n : '');   // 简略（2026-10-01）；详情看 title
         row.appendChild(cb); row.appendChild(pinBtn); row.appendChild(pair); row.appendChild(meta);
-        // ＋术语表（2026-09-14）：单条把该对 (find→repl) 手动加进本作品术语表，只影响以后的翻译/校对。
-        // 已在术语表里的条目直接显示「✓ 已加入」并禁用（不依赖本次会话是否点过）
-        const glossHas = trGlossMap.has(it.find);
-        const glossZh = glossHas ? (trGlossMap.get(it.find).zh || '') : '';
-        const glossCat = glossHas ? (trGlossMap.get(it.find).cat || '') : '';
-        const glossSame = glossHas && glossZh === it.repl;
-        const addBtn = document.createElement('button');
-        addBtn.type = 'button';
-        addBtn.className = 'btn tiny ghost th-add';
-        if (!it.repl) {
-          addBtn.textContent = '＋术语表';
-          addBtn.disabled = true;
-          addBtn.title = '「替换为」为空的记录是「删除该串」，不是译名，不能加入术语表';
-        } else if (glossSame) {
-          addBtn.textContent = '✓ 已加入';
-          addBtn.disabled = true;
-          addBtn.title = '本作品术语表已有这一条：' + it.find + ' → ' + it.repl +
-            (glossCat ? '（类别「' + glossCat + '」）' : '');
-        } else if (glossHas) {
-          addBtn.textContent = '✓ 已有';
-          addBtn.disabled = true;
-          addBtn.title = '本作品术语表已有「' + it.find + '」→「' + glossZh + '」，不覆盖（要改去术语表页改）';
-        } else {
-          addBtn.textContent = '＋术语表';
-          addBtn.disabled = false;
-          addBtn.title = '把这一对加入本作品术语表：' + it.find + ' → ' + it.repl +
-            '（类别「专名」、来源 manual）。只影响以后的翻译/校对 prompt，不改现有文本。';
-        }
-        addBtn.addEventListener('click', async (ev) => {
-          ev.preventDefault(); ev.stopPropagation();     // 行是 <label>，别让点击连带勾选框
-          addBtn.disabled = true;
-          addBtn.textContent = '加入中';
-          try {
-            const r = await fetch(`/api/glossary/${encodeURIComponent(CFG.work)}/add-pair`, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ jp: it.find, zh: it.repl, cat: '专名' })
-            });
-            const j = await r.json().catch(() => ({}));
-            if (j.added) {
-              trGlossMap.set(it.find, { zh: it.repl, cat: '专名' });   // 记住：重渲染（勾选/刷新）后仍是「已加入」
-              addBtn.textContent = '✓ 已加入';
-              toast('已加入本作品术语表：' + it.find + ' → ' + it.repl + '（专名）✓', true);
-              return;
-            }
-            if (j.reason === 'exists') {
-              trGlossMap.set(it.find, { zh: it.repl, cat: '专名' });
-              addBtn.textContent = '✓ 已加入';
-              toast('术语表里已有这一条，无需重复添加（' + it.find + ' → ' + it.repl + '）', true);
-              return;
-            }
-            if (j.reason === 'conflict') {
-              trGlossMap.set(it.find, { zh: j.current_zh || '', cat: '' });
-              addBtn.textContent = '✓ 已有';
-              addBtn.title = '本作品术语表已有「' + it.find + '」→「' + (j.current_zh || '') + '」，不覆盖（要改去术语表页改）';
-              toast('术语表已有「' + it.find + '」→「' + j.current_zh + '」，未覆盖（要改去术语表页改）', false);
-            } else {
-              toast('加入术语表失败：' + (j.detail || j.error || JSON.stringify(j)), false);
-            }
-          } catch (e) {
-            toast('网络错误：' + e, false);
-          }
-          if (!trGlossMap.has(it.find)) {          // 失败才允许再点；成功/冲突已置灰
-            addBtn.textContent = '＋术语表';
-            addBtn.disabled = !it.repl;
-          }
-        });
-        row.appendChild(addBtn);
+        // ＋术语表（2026-09-14；2026-10-16 起与「替换对」共用 trGlossBtn 同一实现）
+        row.appendChild(trGlossBtn(() => ({ find: it.find, repl: it.repl })));
         trHistBox.appendChild(row);
       });
       trHistSyncInfo();
@@ -1597,6 +1676,39 @@
         btn.disabled = false; btn.textContent = '应用';
       }
     }
+    // 划词弹窗「批量替换」入口（2026-10-16 用户要求）：把 (选中原文 → 译文) 当一对送进本弹窗，
+    // 由本弹窗的「刷新预览 → 应用」完成（先预览后替换；范围/章节勾选/预览缓存全部复用，不另造一套流程）。
+    // 默认范围 = 全部章节（划词修的多是跨章统一的译名）；改范围会按指纹要求重新预览，不会误应用。
+    window.__aaTrBatch = (find, repl, sfx) => {
+      const f = String(find == null ? '' : find);
+      const r0 = String(repl == null ? '' : repl);
+      if (!f.trim()) { toast('没有可用的查找串（选中片段无法定位，请重新划词）', false); return; }
+      if (!r0.trim()) { toast('没有可用译文（模型照抄的结果不能批量替换）', false); return; }
+      if (window.__aaEditing) closeEdit();
+      // 空行先清掉（别把没填完的对带进预览/应用）；已有同「查找」串则就地更新，不新增重复对
+      let target = null;
+      trPairsBox.querySelectorAll('.tr-pair').forEach(row => {
+        const fv = row.querySelector('.tr-find').value;
+        const rv = row.querySelector('.tr-repl').value;
+        if (!fv.trim() && !rv.trim()) { row.remove(); return; }
+        if (!target && fv === f) target = row;
+      });
+      if (target) {
+        target.querySelector('.tr-repl').value = r0;
+        if (sfx) target.querySelector('.tr-sfx').checked = true;
+      } else {
+        target = trRow(f, r0, !!sfx);
+        trPairsBox.appendChild(target);
+      }
+      const rbAll = trModal.querySelector('input[name="tr-scope"][value="all"]');
+      if (rbAll) rbAll.checked = true;
+      trInvalidate();                      // 章节条/上次预览作废（范围可能刚被改成「全部」）
+      trModal.classList.remove('hidden');
+      trHistLoad();
+      trPairsBox.scrollTop = trPairsBox.scrollHeight;
+      toast('已填入替换对：「' + f + '」→「' + r0 + '」（范围：全部章节）——先看预览，再点「应用」', true);
+      trRunPreview();                      // 先预览（用户要求：先预览，后替换）
+    };
     trBtn.addEventListener('click', () => {
       if (window.__aaEditing) closeEdit();          // 行内编辑开着会遮住弹窗交互，先收起
       if (trPairsBox.querySelectorAll('.tr-pair').length === 0) trPairsBox.appendChild(trRow());

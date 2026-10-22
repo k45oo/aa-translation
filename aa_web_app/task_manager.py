@@ -393,6 +393,24 @@ def wiki_configured(work):
     return isinstance(cfg.get(work), dict)
 
 
+def pipeline_type(ttype, work):
+    """把通用 `translate` 归一到作品的专属管线类型（2026-10-19）。
+
+    `pipeline=pokemon` 的作品只能由 `works/pokemon_runner.py` 执行（通用 translate_runner
+    会硬拦并 rc≠0，任务标 failed）。旧实现只在翻译控制台（routers/tasks）判过这一次，于是
+    「更新 → 下载并翻译」的链式 `then`、CLI `--then-translate`、任务页手工建 translate 都直传
+    "translate"，进了 runner 才炸。归一放这里（enqueue 是唯一入口）→ 任何路径都自动走专属链，
+    用户不必知道作品管线归属。
+    """
+    if ttype != "translate" or not work:
+        return ttype
+    try:
+        import work_pipeline as WP
+        return "pokemon" if WP.pipeline_of(work) == WP.POKEMON else ttype
+    except Exception:
+        return ttype
+
+
 def enqueue(ttype, work, params=None, _stall_retry_of=None):
     """唯一启动入口。返回 {ok, task_id|error}。同作品串行（排队/运行中即拒绝）。
     _stall_retry_of(2026-08-31): 假死自动重入队来源 task_id——豁免"该任务已标 stalled"的同作品占用检查。
@@ -401,6 +419,11 @@ def enqueue(ttype, work, params=None, _stall_retry_of=None):
     params = params or {}
     if ttype not in TYPES:
         return {"ok": False, "error": f"未知任务类型 {ttype}（支持 {TYPES}）"}
+    _want = ttype
+    ttype = pipeline_type(ttype, work)      # pipeline=pokemon → 专属 runner（2026-10-19）
+    if ttype != _want:
+        print(f"[task_manager] 作品 {work} 归属专属链 pipeline={ttype}，任务类型 {_want} → {ttype}",
+              flush=True)
     if ttype == "wiki" and not wiki_configured(work):
         return {"ok": False,
                 "error": f"作品 {work} 未配置官方设定 wiki（scripts/config/work_wikis.json 缺该作品块）"}
@@ -991,7 +1014,7 @@ def _chain_followup(t, rc):
         _save_task(t)
         return
     spec = dict(spec) if isinstance(spec, dict) else {"type": str(spec)}
-    ntype = spec.pop("type", "translate")
+    ntype = pipeline_type(spec.pop("type", "translate"), t.get("work"))
     params = dict(spec.pop("params", None) or {})
     params.update(spec)          # 平铺键(chapters/force/gen/env…)直接透传
     params.setdefault("chapters", (t.get("params") or {}).get("chapters") or "new")

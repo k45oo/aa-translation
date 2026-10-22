@@ -76,7 +76,9 @@ class TestClassifyEdit(unittest.TestCase):
         self.assertEqual(logic.jp_degree("俺 の 名", "俺の名"), (1, 3))   # 空白不参与重合
 
     def test_manual_types_constant(self):
-        self.assertEqual(logic.MANUAL_EDIT_TYPES, ("错译", "漏译", "错位", "校对"))
+        # 重译（2026-10-19）：阅读器 Shift+右键行重译 / 手工重翻行显式落的类型，
+        # 用于在「修改记录」里分辨机器重译行（≠自动分类出的 错译/漏译/校对）。
+        self.assertEqual(logic.MANUAL_EDIT_TYPES, ("错译", "漏译", "错位", "校对", "重译"))
         self.assertIn(logic.AUTO_EDIT_DEFAULT, logic.MANUAL_EDIT_TYPES)
 
 

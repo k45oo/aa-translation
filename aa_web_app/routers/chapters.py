@@ -10,6 +10,7 @@ from fastapi import HTTPException, Request
 from pydantic import BaseModel
 from aa_web_app import web_state
 from aa_web_app import logic
+from aa_web_app import line_retranslate
 from aa_web_app import cand_hits
 from aa_web_app import reader_win
 from common import gen_aa_html as _gen_aa_html
@@ -111,16 +112,21 @@ def reader_page(request: Request, work: str, f: str = ""):
         lab = tcache.get(_bare) or tcache.get(raw) or raw
         labels[ch["src_file"]] = toc_label(lab, cfg.get("title", ""))
     # 目录条目：src_file 作为 URL 锚点，前端根据模式切换正文（本地双渲染）
+    # 章收藏（2026-10-17）：toc 带 base（原文 txt_key）+ fav 标记，前端画红心/筛「只看收藏」
+    _favs = set(web_state._fav_bases(work))
     toc = []
     for ch in mch:
         _r18j = logic.r18_chapter_judge(cfg.get("work_dir", ""),
                                         logic.txt_key(ch["src_file"])) or {}
+        _cb = logic.txt_key(ch["src_file"])
         toc.append({
             "src_file": ch["src_file"], "tr_file": ch["tr_file"],
             "has_tr": ch["has_tr"],
             "label": labels[ch["src_file"]],
             "title": ch["title"],
             "active": ch is fname,
+            "base": _cb,
+            "fav": _cb in _favs,
             # 2026-08-24 R18 章节级（读 prep）
             "r18_hit": _r18j.get("r18_hit", ""),
             "r18_hits": _r18j.get("r18_word_hits", 0),
@@ -180,6 +186,8 @@ def reader_page(request: Request, work: str, f: str = ""):
         "win_data": win_data, "win_mode": win_mode,
         "total": len(mch), "resume_line": resume_line, "active": "works",
         "cand_data": cand_data, "gold": gold,
+        # 章收藏（2026-10-17）
+        "fav_total": sum(1 for t in toc if t["fav"]), "cur_fav": base in _favs,
     })
 
 
@@ -459,6 +467,29 @@ def api_save_line(work: str, fname: str, idx: int, body: LineSave):
     return r
 
 
+@router.post("/api/work/{work}/chapter/{fname}/line/{idx}/retranslate")
+def api_line_retranslate(work: str, fname: str, idx: int):
+    """行重译（阅读器 **Shift+右键行号**）：单行走主链重译，**返回新译文，不写盘**。
+
+    只放 text/mixed 行；AA 艺术行/帖头/空行 → 422（艺术行重译必被推位译坏）。
+    写盘由前端接回 `PUT /line/{idx}`（save_line 的宽度硬约束 / pad / edits.jsonl
+    台账 / 统计失效口径唯一；`type=重译` 便于事后在「修改记录」里分辨机器重译行）。
+    判据与实现见 `aa_web_app/line_retranslate.py`（与主链同源，禁另造一套）。
+    """
+    cfg = web_state.cfg_of(work)
+    check_chapter(cfg, fname)
+    try:
+        r = line_retranslate.retranslate_line(work, cfg, fname, idx)
+    except SystemExit as e:
+        # 兜底（模块内已接住）：库函数的设计性 SystemExit 逃出请求线程会杀 uvicorn
+        raise HTTPException(409, str(e) or "前置缺失（如作品术语表）")
+    except BaseException as e:
+        raise HTTPException(500, f"行重译异常: {type(e).__name__}: {e}")
+    if not r.get("ok"):
+        raise HTTPException(int(r.get("code") or 500), r.get("error") or "行重译失败")
+    return r
+
+
 # ---------- 人工行分类 override（只喂图片加大，翻译 flag 不动） ----------
 
 
@@ -565,10 +596,11 @@ def api_find(work: str, q: str = "", scope: str = "both", limit: int = 300):
 
 
 class MakeHtmlBody(BaseModel):
-    """「仅 HTML 文件」简版的三个选项（作品页第二个生成按钮）。"""
+    """「仅 HTML 文件」简版的选项（作品页第二个生成按钮）。"""
     tr_only: bool = False       # 仅译文（页面不做译/原切换、不存原文数据）
     split: int = 0              # 每 N 章一个文件；0/负数 = 全部章放一个文件
     out_dir: str = ""           # 输出目录；留空 = 交付 HTML 目录（aaManga/交付HTML）
+    fav: bool = False           # 带上工作台收藏夹标记（默认不带：静态只读，只标 ♥ + 目录筛选）
 
 
 def _role_hint(jp):
@@ -605,3 +637,89 @@ def _role_hint(jp):
 
 class ApplyGlossaryBody(BaseModel):
     pairs: list = []   # 前端选中的 [日文, 中文] 列表
+
+
+# ---------- 章收藏（2026-10-17：阅读界面红心 + 「只看收藏夹」筛选）----------
+# 存盘 = web_state._FAV_FILE（data/favorites.json，{"<work>": [base, ...]}）。
+# base 一律原文 txt_key：汉化名/原文名/带不带 .txt 都能对上，重译改名不丢收藏。
+
+
+class FavBody(BaseModel):
+    base: str
+    fav: bool = True
+
+
+class OrderMoveBody(BaseModel):
+    """目录拖拽排序请求体（阅读器目录长按拖拽 → 章节顺序）。"""
+    from_src: str = ""
+    to_src: str = ""
+    place: str = "before"        # before | after（相对目标章）
+
+
+def _fav_known_bases(cfg):
+    """本作品全部章的 base 集合（校验收藏目标确实是本作品的一章）。"""
+    order_path = os.path.join(cfg["work_dir"], "chapter_order.json")
+    mch = logic.merged_chapters(cfg["aa_dir"], cfg["out_dir"], cfg.get("name_style"), order_path)
+    return {logic.txt_key(ch["src_file"]) for ch in mch}
+
+
+@router.get("/api/work/{work}/favorites")
+def api_favs_get(work: str):
+    cfg = web_state.cfg_of(work)
+    favs = web_state._fav_bases(work)
+    return {"work": work, "favs": favs, "total": len(favs),
+            "known": len(_fav_known_bases(cfg))}
+
+
+@router.post("/api/work/{work}/chapter-order/move")
+def api_chapter_order_move(work: str, body: OrderMoveBody):
+    """目录拖拽排序：把一章移到另一章前/后 → 写 `work/chapter_order.json`（原子）。
+
+    顺序文件是目录顺序的**唯一权威**：阅读器目录、交付页、键盘 ←→ 翻章都读它；服务端按
+    「当前生效顺序」（order 文件优先、未收录章按 eid 补尾）重排后整份落盘，顺带补齐缺的章。
+    手工顺序在后续 dl_runner 下载新章后保留（`ensure_order` 只追加、不重排）。
+    """
+    cfg = web_state.cfg_of(work)
+    if body.place not in ("before", "after"):
+        raise HTTPException(422, "place 只能是 before/after")
+    from_src, to_src = (body.from_src or "").strip(), (body.to_src or "").strip()
+    if not from_src or not to_src:
+        raise HTTPException(422, "from_src / to_src 不能为空")
+    try:
+        new = logic.move_chapter(cfg, from_src, to_src, body.place)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    except OSError as e:
+        raise HTTPException(500, "写 chapter_order.json 失败：%s" % e)
+    m = logic.EID_RE.search(from_src)
+    key = m.group(1) if m else ""
+    pos = (new.index(key) + 1) if key in new else 0
+    _log_edits_bulk(cfg, "（目录顺序）",
+                    [(0, "%s → 移到 %s %s" % (from_src, to_src, "之前" if body.place == "before" else "之后"),
+                      "现第 %d/%d 位" % (pos, len(new)))], "目录顺序")
+    return {"ok": True, "total": len(new), "order": new}
+
+
+@router.post("/api/work/{work}/favorites")
+def api_favs_set(work: str, body: FavBody):
+    """收藏 / 取消收藏一章（幂等：重复收藏不重复入表，取消不存在的收藏也回 ok）。"""
+    cfg = web_state.cfg_of(work)
+    base = (body.base or "").strip()
+    if not base:
+        raise HTTPException(422, "base 不能为空")
+    if base not in _fav_known_bases(cfg):
+        raise HTTPException(404, f"本作品没有这一章: {base}")
+    with _LOCK:
+        d = web_state._load_favs()
+        cur = [b for b in (d.get(work) or []) if isinstance(b, str)]
+        if body.fav:
+            if base not in cur:
+                cur.append(base)
+        else:
+            cur = [b for b in cur if b != base]
+        if cur:
+            d[work] = cur
+        else:
+            d.pop(work, None)
+        web_state._save_favs(d)
+    return {"ok": True, "work": work, "base": base, "fav": bool(body.fav), "total": len(cur)}

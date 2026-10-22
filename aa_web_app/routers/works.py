@@ -127,7 +127,9 @@ class IntroReq(BaseModel):
 def api_translate_intro(body: IntroReq):
     """手动翻译作品简介（添加作品弹窗「翻译简介」按钮；2026-09-20 起不再自动翻译）。
 
-    走 add_work.translate_desc → aa_translate.call_api（AA_BACKEND 未设 = [default] commandcode 网关）。
+    走 add_work.translate_desc → aa_translate.call_api（2026-10-21 起 AA_BACKEND 未设也走
+    **模型链首**＝设置页/AA_CHAIN 勾选的第一条；旧的 [default] commandcode 直连模型已下架，
+    仅 `AA_BACKEND=cloud` 显式指定时才走）。
     翻译失败（含内容审查拒绝）回退日文原文，返回 translated=False 供前端提示。
     """
     text = (body.text or "").strip()
@@ -361,7 +363,7 @@ def api_work_meta_mat_scan(work: str):
     out = cfg.get("out_dir")
     if not out or not os.path.isdir(out):
         raise HTTPException(400, "无汉化目录")
-    files = [os.path.join(out, n) for n in logic.list_txt(out, "_汉化.txt")]
+    files = logic.real_txt_paths(out, "_汉化.txt")
     if not files:
         return {"ok": True, "skipped": True, "materials": [], "msg": "无汉化文件"}
     # 2026-08-28: 知识库人物优先(作品专属素材, 精准); 空时回退全局角色表

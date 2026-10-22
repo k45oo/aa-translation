@@ -10,6 +10,7 @@ import re
 import shutil
 import sys
 import unittest
+from unittest import mock
 
 SCRIPTS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for _d in (SCRIPTS, os.path.join(SCRIPTS, "common")):
@@ -385,6 +386,43 @@ class TestTplTolerance(unittest.TestCase):
         self.assertFalse(PF._names_consistent("『エース』…説明", "『ACE』…説明", pairs))
         self.assertTrue(PF._names_consistent("『エース』…説明", "『王牌』…説明", pairs))
         self.assertTrue(PF._names_consistent("没有引号的行", "……", pairs))
+
+
+class TestMergedTermsPriority(unittest.TestCase):
+    """合并词表优先级：通用 wiki(0) < 本作 wiki 名字(1) < 人工补充/作品专属(1，人工优先) < 作品表(2)。
+
+    事故（2026-10-18）：本作 wiki names 里 `ヒワマキジム → 桧皮道馆` 在旧实现里**最后 update**，
+    压掉了人工补充（`补充术语.json`）的正确条目「茵郁道馆」→ 模板轨 `◎フィールド：《{场}》` 回填
+    把已正确的行改成错译。修法 = extra_pairs 用覆盖而非 setdefault，且排在 names 之后。
+    """
+
+    def _run(self, wiki, names, extra, worktab):
+        import pre_terms as PT
+        with mock.patch.object(PF, "wiki_terms", return_value=wiki), \
+             mock.patch.object(PF, "work_wiki_sources", return_value={"names": names}), \
+             mock.patch.object(PT, "extra_pairs", return_value=extra), \
+             mock.patch.object(PF, "work_glossary_terms", return_value=worktab):
+            return PF.merged_terms("X", "/tmp/nowhere")
+
+    def test_人工补充压过本作wiki名字(self):
+        out = self._run({"z": "0"}, {"ヒワマキジム": "桧皮道馆"},
+                        [("ヒワマキジム", "茵郁道馆", "wiki-补充", "场地")], {})
+        self.assertEqual(out["ヒワマキジム"], "茵郁道馆")
+
+    def test_人工补充压过生成物wiki(self):
+        """`补充术语.json` 是源、`术语表.json` 是生成物：生成物滞后时以源为准。"""
+        out = self._run({"指示安価": "指示底价"}, {}, [("指示安価", "指示安价", "wiki-补充", "系统行")], {})
+        self.assertEqual(out["指示安価"], "指示安价")
+
+    def test_作品表最高优先(self):
+        out = self._run({}, {"でっきー": "本作wiki口径"}, [("でっきー", "补充口径", "wiki-补充", "专名")],
+                        {"でっきー": "作品表口径"})
+        self.assertEqual(out["でっきー"], "作品表口径")
+
+    def test_本作wiki名字仍能并进来(self):
+        """回归：本作借名个体（インコマン 等）只在 names 里 → 必须仍然可解析。"""
+        out = self._run({"z": "0"}, {"インコマン": "印可男"}, [], {})
+        self.assertEqual(out["インコマン"], "印可男")
 
 
 if __name__ == "__main__":

@@ -48,6 +48,11 @@ class TestProxyRetry(unittest.TestCase):
         self.orig_build = T.urllib.request.build_opener
         self.orig_sleep = T.time.sleep
         T.time.sleep = lambda s: None      # 禁退避等待
+        # 2026-10-21: 云端直连改成**显式**开关（`AA_BACKEND=cloud`）——AA_BACKEND 未设时
+        #   call_api 改为走模型链（旧默认 [default] commandcode + xiaomi/mimo-v2.5 已下架）。
+        #   本类测的就是这条直连重试实现，故显式打开。
+        self._orig_backend_env = os.environ.get("AA_BACKEND")
+        os.environ["AA_BACKEND"] = "cloud"
         self.direct_calls = 0
         self.proxy_calls = 0
         self.fail_first_n = 0              # 前 N 次调用抛错
@@ -85,6 +90,10 @@ class TestProxyRetry(unittest.TestCase):
         T.urllib.request.build_opener = self.orig_build
         T.time.sleep = self.orig_sleep
         T.get_key = self.orig_key
+        if self._orig_backend_env is None:
+            os.environ.pop("AA_BACKEND", None)
+        else:
+            os.environ["AA_BACKEND"] = self._orig_backend_env
 
     def _call(self):
         return T.call_api("sys", "body", max_tokens=100, timeout=5)

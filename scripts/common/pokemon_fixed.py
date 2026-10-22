@@ -309,27 +309,33 @@ def work_glossary_terms(work, work_dir=None):
 
 
 def merged_terms(work, work_dir=None):
-    """固定表 / L2 槽位用的合并词表 = 通用 AA wiki 术语 ∪ 作品表译名 ∪ **本作 wiki 名字**。
+    """固定表 / L2 槽位用的合并词表 = 通用 AA wiki 术语 ∪ 本作 wiki 名字 ∪ 人工补充 ∪ 作品表译名。
 
     本作 wiki 的名字（`work_wiki_sources()["names"]`，含 `人工修正.本地译名`）必须并进来：
     `◎{名}に「特大のダメージ」！` 这类模板的 `{名}` 槽位靠它解析——只给通用 wiki + 作品表时，
     本作借名个体（インコマン/できる夫…）解析不出中文 → 槽位回退日文 → 整行落回模型。
+
+    **合并顺序 = pre_terms 的优先级口径（2026-10-18 修）**：通用 wiki(0) < 本作 wiki 名字(1)
+    < 人工补充/作品专属(1，人工优先) < 作品表(2)。旧实现里 `extra_pairs` 用 `setdefault`（加不进
+    已有键）、而本作 wiki 名字最后 `update`（覆盖一切）→ 本作 wiki 里一条错值就能压掉人工补充的
+    正确条目。实测 `◎フィールド：《ヒワマキジム》` 的槽位被 names 的「桧皮道馆」覆盖（人工补充写的
+    是「茵郁道馆」，且 note 明确记录「引号对误作「桧皮道馆」」）→ 模板回填把对的改成错的。
     """
-    out = dict(wiki_terms())
-    out.update(work_glossary_terms(work, work_dir))
-    try:                       # 补充术语.json 的人工增量（通用补充 + works.<作品> 作品专属，如场地名）
-        import pre_terms as PT
-        for jp, zh, _src, _cat in PT.extra_pairs(work):
-            if jp and zh:
-                out.setdefault(jp, zh)
-    except Exception:
-        pass
-    try:
+    out = dict(wiki_terms())                       # 0 通用 AA wiki（含补充术语的生成物）
+    try:                                           # 1 本作设定 wiki 名字
         src = work_wiki_sources(work)
         if src:
             out.update(src.get("names") or {})
     except Exception:
         pass
+    try:                                           # 1' 人工补充/作品专属（直读 补充术语.json → 覆盖上面两层）
+        import pre_terms as PT
+        for jp, zh, _src, _cat in PT.extra_pairs(work):
+            if jp and zh:
+                out[jp] = zh
+    except Exception:
+        pass
+    out.update(work_glossary_terms(work, work_dir))  # 2 作品表（最高）
     return out
 
 

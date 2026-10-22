@@ -230,12 +230,33 @@ def load_existing():
     return exists
 
 
+def _chain_call(system, body, max_tokens=4000, timeout=120, work_r18=None):
+    """候选生成统一走**设置里的模型链**（链首优先，失败按链降级）。
+
+    2026-10-21: 原实现是裸 `A.call_api(...)`——未设 AA_BACKEND 时落「云端直连」
+    （`[default]` = commandcode 网关 + `xiaomi/mimo-v2.5`）。该模型已被 commandcode
+    下架（实测 400 `No available providers match the 'only' filter: xiaomi.
+    Available providers are: gmicloud`）→ 候选筛选 10 批全 400、0 条候选。
+    改走 `aa_backend.call_with_fallback`：链首 = 设置页 / `AA_CHAIN` 选中的第一条
+    （与翻译 / 校对 / 章节简介同口径），链上端点失效自动降级而非整批失败。
+    返回 (text, 实际出力的端点名)。
+    """
+    if work_r18 is None:
+        work_r18 = os.environ.get("AA_R18") in ("1", "true", "True")
+    try:
+        import aa_backend as AB
+    except ImportError:                       # 老环境（无 common/aa_backend）回落直连
+        return A.call_api(system, body, max_tokens=max_tokens), "cloud"
+    return AB.call_with_fallback(work_r18, system, body,
+                                 max_tokens=max_tokens, timeout=timeout)
+
+
 def extract_ai(sample, backend=None, max_tokens=4000):
-    """调 call_api 提取术语；返回候选 list。dry 时跳过。"""
+    """调模型提取术语（走设置里的模型链）；返回候选 list。dry 时跳过。"""
     if backend:
         os.environ["AA_BACKEND"] = backend
     os.environ.setdefault("AA_USAGE_TAG", "gen_glossary_ai")
-    raw = A.call_api(SYSTEM_PROMPT, sample, max_tokens=max_tokens)
+    raw, _used = _chain_call(SYSTEM_PROMPT, sample, max_tokens=max_tokens)
     return parse_terms(raw)
 
 
@@ -341,8 +362,11 @@ def extract_full_pool(aa_dir, cfg, backend=None, top=200, batch=20):
     # ② 模型筛选(分批, 含续跑)
     import screen_term_pool as STP
     os.environ.setdefault("AA_USAGE_TAG", "term_filter")
+    # R18 作品走 r18 链（链首不同）——与翻译/校对同口径；cfg["r18"] 在 main() 里已转成 AA_R18
+    work_r18 = bool((cfg or {}).get("r18")) or os.environ.get("AA_R18") in ("1", "true", "True")
     skipped = []
     n_batches = (len(pool_terms) + batch - 1) // batch
+    _said_endpoint = False
     for i in range(0, len(pool_terms), batch):
         bi = i // batch
         if bi in done_idx:
@@ -350,11 +374,17 @@ def extract_full_pool(aa_dir, cfg, backend=None, top=200, batch=20):
         chunk = pool_terms[i:i + batch]
         sample = json.dumps(chunk, ensure_ascii=False)
         try:
-            raw = A.call_api(STP.FILTER_SYSTEM, sample, max_tokens=4000)
+            raw, _used = _chain_call(STP.FILTER_SYSTEM, sample, max_tokens=4000,
+                                     work_r18=work_r18)
             got = STP._parse_filter(raw)
         except Exception as e:
-            print(f"  [pool] 批{bi+1}/{n_batches}: 失败 {str(e)[:60]}", flush=True)
+            # 截断放宽到 200 字：旧 60 字把网关 400 正文（如 unsupported_model /
+            # No available providers）全切掉，只剩 `HTTP 400: {"error":{"message":"{`
+            print(f"  [pool] 批{bi+1}/{n_batches}: 失败 {str(e)[:200]}", flush=True)
             continue
+        if not _said_endpoint:
+            print(f"  [pool] 端点: {_used}（设置里的模型链首）", flush=True)
+            _said_endpoint = True
         got_map = {g["term"]: g for g in got}
         seq = 0
         for ct in chunk:

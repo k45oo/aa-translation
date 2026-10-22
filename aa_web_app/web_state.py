@@ -151,6 +151,8 @@ def _sel_enabled():
 
 
 templates.env.globals["sel_enabled"] = _sel_enabled
+# 揭示板显示用：`2026/10/19(月) 19:04:15 ID:xxx` → `2026/10/19 19:04`（口径在 logic.board_ts_short）
+templates.env.globals["board_ts_short"] = logic.board_ts_short
 
 
 @app.on_event("startup")

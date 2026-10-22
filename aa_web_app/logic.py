@@ -460,13 +460,16 @@ def merged_chapters(aa_dir, out_dir, name_style=None, order_path=None):
     now = time.time()
     hit = _MCH_CACHE.get(_key)
     if hit and now - hit[0] < _MCH_TTL:
-        # 目录 mtime 变了则失效（新增/删除章节文件）
+        # 目录 mtime 变了则失效（新增/删除章节文件）；**顺序文件 mtime 也算指纹**
+        #（2026-10-19：dl_runner/手工补 chapter_order.json 属"带外"改动，只比目录 mtime
+        #  会让目录顺序继续用旧值到 TTL 过期 —— 用户会看到「文件改了但目录没变」）
         try:
             aa_m = os.path.getmtime(aa_dir)
             out_m = os.path.getmtime(out_dir) if out_dir and os.path.isdir(out_dir) else 0
+            ord_m = os.path.getmtime(order_path) if order_path and os.path.exists(order_path) else 0
         except OSError:
-            aa_m = out_m = 0
-        if (aa_m, out_m) == hit[1]:
+            aa_m = out_m = ord_m = 0
+        if (aa_m, out_m, ord_m) == hit[1]:
             return hit[2]
     _order = None
     if order_path and os.path.exists(order_path):
@@ -538,14 +541,69 @@ def merged_chapters(aa_dir, out_dir, name_style=None, order_path=None):
             return (1, int(m.group(1)) if m else 99999, ch["src_file"])
 
     result = sorted(out, key=key)
-    # 写缓存（目录 mtime 作失效指纹）
+    # 写缓存（目录 mtime + 顺序文件 mtime 作失效指纹）
     try:
         aa_m = os.path.getmtime(aa_dir)
         out_m = os.path.getmtime(out_dir) if out_dir and os.path.isdir(out_dir) else 0
+        ord_m = os.path.getmtime(order_path) if order_path and os.path.exists(order_path) else 0
     except OSError:
-        aa_m = out_m = 0
-    _MCH_CACHE[_key] = (now, (aa_m, out_m), result)
+        aa_m = out_m = ord_m = 0
+    _MCH_CACHE[_key] = (now, (aa_m, out_m, ord_m), result)
     return result
+
+
+def move_in_order(items, i, j, place="before"):
+    """把 items[i] 移到 items[j] 之前/之后（place=before|after）→ 返回新列表（纯函数，不改入参）。
+
+    下标口径是「同一份列表里的位置」；i==j 时原样返回。重复项安全（按位置算，不用 index()）。
+    """
+    n = len(items)
+    if not (0 <= i < n) or not (0 <= j < n):
+        raise IndexError("下标越界: i=%r j=%r n=%d" % (i, j, n))
+    out = list(items)
+    item = out.pop(i)
+    k = j - (1 if i < j else 0)          # 目标元素在「弹掉 item」后的下标
+    if place == "after":
+        k += 1
+    out.insert(k, item)
+    return out
+
+
+def move_chapter(cfg, from_src, to_src, place="before"):
+    """把某章移到另一章前/后，落盘 `work/chapter_order.json`，返回新的 eid 顺序列表。
+
+    阅读器目录的**长按拖拽排序**用它（2026-10-19）。三点口径：
+
+    - 顺序口径 = **当前生效顺序**（`merged_chapters`：order 文件优先、未收录的按 eid 补尾）——
+      落盘时把这一整份写进文件，顺带把缺的章补齐；之后拖拽就是精确的、跨页也一致。
+    - 「顺序文件说了算」：写进去的就是用户要的顺序；`dl_runner.ensure_order` 只会**追加**新章、
+      不会重排，所以手工顺序在后续下载/更新后仍然保留。
+    - 写盘原子（临时文件 + os.replace）；失败抛 OSError，调用方转 HTTP 错误 → 前端回滚 DOM。
+    """
+    order_path = os.path.join(cfg["work_dir"], "chapter_order.json")
+    mch = merged_chapters(cfg["aa_dir"], cfg["out_dir"], cfg.get("name_style"), order_path)
+    if not mch:
+        raise ValueError("作品暂无章节")
+    names = [c["src_file"] for c in mch]
+    if from_src not in names:
+        raise ValueError("要移动的章不在目录里：%s" % from_src)
+    if to_src not in names:
+        raise ValueError("目标章不在目录里：%s" % to_src)
+    if from_src == to_src:
+        raise ValueError("目标章与要移动的章相同")
+    if place not in ("before", "after"):
+        raise ValueError("place 只能是 before/after")
+    keys = [c["eid"] for c in mch]
+    if any(not k for k in keys):
+        raise ValueError("章节名里没有编号，无法写顺序文件（该作品不支持手工排序）")
+    new = move_in_order(keys, names.index(from_src), names.index(to_src), place)
+    os.makedirs(cfg["work_dir"], exist_ok=True)
+    tmp = order_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"order": new}, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, order_path)
+    invalidate_mch_cache()
+    return new
 
 
 def chapter_stats(aa_path, tr_path, with_details=False, work_names=None):
@@ -666,7 +724,7 @@ def restore_backup(backup_root, ts, dest_dir):
 # ---------- 行编辑类型自动分类（2026-10-01，口径由用户逐条确认） ----------
 # 类型取值：错译 / 漏译 / 错位 / 校对（校对 = 中文换中文，译文本身有错）。
 # 人工显式选择永远优先；未指定（空串）时由 classify_edit 判定（工作台 radio 的「自动」项）。
-MANUAL_EDIT_TYPES = ("错译", "漏译", "错位", "校对")
+MANUAL_EDIT_TYPES = ("错译", "漏译", "错位", "校对", "重译")
 AUTO_EDIT_DEFAULT = "错位"                     # 无法判定（art 行）时沿用旧默认值
 _WS_RE = re.compile("[\u3000 \t\u00a0]+")      # 全角空格/半角空格/制表/不换行空格
 
@@ -1417,10 +1475,11 @@ def board_display_name(dirname):
 
 
 def board_collections():
-    """扫描 揭示板/ 根下所有作者/题材目录。返回 [{name, dir, slaves}]。
+    """扫描 揭示板/ 根下所有作者/题材目录。返回 [{name, dir, slaves, last_ts}]。
 
     每个子目录视为一个「连载」（作者或题材）；无 index.json 时回退扫描 .dat。
     name = 显示名（URL 用）；dir = 物理目录。
+    last_ts = 该连载**最后投稿**时间（各贴取最新——首页「最后投稿」列：拿它跟作品最新章日期比）。
     """
     out = []
     if not os.path.isdir(BOARD_ROOT):
@@ -1432,13 +1491,80 @@ def board_collections():
         if not os.path.isdir(d):
             continue
         slaves = board_slaves(name)
-        out.append({"name": board_display_name(name), "dir": d, "slaves": slaves})
+        lasts = [s["last_ts"] for s in slaves if s.get("last_ts")]
+        out.append({"name": board_display_name(name), "dir": d, "slaves": slaves,
+                    "last_ts": max(lasts) if lasts else ""})
     return out
+
+
+def board_host_board(meta):
+    """从 index.json 顶层元数据取 `(host, board)` —— 三种 schema 都能认：
+
+    ① 新版 `host` + `board_id`（board_runner 写）；
+    ② 旧版 `board = "yarufox.sakura.ne.jp/FOX"`；
+    ③ 最老的 `掲示板 = "やる夫板のシェルター (yaruoshelter.com /yaruo001/)"`。
+    解析不出返回空串（调用方据此不显示原帖地址）。
+    """
+    meta = meta or {}
+    host = str(meta.get("host") or "").rstrip("/")
+    board = str(meta.get("board_id") or "").strip("/")
+    if host and board:
+        return host, board
+    raw = str(meta.get("board") or meta.get("掲示板") or "")
+    m = re.search(r'([A-Za-z0-9.\-]+\.[A-Za-z]{2,})[^\w]*/([A-Za-z0-9_]+)', raw)
+    if not m:
+        return host, board
+    return (host or ("http://" + m.group(1))), (board or m.group(2))
+
+
+def board_thread_url(host, board, eid, src=""):
+    """贴的**原帖地址**（原站能打开的贴地址；不是 `/dat/` 裸数据）。
+
+    权威写法由 `board_runner` 写进 index.json 的 `thread_url`；这里只作**旧 index.json 的兜底**。
+    形式 = `{host}/test/read.cgi/{board}/{eid}/` —— read.cgi **在站点根下**，不在 `<板>/` 下
+    （板首页自己链的就是这个形式；`{host}/{board}/test/read.cgi/…` 实测 404）。
+    host 形如 `http://yarufox.sakura.ne.jp`，board 形如 `FOX`。
+    """
+    host = (host or "").rstrip("/")
+    board = str(board or "").strip("/")
+    eid = str(eid or "")
+    if not host or not board or not eid.isdigit():
+        return ""
+    return f"{host}/test/read.cgi/{board}/{eid}/"
+
+
+def board_last_post_ts(path, tail_bytes=65536):
+    """dat **最后一条投稿**的时间（只读文件尾部 64KB 反查——供旧 index.json 兜底，
+    旧格式没写 `last_ts`；给活跃贴判「还活跃到哪天」用）。
+
+    归档 dat 末行可能是板级页脚（日期字段是 `max`）→ 从尾往前找第一条带日期的 res。
+    """
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            if size > tail_bytes:
+                f.seek(-tail_bytes, os.SEEK_END)
+            data = f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+    for ln in reversed(data.split("\n")):
+        parts = ln.split("<>")
+        if len(parts) > 2:
+            m = re.search(r"\d{4}/\d{2}/\d{2}\([^)]*\)\s*\d{2}:\d{2}:\d{2}(?:\s*ID:\S+)?", parts[2])
+            if m:
+                return m.group(0)
+    return ""
+
+
+def board_ts_short(ts):
+    """`2026/10/19(月) 19:04:15 ID:xxx` → `2026/10/19 19:04`（页面显示用；认不出原样返回）。"""
+    m = re.match(r"(\d{4}/\d{2}/\d{2})\([^)]*\)\s*(\d{2}:\d{2})", str(ts or ""))
+    return f"{m.group(1)} {m.group(2)}" if m else str(ts or "")
 
 
 def board_slaves(author):
     """一个作者/题材目录下的全部贴，按スレ目数字升序。返回
-    [{label, eid, res, ts, file}]（eid 从文件名取；res/ts 优先 index.json）。
+    [{label, eid, res, ts, file, thread_url}]（eid 从文件名取；res/ts 优先 index.json）。
 
     文件名统一 `<数〉スレ目_<eid>.dat`；index.json 为权威排序来源。
     author 可以是显示名（原名）或物理目录名（别名映射见 BOARD_ALIASES）。
@@ -1446,15 +1572,18 @@ def board_slaves(author):
     d = os.path.join(BOARD_ROOT, board_dir(author))
     if not os.path.isdir(d):
         return []
-    # index.json 权威清单（含 res/ts，且是下载时整理好的顺序线索）
-    idx = {}
+    # index.json 权威清单（含 res/ts/thread_url，且是下载时整理好的顺序线索）
+    idx, meta = {}, {}
     ip = os.path.join(d, "index.json")
     if os.path.exists(ip):
         try:
-            idx = {it.get("eid", ""): it for it in
-                   json.load(open(ip, encoding="utf-8")).get("slaves", [])}
+            with open(ip, encoding="utf-8") as f:
+                _doc = json.load(f)
+            meta = _doc if isinstance(_doc, dict) else {}
+            idx = {it.get("eid", ""): it for it in (meta.get("slaves") or [])}
         except Exception:
-            idx = {}
+            idx, meta = {}, {}
+    _host, _board = board_host_board(meta)
     out = []
     for f in os.listdir(d):
         if not f.endswith(".dat") or f.startswith(".") or "index" in f:
@@ -1470,22 +1599,28 @@ def board_slaves(author):
         # 从 index.json 拿 res/ts，缺失回退读 dat 统计
         res = it.get("res")
         ts = it.get("ts", "")
-        if res is None or not ts:
+        last_ts = it.get("last_ts", "")
+        if res is None or not ts or not last_ts:
             fp = os.path.join(d, f)
             try:
-                with open(fp, encoding="utf-8") as fh:
-                    content = fh.read()
-                if res is None:
-                    res = len([ln for ln in content.split("\n") if ln.strip()])
-                if not ts:
-                    first = content.split("\n")[0]
-                    tm = re.search(r"\d{4}/\d{2}/\d{2}\(\S\) \d{2}:\d{2}:\d{2}", first)
-                    ts = tm.group(0) if tm else ""
+                if res is None or not ts:
+                    with open(fp, encoding="utf-8") as fh:
+                        content = fh.read()
+                    if res is None:
+                        res = len([ln for ln in content.split("\n") if ln.strip()])
+                    if not ts:
+                        first = content.split("\n")[0]
+                        tm = re.search(r"\d{4}/\d{2}/\d{2}\(\S\) \d{2}:\d{2}:\d{2}", first)
+                        ts = tm.group(0) if tm else ""
+                if not last_ts:                        # 旧 index.json 没写 → 读尾部反查
+                    last_ts = board_last_post_ts(fp)
             except Exception:
                 res = res or 0
         out.append({"label": (it.get("label") or label).replace(".dat", "") or f,
-                    "eid": eid, "res": res or 0, "ts": ts,
-                    "no": s_no, "file": f, "title": it.get("title", "")})
+                    "eid": eid, "res": res or 0, "ts": ts, "last_ts": last_ts,
+                    "no": s_no, "file": f, "title": it.get("title", ""),
+                    "thread_url": it.get("thread_url")
+                                  or board_thread_url(_host, _board, eid, it.get("src", ""))})
     out.sort(key=lambda x: (x["no"], x["eid"]))
     return out
 
@@ -1624,6 +1759,13 @@ def parse_board_dat(path):
         # 本文（可能有第4或5字段标题）
         body_raw = parts[3] if len(parts) > 3 else ""
         rows = [_board_row_html(r.replace("\r", "")) for r in body_raw.split("<br>")]
+        # 2026-10-19（用户指定）：裁掉每楼正文 **首/尾空行**——dat 里作者楼头上带 1~5 行排版填充
+        # （实测 471/471 作者楼都有，名無し 0），与作品章 txt 的「帖头紧贴正文」口径一致。
+        # 楼内的空行（AA 画内分镜）保留；楼与楼之间的留白改由 CSS 楼距（.bres + .bres）负责。
+        while rows and not rows[0].strip():
+            rows.pop(0)
+        while rows and not rows[-1].strip():
+            rows.pop()
         # 首条 res 的 body 末尾嵌主题标题（作者帖常见），剥离出 title
         if i == 0 and len(parts) > 4:
             tail = _clean_dat_field(parts[4])
@@ -1656,6 +1798,100 @@ def parse_board_dat(path):
     return {"title": title, "res": res}
 
 
+# ---------------------------------------------------------------- 揭示板阅读：仅楼主 / 去重（2026-10-19）
+# 用户口径：揭示板页只做显示层处理，不动作品 aa/汉化；「仅楼主」服务端过滤后重新分页，
+# 「去重」把连续相同正文的多楼折成一行（首楼照常显示），作者楼不参与折叠。
+
+
+def board_author_trip(dirname):
+    """该揭示板目录的**楼主 trip**（index.json 新版 `author` / 旧版 `作者`，都没有 → ""）。
+
+    返回 "" 时调用方退化按「名字含 ◆」判楼主（旧目录 `◆AnevjbxgHs`/`◆JWKY.d5ark` 就是这种）。
+    """
+    d = board_dir(dirname)
+    if not d:
+        return ""
+    p = os.path.join(BOARD_ROOT, d, "index.json")
+    try:
+        with open(p, encoding="utf-8") as f:
+            j = json.load(f)
+    except Exception:
+        return ""
+    if not isinstance(j, dict):
+        return ""
+    return str(j.get("author") or j.get("作者") or "").strip()
+
+
+def board_is_op(name, trip=""):
+    """该楼是否楼主：`trip` 优先（名字里含 trip 全串，容忍末尾「.」差异）；无 trip 退化「含 ◆」。"""
+    nm = str(name or "")
+    trip = str(trip or "").strip()
+    if trip:
+        for t in (trip, trip.rstrip(".")):
+            if t and t in nm:
+                return True
+        return False
+    return "◆" in nm
+
+
+def board_body_key(res_item):
+    """去重判据键：正文各行去首尾空白、压缩行内空白、丢空行后拼接（名字/日期/ID 不参与）。"""
+    rows = res_item.get("body") or []
+    return " ".join(" ".join(str(r).split()) for r in rows if str(r).strip())
+
+
+def board_mark_dedup(res, trip=""):
+    """给一页 res 打去重标记（**返回浅拷贝列表**，不改入参/缓存里的 dict）。
+
+    连续楼（≥2）正文完全相同（`board_body_key`）→ 首楼加 `_dedupe={"count","nos"}`，
+    其余成员加 `_dedupe={"of": 首楼 no}`；**作者楼不参与**（作者连发同样内容也要照看）。
+    模板据此：首楼后插一行「▸ ほか N 楼相同（起–止）」，成员默认 `display:none`。
+    """
+    rows = [dict(r) for r in res]
+    n = len(rows)
+    i = 0
+    while i < n:
+        if board_is_op(rows[i].get("name", ""), trip):
+            i += 1
+            continue
+        key = board_body_key(rows[i])
+        j = i + 1
+        if key:
+            while (j < n and not board_is_op(rows[j].get("name", ""), trip)
+                   and board_body_key(rows[j]) == key):
+                j += 1
+        if j - i >= 2:
+            nos = [rows[k].get("no") for k in range(i, j)]
+            rows[i]["_dedupe"] = {"count": j - i, "nos": nos}
+            for k in range(i + 1, j):
+                rows[k]["_dedupe"] = {"of": rows[i].get("no")}
+        i = j if j > i else i + 1
+    return rows
+
+
+def board_page_view(res, trip="", op=False, per_page=400, page=1):
+    """揭示板一页的取数（2026-10-19）：**仅楼主过滤 → 分页 → 去重标记**。
+
+    返回 `{rows, page, total_pages, total_res, op_total, op}`：
+    - `op=True` 且判得出楼主楼 → rows 只含楼主楼，页码按**楼主楼序号**算（楼号仍显示原始楼号）；
+    - 判不出楼主楼（`op_total=0`）→ 忽略该模式（返回全部，`op=False`），不给白页；
+    - 去重标记只在**页内**计算（跨页的组各页各算，折叠行只统计本页成员）。
+    """
+    all_res = list(res or [])
+    total_res = len(all_res)
+    op_idx = [i for i, r in enumerate(all_res) if board_is_op(r.get("name", ""), trip)]
+    op_total = len(op_idx)
+    op = bool(op and op_total)
+    view = [all_res[i] for i in op_idx] if op else all_res
+    per_page = max(1, int(per_page or 400))
+    total_pages = max(1, (len(view) + per_page - 1) // per_page)
+    page = max(1, min(int(page or 1), total_pages))
+    start = (page - 1) * per_page
+    rows = board_mark_dedup(view[start:start + per_page], trip)
+    return {"rows": rows, "page": page, "total_pages": total_pages, "total_res": total_res,
+            "op_total": op_total, "op": op}
+
+
 # =========================================================================
 # 作品表格改版（2026-08-24）：作者◆提取 / work_meta 读写 / 素材占比统计
 # =========================================================================
@@ -1677,25 +1913,24 @@ def extract_author_tripcode(aa_dir):
     import glob
     if not aa_dir or not os.path.isdir(aa_dir):
         return ""
-    files = [os.path.join(aa_dir, n) for n in list_txt(aa_dir)][:12]
+    files = real_txt_paths(aa_dir)[:12]
     from collections import Counter
     votes = Counter()
     for f in files:
         n = 0
         try:
-            with open(f, encoding="utf-8", errors="replace") as fh:
-                for line in fh:
-                    if n > 600:
-                        break
-                    n += 1
-                    line = line.rstrip("\n")
-                    if line.startswith("#") or line.startswith("====="):
-                        continue
-                    if not _HEADER_LINE_RE.match(line):
-                        continue
-                    m = _TRIP_RE.search(line)
-                    if m:
-                        votes[m.group(1)] += 1
+            for line in read_lines(f):
+                if n > 600:
+                    break
+                n += 1
+                line = line.rstrip("\n")
+                if line.startswith("#") or line.startswith("====="):
+                    continue
+                if not _HEADER_LINE_RE.match(line):
+                    continue
+                m = _TRIP_RE.search(line)
+                if m:
+                    votes[m.group(1)] += 1
         except OSError:
             continue
     if not votes:
@@ -1736,7 +1971,7 @@ def extract_author_cached(work_dir, aa_dir):
     import glob, json
     if not aa_dir or not os.path.isdir(aa_dir):
         return ""
-    files = [os.path.join(aa_dir, n) for n in list_txt(aa_dir)][:12]
+    files = real_txt_paths(aa_dir)[:12]
     if not files:
         return ""
     fp_parts = [f"{os.path.basename(f)}:{os.path.getmtime(f):.0f}:{os.path.getsize(f)}" for f in files]
@@ -2023,6 +2258,27 @@ def resolve_material(name):
     return out
 
 
+def real_txt_paths(d, suffix=".txt", exclude=()):
+    """目录内正文 txt 的**真实物理路径**列表（`.txt` / `.txt.gz` 透明，缺失跳过）。
+
+    `list_txt` 返回的是**规范名**（`.txt`），而全库压缩后磁盘上多半是 `.txt.gz`：
+    直接 `os.path.join(dir, n)` 再去 `getmtime` / `open()` 会
+    FileNotFoundError 或读到 gzip 字节（2026-10-19 首页快照重建整批失败、新作品不出现的根因）。
+    调用方拿到路径后仍要经 `read_lines()` 读（透明解压）。
+    """
+    out = []
+    for n in list_txt(d, suffix, exclude):
+        p = txt_existing(os.path.join(d, n))
+        if os.path.exists(p):
+            out.append(p)
+    return out
+
+
+def _hans_files(out_dir):
+    """汉化目录的真实物理路径（= real_txt_paths(out_dir, "_汉化.txt")）。"""
+    return real_txt_paths(out_dir, "_汉化.txt")
+
+
 def material_frequency(out_dir, names):
     """在汉化目录所有 *_汉化.txt 中统计每个素材人物出现次数(中文名+日文原名都统计)。
 
@@ -2032,7 +2288,7 @@ def material_frequency(out_dir, names):
     import glob
     if not out_dir or not os.path.isdir(out_dir):
         return {}
-    files = [os.path.join(out_dir, n) for n in list_txt(out_dir, "_汉化.txt")]
+    files = _hans_files(out_dir)
     if not files:
         return {}
     # 每个素材: 匹配词集合(中文名+日文原名+短名+繁简变体, 2026-08-27 防误判)
@@ -2137,7 +2393,7 @@ def material_frequency_cached(work_dir, out_dir, names):
     import glob, json
     if not out_dir or not os.path.isdir(out_dir) or not names:
         return {}
-    files = [os.path.join(out_dir, n) for n in list_txt(out_dir, "_汉化.txt")]
+    files = _hans_files(out_dir)
     if not files:
         return {}
     # 指纹: 所有汉化文件 mtime+size 的哈希 + 名单(v2: 加章节数结构, 使旧纯数字缓存失效)
@@ -2181,7 +2437,7 @@ def material_chapters(out_dir, name):
     import glob
     if not out_dir or not os.path.isdir(out_dir):
         return {}
-    files = [os.path.join(out_dir, n) for n in list_txt(out_dir, "_汉化.txt")]
+    files = _hans_files(out_dir)
     out = {}
     for f in files:
         try:
@@ -2201,7 +2457,7 @@ def material_chapters_cached(work_dir, out_dir, name):
     import glob, json
     if not out_dir or not os.path.isdir(out_dir) or not name:
         return {}
-    files = [os.path.join(out_dir, n) for n in list_txt(out_dir, "_汉化.txt")]
+    files = _hans_files(out_dir)
     if not files:
         return {}
     _fp_key = (out_dir, "mat_chapters", name)
@@ -2280,7 +2536,7 @@ def r18_summary(work_dir, out_dir):
         return {"total": 0, "yes": 0, "suspect": 0, "no": 0, "pct": 0.0,
                 "r18_lines": 0, "text_lines": 0, "conc": 0.0,
                 "yes_chapters": [], "suspect_chapters": []}
-    files = [os.path.join(out_dir, n) for n in list_txt(out_dir, "_汉化.txt")]
+    files = _hans_files(out_dir)
     yes = suspect = no = r18_lines = text_lines = word_hits = 0
     yes_ch, sus_ch = [], []   # 分开初始化（勿共用一个列表, append 会互相污染）
     for f in files:

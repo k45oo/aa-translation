@@ -11,19 +11,27 @@
   const $ = s => document.querySelector(s);
   const esc = escapeHtml;
 
-  function setCount() {
-    $('#cnt-glossary').textContent = state.glossary.length;
+  function setCount(shown) {
+    $('#cnt-glossary').textContent = (typeof shown === 'number' && shown !== state.glossary.length)
+      ? shown + '/' + state.glossary.length : state.glossary.length;
     $('#cnt-roles').textContent = state.roles.length;
     $('#cnt-known').textContent = state.known.length;
   }
 
+  // 2026-10-21: 搜索框此前是**空操作**（算了 match 却从没用），且角色/白名单整块
+  //   `<div class="hidden">`（2026-08-26 改按作品弹窗管理）→ 「反哺到全局的角色」
+  //   （如 ホシノ→星野、キサキ→妃咲）在术语表页**根本搜不到**。
+  //   现在：q 非空时同时过滤替换对表 + 列出命中的角色与白名单（只读，角色可跳作品弹窗）。
   function render() {
     const q = ($('#g-search').value || '').trim();
-    const match = v => !q || String(v).includes(q);
+    const hit = v => !q || String(v == null ? '' : v).includes(q);
 
     const tgl = $('#tbl-glossary tbody');
     tgl.innerHTML = '';
+    let shown = 0;
     state.glossary.forEach((pair, i) => {
+      if (!(hit(pair.jp) || hit(pair.zh) || hit(pair.cat))) return;
+      shown++;
       const tr = document.createElement('tr');
       tr.innerHTML = `<td><input data-i="${i}" data-f="jp" value="${esc(pair.jp)}"></td>
                       <td><input data-i="${i}" data-f="zh" value="${esc(pair.zh)}"></td>
@@ -31,7 +39,37 @@
                       <td><button class="btn tiny ghost" data-del="${i}">删</button></td>`;
       tgl.appendChild(tr);
     });
-    setCount();
+    setCount(shown);
+    renderHits(q, hit);
+  }
+
+  function renderHits(q, hit) {
+    const box = $('#g-hits');
+    if (!q) { box.classList.add('hidden'); return; }
+    const rs = state.roles.filter(r => hit(r['日文']) || hit(r['中文'])
+      || (r['作品'] || []).join('、').includes(q) || hit(r['备注']));
+    const tb = $('#tbl-hit-roles');
+    tb.innerHTML = '';
+    rs.slice(0, 300).forEach(r => {
+      const ws = r['作品'] || [];
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${esc(r['日文'] || '')}</td><td>${esc(r['中文'] || '')}</td>
+        <td class="small">${esc(ws.join('、'))}</td><td class="small">${esc(r['分类'] || '')}</td>
+        <td class="small">${esc(r['备注'] || '')}</td>
+        <td>${ws.length ? `<button class="btn tiny ghost" data-openrole="${esc(ws[0])}">角色</button>` : ''}</td>`;
+      tb.appendChild(tr);
+    });
+    $('#cnt-hit-roles').textContent = rs.length > 300 ? rs.length + '（显示前 300）' : rs.length;
+    const kn = state.known.filter(v => hit(v));
+    const tk = $('#tbl-hit-known');
+    tk.innerHTML = '';
+    kn.slice(0, 300).forEach(v => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${esc(v)}</td>`;
+      tk.appendChild(tr);
+    });
+    $('#cnt-hit-known').textContent = kn.length > 300 ? kn.length + '（显示前 300）' : kn.length;
+    box.classList.remove('hidden');
   }
 
   $('#tbl-glossary tbody').addEventListener('input', e => {
@@ -118,19 +156,26 @@
     });
   }
 
-  document.querySelectorAll('button[data-roles]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      rm.work = btn.dataset.roles;
-      $('#roles-modal-title').textContent = `「${rm.work}」`;
-      rm.rows = [];
-      state.roles.forEach((r, i) => {
-        const ws = r['作品'] || [];
-        if (ws.includes(rm.work)) rm.rows.push({ _idx: i, ...r });
-      });
-      rmRender();
-      rolesModal.classList.remove('hidden');
-      $('#roles-modal-msg').textContent = '';
+  function openRoles(work) {
+    rm.work = work;
+    $('#roles-modal-title').textContent = `「${work}」`;
+    rm.rows = [];
+    state.roles.forEach((r, i) => {
+      const ws = r['作品'] || [];
+      if (ws.includes(work)) rm.rows.push({ _idx: i, ...r });
     });
+    rmRender();
+    rolesModal.classList.remove('hidden');
+    $('#roles-modal-msg').textContent = '';
+  }
+
+  document.querySelectorAll('button[data-roles]').forEach(btn => {
+    btn.addEventListener('click', () => openRoles(btn.dataset.roles));
+  });
+  // 搜索命中表里点「角色」→ 打开该作品的角色弹窗（2026-10-21）
+  $('#tbl-hit-roles').addEventListener('click', e => {
+    const w = e.target.dataset.openrole;
+    if (w) openRoles(w);
   });
 
   $('#tbl-modal-roles tbody').addEventListener('input', e => {

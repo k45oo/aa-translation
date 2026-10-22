@@ -82,12 +82,21 @@ def parse_amida_html(raw):
 
 
 def _locate_body(raw):
-    """定位正文起点：优先 <body class=AA_Text>，否则 <div class=AA_Text>。"""
+    """定位正文起点。返回 (start, in_pre)：
+
+    - 优先 <body class=AA_Text> / <div class=AA_Text>（正文按标签分块）
+    - 再次纯 <pre>（transtemple/其他工具导出的单块纯文本，换行=真实行、
+      首尾空白有意义）：切片会跳过 <pre> 开始标签，所以要把 in_pre 带给解析器，
+      否则整章会被当成一个超长 data（文件写出来看着对，内部 line 数却是 1）
+    """
     for pat in (r'<body class="AA_Text">', r'<div class="AA_Text">'):
         m = re.search(pat, raw)
         if m:
-            return m.end()
-    return None
+            return m.end(), False
+    m = re.search(r"<pre[^>]*>", raw)
+    if m:
+        return m.end(), True
+    return None, False
 
 
 def parse_universal(raw):
@@ -106,6 +115,7 @@ def parse_universal(raw):
         def __init__(self):
             super().__init__(convert_charrefs=True)
             self.lines = [""]
+            self.in_pre = False
 
         def _break(self):
             self.lines.append("")
@@ -117,6 +127,10 @@ def parse_universal(raw):
         def handle_starttag(self, tag, attrs):
             if tag == "br":
                 self._break()
+            elif tag == "pre":
+                # <pre> 内换行=真实行，且空白全有意义（AA 对齐核心）
+                self._flush_if_content()
+                self.in_pre = True
             elif tag in self.BLOCK:
                 self._flush_if_content()
             else:
@@ -125,6 +139,8 @@ def parse_universal(raw):
         def handle_endtag(self, tag):
             if tag == "br":
                 self._break()
+            elif tag == "pre":
+                self.in_pre = False
             elif tag in self.BLOCK:
                 self._flush_if_content()
 
@@ -134,6 +150,14 @@ def parse_universal(raw):
 
         def handle_data(self, data):
             if not data:
+                return
+            if self.in_pre:
+                # pre 语义：字面换行即行界，行首行尾空白（含纯空白行）原样保留
+                data = data.replace("\r", "")
+                parts = data.split("\n")
+                self.lines[-1] += _unescape(parts[0])
+                for part in parts[1:]:
+                    self.lines.append(_unescape(part))
                 return
             # 丢弃块间字面空白；保留含 U+3000 或可视字符的有效内容
             if any(c == "\u3000" or not c.isspace() for c in data):
@@ -147,9 +171,13 @@ def parse_universal(raw):
         if m.lastindex == 2 and m.group(1).startswith("http"):
             url = m.group(1).strip()
         title = _unescape(re.sub(r"<[^>]+>", "", m.group(m.lastindex)).strip())
-    start = _locate_body(raw)
+    if not title or re.fullmatch(r"[A-Za-z0-9_]+", title):
+        # 导出工具写死的占位标题（如 <title>AA_Translated</title>）→ 丢弃
+        title = ""
+    start, in_pre = _locate_body(raw)
     body = raw[start:] if start is not None else raw
     parser = _AAExtract()
+    parser.in_pre = in_pre          # <pre> 切片已跳过开始标签，得手动带进去
     try:
         parser.feed(body)
     except Exception:
@@ -158,6 +186,20 @@ def parse_universal(raw):
     for ln in parser.lines:
         ln = ln.replace("\r", "")
         lines.append(normalize_line(ln))
+    if not title:
+        # 兜底：正文首个非空行（"站点 | 作品名　第N話" 这种取竖线后半段）
+        # 跳过 "翻译：xxx / 作者：xxx" 这类标注行，别把署名当标题
+        for ln in lines:
+            t = ln.strip()
+            if not t:
+                continue
+            if len(t) > 80:
+                break
+            if re.match(r"^(翻译|翻譯|作者|来源|來源|原帖)\s*[:：]", t):
+                continue
+            parts = re.split(r"\s*[|｜]\s*", t)
+            title = parts[-1].strip() if len(parts) > 1 else t
+            break
     return title, url, lines
 
 

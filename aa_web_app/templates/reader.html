@@ -29,8 +29,8 @@
 .reader-body { display: flex; align-items: flex-start; }
 /* 行号列：与 pre.aa 逐行对齐（同一行高/字号度量） */
 .line-col { flex-shrink: 0; padding-top: 8px; user-select: none; }
-.lc-no { display: block; width: 46px; height: var(--aa-lh, 16px); text-align: right; background: none; border: none;
-         font-family: Consolas, "Microsoft YaHei", monospace; font-size: 11px; line-height: var(--aa-lh, 16px);
+.lc-no { display: block; width: 46px; height: var(--aa-lh, 18px); text-align: right; background: none; border: none;
+         font-family: Consolas, "Microsoft YaHei", monospace; font-size: 11px; line-height: var(--aa-lh, 18px);
          color: #aaa; padding: 0 8px 0 0; margin: 0; cursor: pointer; position: relative; }
 .lc-no:hover { color: #7a5a3a; font-weight: bold; }
 .lc-no.flash { color: #fff; background: #8a5a3a; border-radius: 3px; font-weight: bold; }
@@ -59,6 +59,9 @@
                   margin: 0 0 10px; padding: 6px 10px; background: #fffdf7;
                   border: 1px solid #d8c8a8; border-radius: 4px; font-size: 12.5px; }
 .font-val { display: inline-block; min-width: 34px; text-align: center; font-family: Consolas, monospace; color: #555; }
+.font-val.off { color: #b26a00; font-weight: bold; }                       /* 非 16px：标黄提醒 */
+.fs-warn { color: #b26a00; background: #fff6e5; border: 1px solid #e6cfa0; border-radius: 3px;
+           padding: 0 6px; font-size: 11px; line-height: 17px; }           /* 非 16px 才显示（JS 控 hidden） */
 .fw-btn.on { background: #7a5a3a; color: #fff; border-color: #7a5a3a; }
 /* ---- 台词纠正悬浮开关（2026-08-29 第 2 步） ---- */
 .dlg-toggle { position: fixed; top: 54px; right: 16px; z-index: 150; padding: 7px 14px;
@@ -71,7 +74,7 @@
 body.dlg-on .dlg-hint { display: block; }
 .dlg-mark { display: none; position: absolute; left: calc(100% + 2px); top: 0;
             width: 14px; text-align: center; border-radius: 3px;
-            font-size: 11px; line-height: var(--aa-lh, 16px); }
+            font-size: 11px; line-height: var(--aa-lh, 18px); }
 body.dlg-on .dlg-mark { display: block; }
 .dlg-mark.yes { background: #bcd6ff; color: #134; }
 .dlg-mark.no { background: #f0d0d0; color: #832; }
@@ -159,6 +162,9 @@ body.dlg-on span.aa-line { cursor: pointer; }
 .tr-pair .tr-sfxbox input { margin: 0; }
 .tr-pair .tr-sfxbox:has(input:checked) { color: #b4531f; font-weight: bold; }
 .tr-pair .tr-del { flex: 0 0 auto; }
+/* ＋术语表（2026-10-16）：替换对行里也能把这一对写进本作品术语表（与历史记录行的按钮同一实现）。
+   只做布局——按钮外观走全局 .btn.tiny.ghost。 */
+.tr-pair .th-add { flex: 0 0 auto; white-space: nowrap; font-size: 11px; padding: 1px 6px; }
 .tr-add-row { flex: 0 0 auto; margin: 2px 0 6px; }
 /* 常用正则示例（2026-10-05，用户要求）：点条目即填入一对；示例表在 reader.js 的 TR_EXAMPLES。
    放在替换对上方、自带限高滚动——不会把 #tr-pairs 挤没（沿用 2026-09-21「谁都不挤没对方」的口径）。 */
@@ -237,6 +243,39 @@ body.dlg-on span.aa-line { cursor: pointer; }
 .tr-hist-row.pinned { background: #fffbee; box-shadow: inset 2px 0 0 #d9a53a;
                       margin: 0 -6px; padding: 3px 6px; }
 .tr-hist-row.pinned + .tr-hist-row:not(.pinned) { border-top: 1px solid #e8d8a8; }   /* 置顶段分界 */
+
+/* ---- 章收藏（2026-10-17）：目录条目红心 + 「只看收藏夹」筛选 ---- */
+.reader-nav a { position: relative; padding-right: 16px; }      /* 右侧留出红心的位置（实测 16px 时只有本来就会折行的 2 条折行） */
+.reader-nav .fav-mark { position: absolute; right: 2px; top: 4px; width: 13px; height: 14px;
+                        line-height: 14px; text-align: center; font-size: 11px; border-radius: 3px;
+                        color: #6f6f8c; cursor: pointer; }
+.reader-nav .fav-mark:hover { background: #55557a; color: #ffb3b3; }
+.reader-nav .fav-mark.on { color: #ff5a5f; }
+.reader-nav .fav-mark.on:hover { color: #ffa0a3; }
+.reader-nav a.active .fav-mark { color: #e8c8b8; }
+.reader-nav a.active .fav-mark.on { color: #ff8a8a; }
+.fav-bar { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; }
+.fav-toggle { flex: 1 1 auto; display: flex; align-items: center; justify-content: space-between;
+              gap: 6px; padding: 4px 8px; font-size: 12px; cursor: pointer; text-align: left;
+              background: #3f3f55; color: #cdd6ff; border: 1px solid #55557a; border-radius: 4px; }
+.fav-toggle:hover { background: #4f4f6a; }
+.fav-toggle.on { background: #8a3a3a; color: #fff; border-color: #a85a5a; font-weight: bold; }
+/* ---- 目录拖拽排序（2026-10-19）：长按条目 0.5s → 拖动 → 松手写 chapter_order.json ---- */
+.reader-nav a.toc-press { box-shadow: inset 0 0 0 1px #8a5a3a; }        /* 长按中（还没进入拖拽） */
+.reader-nav a.toc-drag { background: #4a4a68; color: #fff; outline: 2px solid #d0a060; opacity: .96; }
+.reader-nav a.toc-drop-before { box-shadow: 0 -2px 0 0 #d0a060; }       /* 落点提示线 */
+.reader-nav a.toc-drop-after { box-shadow: 0 2px 0 0 #d0a060; }
+body.toc-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
+body.toc-dragging .reader-nav { touch-action: none; }                   /* 拖拽中禁掉滚动，手机才拖得动 */
+body.toc-dragging .reader-nav a { cursor: grabbing; }
+.toc-hint { color: #6f6f8c; font-size: 11px; margin-left: 6px; white-space: nowrap; }
+.fav-toggle .fav-cnt { font-family: Consolas, monospace; font-size: 11.5px; opacity: .85; }
+.fav-empty { color: #888; font-size: 12px; padding: 4px; display: none; }
+.fav-empty.on { display: block; }
+.hdr-fav { background: none; border: none; cursor: pointer; padding: 0 4px; font-size: 18px;
+           line-height: 1; color: #cfcfd8; vertical-align: 2px; }
+.hdr-fav:hover { color: #ff8a8a; }
+.hdr-fav.on { color: #e03b3b; }
 </style>
 <script>
 // 阅读器字体偏好：localStorage 持久化，先于首帧渲染生效（防闪烁）
@@ -254,7 +293,7 @@ try {
 {% block content %}
 <p><a href="/work/{{ work }}">← {{ cfg.title }} 章节列表</a> ·
 <button class="btn tiny ghost" id="edits-btn">修改记录</button>
-<span class="muted small">点击左侧行号在该行展开修改（类型默认「自动」判定：错译 / 漏译 / 错位 / 校对）；未译章仅原文可读</span></p>
+<span class="muted small">点击左侧行号在该行展开修改（类型默认「自动」判定：错译 / 漏译 / 错位 / 校对 / 重译）；右键行号 = 还原原文，<b>Shift+右键行号 = 重译该行</b>（文本行 / 混合行，走模型后就地写入）；未译章仅原文可读</span></p>
 <div class="reader-wrap">
   <nav class="reader-nav">
     <div class="toc-head" style="display:flex;align-items:center;gap:6px;margin:0 0 8px 4px;">
@@ -264,10 +303,16 @@ try {
         <button type="button" class="seg-btn {{ 'active' if not use_tr }}" data-mode="src">原文</button>
       </div>
     </div>
+    <div class="fav-bar">
+      <button type="button" class="fav-toggle" id="fav-filter"
+              title="只看收藏的章：点目录条目右侧的红心（或正文标题旁的红心）收藏本章；再点一次本按钮恢复全部章">♥ 收藏夹<span class="fav-cnt" id="fav-cnt">{{ fav_total }}</span></button>
+      <span class="toc-hint" title="长按目录条目 0.5 秒后拖动即可调整章节顺序，松手保存（写入 work/chapter_order.json；只在本页显示的条目内调整，跨页请分步移动）">长按条目可拖动排序</span>
+    </div>
     <div id="toc-pager" class="pager-row"></div>
+    <div class="fav-empty" id="fav-empty">还没有收藏的章 —— 点目录条目右侧的 ♡ 即可收藏。</div>
     {% for c in toc %}
     <a href="/work/{{ work }}/read?f={{ c.src_file | urlencode }}" class="{{ 'active' if c.active }}{{ ' notr' if not c.has_tr }}"
-       title="{{ c.title or c.src_file }}">{{ loop.index }}. {{ c.label }}{% if c.r18_hit == 'yes' %}<span class="r-badge" title="R18 章（命中 {{ c.r18_hits }} 次）">R</span>{% elif c.r18_hit == 'suspect' %}<span class="r-badge suspect" title="疑似 R18 章（命中 {{ c.r18_hits }} 次）">R?</span>{% endif %}{% if not c.has_tr %}<span class="badge">未译</span>{% endif %}</a>
+       data-base="{{ c.base }}" data-src="{{ c.src_file }}" title="{{ c.title or c.src_file }}"><span class="fav-mark{{ ' on' if c.fav }}" data-base="{{ c.base }}" title="{{ '取消收藏本章' if c.fav else '收藏本章' }}">{{ '♥' if c.fav else '♡' }}</span>{{ loop.index }}. {{ c.label }}{% if c.r18_hit == 'yes' %}<span class="r-badge" title="R18 章（命中 {{ c.r18_hits }} 次）">R</span>{% elif c.r18_hit == 'suspect' %}<span class="r-badge suspect" title="疑似 R18 章（命中 {{ c.r18_hits }} 次）">R?</span>{% endif %}{% if not c.has_tr %}<span class="badge">未译</span>{% endif %}</a>
     {% endfor %}
   </nav>
   <div class="reader-main">
@@ -276,15 +321,18 @@ try {
     {% if has_tr %}<button type="button" class="tr-replace-toggle" id="tr-replace-toggle" title="翻译替换：手动输入替换对 → 所选范围（全部 / 当前话和后续话）的 汉化.txt（先自动备份；替换后按各章 SRC 原文宽度自动校正；AA 艺术行跳过不动；预览需手动点「刷新预览」）">⇄ 翻译替换</button>{% endif %}
     <button type="button" class="search-toggle" id="search-toggle" title="全库搜索：默认中日文都搜（可选只中文/只日文），只搜文本与混排行，AA 艺术行不参与；点结果跳到该章该行；关键词与结果翻章后保留">🔍 搜索<span class="sp-badge" id="sp-badge"></span></button>
     <div class="reader-head">
-      <h2>{{ title or cur }}</h2>
+      <h2>{{ title or cur }}<button type="button" class="hdr-fav{{ ' on' if cur_fav }}" id="fav-cur"
+          title="{{ '取消收藏本章' if cur_fav else '收藏本章（红心）' }}">{{ '♥' if cur_fav else '♡' }}</button></h2>
       {% if src_url %}<p class="muted small">原帖地址：<a href="{{ src_url }}" target="_blank">{{ src_url }}</a></p>{% endif %}
       {% if not has_tr %}<p class="warn small">本章未汉化，当前显示日文原文。</p>{% endif %}
     </div>
     <div class="reader-fontbar" title="显示微调只改渲染观感，不影响文件内容与宽度校验">
       <span class="muted small">显示：</span>
       <button type="button" class="btn tiny ghost" id="fs-dec" title="字号减小（最小 10px）">字号 −</button>
-      <span class="font-val" id="fs-val">14px</span>
+      <span class="font-val" id="fs-val">16px</span>
       <button type="button" class="btn tiny ghost" id="fs-inc" title="字号增大（最大 24px）">字号 +</button>
+      <span class="fs-warn" id="fs-warn" hidden
+            title="原站（yaruobook）就是 16px/18px，也是字形渲染最准的字号：MS PGothic 的制表符 ─/━ 只在部分字号下会被网格对齐各挤掉 1px，`────` 会显示成短划、整列还可能偏移。">非 16px：可能接缝/错位</span>
       <span class="muted small" style="margin-left:10px">粗细：</span>
       <span id="fw-group">
         <button type="button" class="btn tiny ghost fw-btn" data-bold="0">常规</button>
@@ -349,8 +397,8 @@ try {
 <!-- 翻译替换（2026-09-09；2026-10-01 改左右双栏：左历史（可搜索）/ 右上替换对 / 右下预览（章节勾选）） -->
 <div id="tr-replace-modal" class="modal hidden">
   <div class="modal-box">
-    <h3>翻译替换 <span class="muted small">（按所选范围，先自动备份）</span></h3>
-    <p class="tr-note">每行一对：左「查找」→ 右「替换为」（替换为空 = 删除该串）。替换后按各章 SRC 原文宽度自动补齐，AA 艺术行跳过。勾「sfx」的对：命中的片段替换后一并打 sfx 标记（拟声词/效果音 → 楷体+斜体+小一点），逐对人工选择。改完替换对或范围请点「刷新预览」；预览后会列出**有命中的章**（默认全选），取消勾选的章不会被改。「应用」先自动备份。</p>
+    <h3>翻译替换 <span class="muted small">（按所选范围；先预览、后应用）</span></h3>
+    <p class="tr-note">每行一对：左「查找」→ 右「替换为」（替换为空 = 删除该串）。替换后按各章 SRC 原文宽度自动补齐，AA 艺术行跳过。每对右侧「＋术语表」= 把这一对写进本作品术语表（只影响以后的翻译/校对 prompt，不改现有文本）；勾「sfx」的对：命中的片段替换后一并打 sfx 标记（拟声词/效果音 → 楷体+斜体+小一点），逐对人工选择。改完替换对或范围请点「刷新预览」；预览后会列出**有命中的章**（默认全选），取消勾选的章不会被改。应用后逐行记入「修改记录」（可查、可逐行还原）。</p>
     <div class="tr-scope">
       <b>范围：</b>
       <label title="本作品全部已汉化章节"><input type="radio" name="tr-scope" value="all"> 全部</label>
@@ -386,7 +434,7 @@ try {
         <div class="tr-pane tr-pane-pairs">
           <div class="tr-pane-head">
             <b>替换对</b>
-            <span class="muted small">左「查找」→ 右「替换为」（留空 = 删除该串）</span>
+            <span class="muted small">左「查找」→ 右「替换为」（留空 = 删除该串）· 「＋术语表」= 写入本作品术语表</span>
             <span class="sp"></span>
             <button type="button" id="tr-add-pair" class="btn tiny ghost">+ 添加替换对</button>
           </div>
@@ -452,26 +500,242 @@ try {
   </div>
 </div>
 {% endif %}
-<script src="/static/reader.js?v=20261015c"></script>
+<script src="/static/reader.js?v=20261019b"></script>
 <script>window.AA_SEL = { work: {{ work | tojson }}, base: {{ cur.replace('.txt', '') | tojson }}, enabled: {{ sel_enabled() | tojson }} };</script>
-<script src="/static/selection_translate.js?v=20261010a"></script>
+<script src="/static/selection_translate.js?v=20261016a"></script>
 <script>
-// 目录分页（每页 10/50/100，2026-09-13）：自动跳到当前章所在页；只隐藏链接，键盘 ← → 翻章不受影响
-aaPager({rows: '.reader-nav > a', controls: '#toc-pager', key: 'reader:{{ work }}',
-         symbols: true, sizeLast: true,
-         activeOf: el => el.classList.contains('active')});
-// 键盘 ← → 翻章
+/* ---- 章收藏（2026-10-17）：目录红心 + 「只看收藏夹」筛选 ----
+   红心两处：目录条目右侧 + 正文标题旁（点即收藏/取消 → data/favorites.json）。
+   「只看收藏夹」只改目录显示：非收藏行显式 display:none + 用收藏行重建分页条
+   （与作品页「仅未译」同一套做法：aaPager 只管它拿到的那批行，其余得自己隐藏）。
+   筛选状态存 sessionStorage（翻章是整页跳转，不存就会掉回全部）；键盘 ← → 在筛选态下只在收藏章间走。 */
+const WORK = {{ work | tojson }};
 const NAV = {{ toc | map(attribute='src_file') | list | tojson }};
+let CUR_IDX = {{ cur_idx }};   // 目录拖拽排序后会同步（键盘 ←→ 翻章用）
+const CUR_BASE = (window.READER_CFG || {}).base || '';
+const FAV_KEY = 'aa_fav_filter:' + WORK;
+let favOn = false;
+try { favOn = sessionStorage.getItem(FAV_KEY) === '1'; } catch (e) {}
+
+const tocRows = () => [...document.querySelectorAll('.reader-nav > a')];
+const favRows = () => tocRows().filter(a => a.querySelector('.fav-mark.on'));
+
+function paintHeart(el, on) {
+  if (!el) return;
+  el.classList.toggle('on', on);
+  el.textContent = on ? '♥' : '♡';
+  if (el.classList.contains('fav-mark')) el.title = on ? '取消收藏本章' : '收藏本章';
+}
+
+function setFavUi() {
+  const n = favRows().length;
+  const c = document.getElementById('fav-cnt'); if (c) c.textContent = n;
+  const b = document.getElementById('fav-filter'); if (b) b.classList.toggle('on', favOn);
+  const em = document.getElementById('fav-empty'); if (em) em.classList.toggle('on', favOn && n === 0);
+}
+
+function applyTocFilter() {
+  const all = tocRows();
+  const vis = favOn ? all.filter(a => a.querySelector('.fav-mark.on')) : all;
+  all.forEach(a => { a.style.display = vis.indexOf(a) >= 0 ? '' : 'none'; });
+  const box = document.getElementById('toc-pager');
+  if (box) box.innerHTML = '';   // aaPager 在行数少时提前 return、不清容器 → 自己清
+  aaPager({rows: vis, controls: '#toc-pager', key: 'reader:' + WORK + (favOn ? ':fav' : ''),
+           symbols: true, sizeLast: true,
+           activeOf: el => el.classList.contains('active')});
+  setFavUi();
+}
+
+async function toggleFav(base, curEl, rowEl) {
+  if (!base) return;
+  const on = !(curEl && curEl.classList.contains('on'));
+  let j = null;
+  try {
+    const r = await fetch('/api/work/' + encodeURIComponent(WORK) + '/favorites',
+                          {method: 'POST', headers: {'Content-Type': 'application/json'},
+                           body: JSON.stringify({base: base, fav: on})});
+    j = await r.json();
+    if (!r.ok || !j || !j.ok) throw new Error((j && (j.detail || j.error)) || ('HTTP ' + r.status));
+  } catch (e) {
+    if (typeof toast === 'function') toast('收藏失败：' + (e.message || e), false);
+    return;
+  }
+  if (rowEl) paintHeart(rowEl.querySelector('.fav-mark'), on);   // 服务端已落盘 → 就地更新，不刷页
+  if (CUR_BASE === base) paintHeart(document.getElementById('fav-cur'), on);
+  applyTocFilter();
+  if (typeof toast === 'function') toast(on ? '已收藏本章（♥ ' + j.total + '）' : '已取消收藏');
+}
+
+// 目录红心：点红心不跳章（红心是 <a> 的子元素，须 preventDefault）
+const navBox = document.querySelector('.reader-nav');
+if (navBox) navBox.addEventListener('click', ev => {
+  const m = ev.target.closest && ev.target.closest('.fav-mark');
+  if (!m) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  toggleFav(m.dataset.base, m, m.closest('a'));
+});
+// 正文标题旁的红心（筛选中本章未收藏时目录里点不到，这里补一条路）
+const favCur = document.getElementById('fav-cur');
+if (favCur) favCur.addEventListener('click', () => {
+  toggleFav(CUR_BASE, favCur, tocRows().find(a => a.classList.contains('active')));
+});
+const favBtn = document.getElementById('fav-filter');
+if (favBtn) favBtn.addEventListener('click', () => {
+  favOn = !favOn;
+  try { sessionStorage.setItem(FAV_KEY, favOn ? '1' : '0'); } catch (e) {}
+  applyTocFilter();
+});
+
+applyTocFilter();
+
+// 键盘 ← → 翻章（筛选态下只在收藏章之间走；当前章不在收藏里时取方向上最近的一章）
+function navGo(d) {
+  const list = (favOn ? favRows() : tocRows()).map(a => a.dataset.src);
+  if (!list.length) return;
+  let target = '';
+  for (let i = 0; i < list.length; i++) {
+    const fi = NAV.indexOf(list[i]);
+    if (fi < 0) continue;
+    if (d > 0) { if (fi > CUR_IDX) { target = list[i]; break; } }
+    else if (fi < CUR_IDX) { target = list[i]; }
+  }
+  if (!target) return;
+  if (window.__saveAAResume) window.__saveAAResume();
+  location.href = '/work/' + encodeURIComponent(WORK) + '/read?f=' + encodeURIComponent(target);
+}
 document.addEventListener('keydown', e => {
   // 编辑模式（行号矫正弹窗）打开时不翻章，避免方向键误触换章丢编辑
   if (window.__aaEditing) return;
   if (e.target.closest && e.target.closest('#edit-panel, #edits-modal, #tr-replace-modal')) return;   // 编辑面板/弹窗打开时不翻章
-  const cur = {{ cur_idx }};
-  if (e.key === 'ArrowRight' || e.key === 'PageDown') {
-    if (cur + 1 < NAV.length) { if (window.__saveAAResume) window.__saveAAResume(); location.href = '/work/{{ work }}/read?f=' + NAV[cur + 1]; }
-  } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
-    if (cur > 0) { if (window.__saveAAResume) window.__saveAAResume(); location.href = '/work/{{ work }}/read?f=' + NAV[cur - 1]; }
-  }
+  if (e.key === 'ArrowRight' || e.key === 'PageDown') navGo(1);
+  else if (e.key === 'ArrowLeft' || e.key === 'PageUp') navGo(-1);
 });
+
+/* ---- 目录拖拽排序（2026-10-19）：长按条目 0.5s → 拖动 → 松手保存 ----
+   顺序落到 work/chapter_order.json（POST /api/work/<w>/chapter-order/move），它是目录顺序的
+   唯一权威：阅读器目录 / 交付页 / 键盘翻章都读它；后续下载新章只会追加、不打乱手工顺序。
+   限制：只在本页显示的条目之间调整（跨页请分步移动）；「只看收藏夹」筛选态下禁用（否则
+   “相对可见邻居”落点会与真实顺序错位）。 */
+(function () {
+  const HOLD = 500, TOL = 8;
+  const nav = document.querySelector('.reader-nav');
+  if (!nav) return;
+  const rows = () => [...nav.querySelectorAll(':scope > a')];
+  const shown = () => rows().filter(a => a.style.display !== 'none' && a.offsetParent !== null);
+  let holdTimer = 0, pressEl = null, pressXY = null, dragged = null, drop = null, origNext = null, suppress = false;
+
+  function hint(msg, ok) {   // 本文件内的提示条（reader.js 的 toast 在它自己的 IIFE 里，外面拿不到；且它漏了 .show 类不显示）
+    const t = document.createElement('div');
+    t.className = 'toast show' + (ok ? '' : ' bad');
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2400);
+  }
+
+  function clearMarks() {
+    rows().forEach(a => a.classList.remove('toc-press', 'toc-drop-before', 'toc-drop-after'));
+    document.body.classList.remove('toc-dragging');
+  }
+  function reset() {
+    clearTimeout(holdTimer); holdTimer = 0;
+    if (dragged) dragged.classList.remove('toc-drag');
+    pressEl = null; pressXY = null; dragged = null; drop = null; origNext = null;
+    clearMarks();
+  }
+  function restore() {   // 取消（Esc / 失败）：把被拖条目放回原位
+    if (dragged && origNext !== null) { try { nav.insertBefore(dragged, origNext); } catch (e) {} }
+    reset();
+  }
+  function enterDrag(a) {
+    dragged = a; drop = null; origNext = a.nextElementSibling; suppress = true;   // 后续那次 click 不翻章
+    a.classList.remove('toc-press'); a.classList.add('toc-drag');
+    document.body.classList.add('toc-dragging');
+    hint('拖动调整顺序 · 松手保存 · Esc 取消', true);
+  }
+  function reposition(x, y) {   // 按指针位置把被拖条目插到可见条目之间（半高判定）
+    const el = document.elementFromPoint(x, y);
+    const over = (el && el.closest) ? el.closest('.reader-nav > a') : null;
+    if (!over || over === dragged) return;
+    const vis = shown();
+    if (vis.indexOf(over) < 0) return;                     // 只认本页可见条目
+    const r = over.getBoundingClientRect();
+    const after = y > r.top + r.height / 2;
+    nav.insertBefore(dragged, after ? over.nextSibling : over);
+    rows().forEach(a => a.classList.remove('toc-drop-before', 'toc-drop-after'));
+    over.classList.add(after ? 'toc-drop-after' : 'toc-drop-before');
+    drop = { src: over.dataset.src, place: after ? 'after' : 'before' };
+  }
+  function renumber() {   // 条目文本「N. 标题」的序号按新 DOM 顺序重排（服务端 loop.index 已过期）
+    rows().forEach((a, i) => {
+      const mark = a.querySelector('.fav-mark');
+      let n = mark ? mark.nextSibling : a.firstChild;
+      while (n && n.nodeType !== 3) n = n.nextSibling;
+      if (n) n.nodeValue = n.nodeValue.replace(/^\s*\d+\.\s*/, (i + 1) + '. ');
+    });
+  }
+  function syncNav() {    // NAV / CUR_IDX 跟上新顺序（键盘 ←→ 翻章用）
+    NAV.length = 0; rows().forEach(a => NAV.push(a.dataset.src));
+    const act = nav.querySelector('a.active');
+    const i = act ? NAV.indexOf(act.dataset.src) : -1;
+    if (i >= 0) CUR_IDX = i;
+  }
+  function save(el, dt) {
+    const body = { from_src: el.dataset.src, to_src: dt.src, place: dt.place };
+    fetch('/api/work/' + encodeURIComponent(WORK) + '/chapter-order/move', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    }).then(async r => {
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j || !j.ok) throw new Error((j && j.detail) || ('HTTP ' + r.status));
+      reset(); renumber(); syncNav();
+      if (typeof applyTocFilter === 'function') applyTocFilter();     // 分页条按新顺序重建
+      hint('已保存章节顺序（共 ' + j.total + ' 章）', true);
+    }).catch(e => {
+      restore();
+      hint('保存顺序失败，已还原：' + (e.message || e), false);
+    });
+  }
+
+  nav.addEventListener('pointerdown', ev => {
+    if (ev.button) return;                                            // 只响应左键
+    const a = ev.target.closest && ev.target.closest('.reader-nav > a');
+    if (!a || (ev.target.closest && ev.target.closest('.fav-mark'))) return;   // 点红心 = 收藏，不拖
+    if (favOn) {
+      hint('「只看收藏夹」下不能拖拽排序，先点 ♥ 收藏夹 恢复全部章', false);
+      return;
+    }
+    pressEl = a; pressXY = { x: ev.clientX, y: ev.clientY };
+    a.classList.add('toc-press');
+    holdTimer = setTimeout(() => { if (pressEl === a) enterDrag(a); }, HOLD);
+  });
+  document.addEventListener('pointermove', ev => {
+    if (dragged) { ev.preventDefault(); reposition(ev.clientX, ev.clientY); return; }
+    if (pressEl && pressXY) {   // 长按没到时间就滑动 = 用户想滚动，放弃这次长按
+      if (Math.hypot(ev.clientX - pressXY.x, ev.clientY - pressXY.y) > TOL) {
+        clearTimeout(holdTimer); pressEl.classList.remove('toc-press'); pressEl = null; pressXY = null;
+      }
+    }
+  }, { passive: false });
+  document.addEventListener('pointerup', () => {
+    if (dragged) {                                            // 松手：有落点就存，没落点（只是长按）就还原
+      const el = dragged, dt = drop;
+      if (dt && dt.src && dt.src !== el.dataset.src) save(el, dt); else { reset(); suppress = true; }
+      return;
+    }
+    if (pressEl) { clearTimeout(holdTimer); pressEl.classList.remove('toc-press'); pressEl = null; pressXY = null; }
+  });
+  document.addEventListener('pointercancel', () => { if (dragged) restore(); else reset(); });
+  nav.addEventListener('click', ev => {     // 拖过/长按过的那次 click 不翻章（只拦目录条目，别连收藏夹按钮一起吞）
+    if (!suppress) return;
+    suppress = false;
+    if (ev.target.closest && ev.target.closest('.reader-nav > a')) {
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
+  }, true);
+  document.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape' && dragged) { ev.preventDefault(); restore(); suppress = true; }
+  });
+})();
 </script>
 {% endblock %}

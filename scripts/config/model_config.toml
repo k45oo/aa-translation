@@ -9,6 +9,9 @@
 # 主后端: commandcode | siliconflow | qwen-vl | minimax | mimo | runinfra | openrouter | ollama
 backend = "commandcode"
 # 默认模型（backend 为 commandcode 时有效; 其他后端用各自 [backend.*].model）
+# ⚠️ 2026-10-21: commandcode 已把 xiaomi 供应商下架（400 No available providers match
+#   the 'only' filter: xiaomi. Available: gmicloud）→ 本模型与下面的 gateway 只在
+#   **显式 `AA_BACKEND=cloud`**（旧云端直连逃生口）时才会用到；AA_BACKEND 未设现在走模型链。
 model = "xiaomi/mimo-v2.5"
 # 默认网关（仅 cloud 后端/直接模式用; 现主后端走 [backend.commandcode].url）
 gateway = "https://api.commandcode.ai/provider/v1/chat/completions"

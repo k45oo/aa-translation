@@ -24,6 +24,11 @@
  *    另：锚点回落跳过 body/html（它们的 rect 是整页盒子），showAt 末尾再夹一次视口。
  *  - 「sfx 替换」按钮文字改成「替换」，字形用 sfx 样式（楷体+斜体+小字号）——语义仍是替换并打 sfx 标记。
  *  - 朗读 / 复制 / 重译 去掉文字，改纯图标按钮（🔊 / 📋 / 🔁，说明进 title + aria-label）。
+ *
+ * 2026-10-16（用户要求）：新增「批量替换」按钮——把（选中原文 → 译文）交给阅读器的「翻译替换」弹窗，
+ *  由那边先预览、再应用（范围/章节勾选/art 行跳过/宽度校正/预览缓存全部复用，本脚本不自己扫库）。
+ *  入口 = window.__aaTrBatch（阅读器汉化章里注册；board 页 / 未译章 / 原文页没有 → 按钮保持禁用）。
+ *  照抄（echo）、无选区上下文、翻译中 → 禁用（与「替换」同口径）。纯半角假名 → 预勾 sfx（可取消）。
  */
 (() => {
   const D = document;
@@ -157,6 +162,7 @@
       '<div class="sel-pop-actions">' +
         '<button type="button" class="sel-btn sel-replace" title="把选中片段替换为译文（漏译修正）" disabled>替换</button>' +
         '<button type="button" class="sel-btn sel-sfx sel-sfxface" title="替换（sfx 样式）：替换同时标记为拟声词/效果音（楷体+斜体+小字号）" disabled>替换</button>' +
+        '<button type="button" class="sel-btn sel-batch" title="批量替换：把这一对（选中原文 → 译文）填入「翻译替换」弹窗，先预览全部章节的命中行，再点「应用」写入（艺术行跳过、宽度自动校正、逐行记修改记录）" disabled>批量替换</button>' +
         '<button type="button" class="sel-btn sel-icon sel-reredo" title="重译：换模型强制翻译（跳过原文照抄判定）" aria-label="重译" disabled>🔁</button>' +
         '<button type="button" class="sel-btn sel-icon sel-listen" title="朗读原文（edge-tts 日文语音）" aria-label="朗读">🔊</button>' +
         '<button type="button" class="sel-btn sel-icon sel-copy" title="复制译文" aria-label="复制">📋</button>' +
@@ -203,6 +209,8 @@
     if (rb) rb.disabled = true;
     const sb = box.querySelector('.sel-sfx');
     if (sb) sb.disabled = true;
+    const bb = box.querySelector('.sel-batch');
+    if (bb) bb.disabled = true;
     const rrb = box.querySelector('.sel-reredo');
     if (rrb) { rrb.disabled = true; rrb.classList.remove('hot'); }
     selCtx = null;
@@ -227,6 +235,8 @@
     if (rb) rb.disabled = true;  // 翻译中禁用替换
     const sb0 = b.querySelector('.sel-sfx');
     if (sb0) sb0.disabled = true;   // 翻译中禁用 sfx 替换
+    const bb0 = b.querySelector('.sel-batch');
+    if (bb0) bb0.disabled = true;   // 翻译中禁用批量替换
     const rrb0 = b.querySelector('.sel-reredo');
     if (rrb0) { rrb0.disabled = true; rrb0.classList.remove('hot'); }
     const meta0 = b.querySelector('.sel-pop-meta');
@@ -335,6 +345,16 @@
           if (rbn) rbn.disabled = !selCtx || echo;
           const sbn = b.querySelector('.sel-sfx');
           if (sbn) sbn.disabled = !selCtx || echo;
+          // 批量替换（2026-10-16）：走阅读器的「翻译替换」弹窗（先预览、后应用）——需要本页注册了
+          // window.__aaTrBatch（只有汉化章的阅读器有：board 页 / 未译章 / 原文页保持禁用，并在 title 里说清原因）
+          const bbn = b.querySelector('.sel-batch');
+          if (bbn) {
+            const noHook = typeof window.__aaTrBatch !== 'function';
+            bbn.disabled = echo || !selCtx || noHook;
+            bbn.title = noHook
+              ? '批量替换：把这一对交给「翻译替换」弹窗先预览再应用——本页没有该弹窗（仅已汉化章节的阅读页可用）'
+              : '批量替换：把这一对（选中原文 → 译文）填入「翻译替换」弹窗，先预览全部章节的命中行，再点「应用」写入（艺术行跳过、宽度自动校正、逐行记修改记录）';
+          }
           const rrbn = b.querySelector('.sel-reredo');
           if (rrbn) { rrbn.disabled = false; rrbn.classList.toggle('hot', echo); }
         } else {
@@ -476,11 +496,32 @@
     }
   }
 
-  // 替换 / sfx 替换 / 重译 按钮点击（事件委托，与朗读/复制并列）
+  // ---- 批量替换（2026-10-16 用户要求）：把这一对交给阅读器的「翻译替换」弹窗 ----
+  // 语义 = 选中原文 → 译文 作为一条替换对，扫本作品汉化章**先预览**、再点「应用」写入。
+  // 不在划词弹窗里另造一套范围/章节勾选/预览流程（那套在 tr-replace-modal 里已完整，含 art 行跳过、
+  // 宽度校正、预览缓存、逐行记修改记录）。
+  function doBatchReplace() {
+    if (!box) return;
+    const zh = (box.dataset.tr || '').trim();
+    if (!zh) { toast('尚无译文', false); return; }
+    if (typeof window.__aaTrBatch !== 'function') {
+      toast('当前页面不支持批量替换（需在已汉化章节的阅读页）', false); return;
+    }
+    const pk = pickNow(selCtx);
+    const find = (pk && pk.seg) ? pk.seg : (box.dataset.srcText || '');
+    if (!find || !find.trim()) { toast('选中片段已变化或不可定位，请重新划词', false); return; }
+    // 纯半角假名（拟声/效果音）→ 与「替换」按钮同口径，先把弹窗里那一对的 sfx 勾上（可再取消）
+    const sfx = isHankakuSfx(find);
+    hide();
+    window.__aaTrBatch(find, zh, sfx);
+  }
+
+  // 替换 / sfx 替换 / 批量替换 / 重译 按钮点击（事件委托，与朗读/复制并列）
   D.addEventListener('click', e => {
     if (!box) return;
     if (e.target.closest('.sel-sfx')) doReplace('sfx');
     else if (e.target.closest('.sel-replace')) doReplace('plain');
+    else if (e.target.closest('.sel-batch')) doBatchReplace();
     else if (e.target.closest('.sel-reredo')) {
       // 强制重译（2026-09-20）：跳过照抄判定 + avoid=上次通道（换个模型再试）
       const src = box.dataset.srcText || '';

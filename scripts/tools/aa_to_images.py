@@ -87,6 +87,17 @@ class _SegParser(HTMLParser):
     def handle_data(self, data):
         self.segs.append((data, self.cur or ''))
 
+def _split_at_width(line, width):
+    """从行首累计显示宽度到 width → (前缀, 剩余)。列位对齐用（同 gen_aa_html._width_prefix）"""
+    w = 0
+    for j, ch in enumerate(line):
+        cw = disp_width(ch)
+        if w + cw > width:
+            return line[:j], line[j:]
+        w += cw
+    return line, ''
+
+
 def line_segments(line, cm_style, site):
     """txt 行 → [(text, (color, bold))],复用帖头渲染与 1D10 加粗逻辑"""
     if cm_style == 'font-weight:bold':
@@ -102,6 +113,42 @@ def line_segments(line, cm_style, site):
         p = _SegParser()
         p.feed(hdr)
         return [(t, parse_style(st)) for t, st in p.segs]
+    if isinstance(cm_style, dict):
+        # 片段着色格式 {"style":..,"spans":[{"text","cols"}..]}：只给命中的片段上色（同 gen_aa_html）
+        c, b = parse_style(cm_style.get('style') or '')
+        want = []
+        for sp in (cm_style.get('spans') or []):
+            if isinstance(sp, dict):
+                t, cols = sp.get('text') or '', sp.get('cols')
+            else:
+                t, cols = (sp or ''), None
+            if t:
+                k = line.find(t)
+                if k != -1:
+                    want.append((k, k + len(t)))
+                    continue
+            if cols and len(cols) == 2:     # 译文改写了片段 → 按原行显示列回填
+                pre, rest = _split_at_width(line, cols[0])
+                start = len(pre)
+                seg, _ = _split_at_width(rest, max(0, cols[1] - cols[0]))
+                if seg:
+                    lead = len(seg) - len(seg.lstrip(' \u3000'))
+                    trail = len(seg) - len(seg.rstrip(' \u3000'))
+                    a, e2 = start + lead, start + len(seg) - trail
+                    if e2 > a:
+                        want.append((a, e2))
+        if want:
+            out, pos = [], 0
+            for a, e in sorted(want):
+                if a < pos:
+                    continue
+                out.append((line[pos:a], (FG, False)))
+                out.append((line[a:e], (c, b)))
+                pos = e
+            out.append((line[pos:], (FG, False)))
+            return [seg for seg in out if seg[0]]
+        # 片段在译文里找不到：整行原本全红 → 整行上色，否则不上色
+        return [(line, (c, b) if cm_style.get('all') else (FG, False))]
     color, bold = parse_style(cm_style)
     return [(line, (color, bold))]
 

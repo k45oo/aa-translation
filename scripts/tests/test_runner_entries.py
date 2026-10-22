@@ -55,5 +55,63 @@ class TestLoadEntriesLocalOnly(unittest.TestCase):
         self.assertIsNone(R.load_entries(self.cfg))
 
 
+class TestEnsureOrderMerge(unittest.TestCase):
+    """dl_runner.ensure_order：**已存在的 chapter_order.json 只追加新章**（原站顺序），不重排。
+
+    2026-10-19 事故：旧实现「只在缺失时生成」→ 新章由消费端按 eid 补尾，而原站顺序未必等于
+    eid 顺序（ポケの子 entry_95272=第433話 的 eid 反而大于 entry_95271=第434話）→ 目录里颠倒。
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.work = os.path.join(self.tmp, "work")
+        os.makedirs(self.work)
+        self.cfg = {"work_dir": self.work}
+        self.path = os.path.join(self.work, "chapter_order.json")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _write(self, order):
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump({"order": order}, f, ensure_ascii=False, indent=1)
+
+    def _read(self):
+        with open(self.path, encoding="utf-8") as f:
+            return json.load(f)["order"]
+
+    def test_无文件时全量写入(self):
+        import dl_runner as D
+        D.ensure_order(self.cfg, [{"eid": "20"}, {"eid": "10"}])
+        self.assertEqual(self._read(), ["20", "10"])          # 原站顺序，不按 eid 排
+
+    def test_已存在时只追加新章且保持原站顺序(self):
+        import dl_runner as D
+        self._write(["20", "10"])
+        # 原站清单：老两章 + 新三章（注意 95272 在 95271 之前 = 本题的原始报障）
+        D.ensure_order(self.cfg, [{"eid": "10"}, {"eid": "20"}, {"eid": "30"},
+                                  {"eid": "95272"}, {"eid": "95271"}])
+        self.assertEqual(self._read(), ["20", "10", "30", "95272", "95271"])
+        # 再跑一次幂等
+        D.ensure_order(self.cfg, [{"eid": "30"}, {"eid": "95272"}, {"eid": "95271"}])
+        self.assertEqual(self._read(), ["20", "10", "30", "95272", "95271"])
+
+    def test_无新章时不改文件(self):
+        import dl_runner as D
+        self._write(["20", "10"])
+        before = os.path.getmtime(self.path)
+        D.ensure_order(self.cfg, [{"eid": "10"}, {"eid": "20"}])
+        self.assertEqual(self._read(), ["20", "10"])
+        self.assertEqual(os.path.getmtime(self.path), before, "无新章不该重写文件")
+
+    def test_文件损坏时保持原样(self):
+        import dl_runner as D
+        with open(self.path, "w", encoding="utf-8") as f:
+            f.write("{ 坏 JSON")
+        D.ensure_order(self.cfg, [{"eid": "10"}])
+        with open(self.path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "{ 坏 JSON", "解析失败必须原样不动，别覆盖")
+
+
 if __name__ == "__main__":
     unittest.main()

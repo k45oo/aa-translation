@@ -375,8 +375,8 @@ class TestPlainSizeHint(unittest.TestCase):
         self.assertIn('ZKEY = PKEY + ":zoom"', html)   # 倍率随作品存档
         self.assertIn("localStorage.setItem(ZKEY", html)
         self.assertIn(":root{--aa-zoom:1}", html)
-        # 字号 / 行高 / 行号列 / 编辑行高 全部按 --aa-zoom 走（桌面 15/17 与手机 11.5/13 两套 base 都要）
-        for base in ("calc(15px * var(--aa-zoom,1))", "calc(17px * var(--aa-zoom,1))",
+        # 字号 / 行高 / 行号列 / 编辑行高 全部按 --aa-zoom 走（桌面 16/18 与手机 11.5/13 两套 base 都要）
+        for base in ("calc(16px * var(--aa-zoom,1))", "calc(18px * var(--aa-zoom,1))",
                      "calc(11.5px * var(--aa-zoom,1))", "calc(13px * var(--aa-zoom,1))",
                      "calc(14px * var(--aa-zoom,1))"):
             self.assertIn(base, html, "字号/行高没跟着 --aa-zoom 走：%s" % base)
@@ -391,12 +391,94 @@ class TestPlainSizeHint(unittest.TestCase):
         stack = re.search(r"pre\.aa\{font-family:([^;}]*)", html.split("@font-face")[-1]).group(1)
         self.assertIn("'%s', 'AA-SarasaMono'" % AA_FAMILY, stack)      # 顺序不能反
         self.assertTrue(stack.strip().startswith('"ＭＳ Ｐゴシック"'), "PC 仍以 PGothic 为准")
-        # 手机端行高比 = 桌面 15/17（AA 纵向连续性靠这个比例）
+        # 手机端行高比 = 桌面 16/18（AA 纵向连续性靠这个比例）
         # 桌面（fukou 走 legacy CSS）：字号/行高按 --aa-zoom 走（倍率默认 1）
-        self.assertIn("font-size:calc(15px * var(--aa-zoom,1));line-height:calc(17px * var(--aa-zoom,1))", html)
+        self.assertIn("font-size:calc(16px * var(--aa-zoom,1));line-height:calc(18px * var(--aa-zoom,1))", html)
         # 手机覆盖（CSS_UI）：同样按 --aa-zoom 走
         self.assertIn("font-size:calc(11.5px * var(--aa-zoom,1));line-height:calc(13px * var(--aa-zoom,1))", html)
         self.assertNotIn("line-height:14px", html, "手机行高比必须跟桌面一致，旧值 14px 会让画上下错位")
+
+
+class TestPlainFavorites(unittest.TestCase):
+    """`--fav`：把工作台收藏夹带进简版页面（默认**不带**）。静态只读：目录/标题 ♥ + 目录筛选。"""
+
+    @classmethod
+    def setUpClass(cls):
+        from _work_guard import work_cfg
+        cfg = work_cfg("fukou", ("aa_dir", "out_dir"), "简版收藏导出用例")
+        cls._orig_out = cfg["html_out"]
+        cls._orig_fav = gen_aa_html.FAV_FILE
+        cls.tmp = tempfile.mkdtemp(prefix="hermes-test-plain-fav-")
+        cfg["html_out"] = os.path.join(cls.tmp, "交付HTML", "不幸の催眠_汉化合集")
+        cls.out_dir = os.path.join(cls.tmp, "交付HTML")
+        os.makedirs(cls.out_dir, exist_ok=True)
+        chs = gen_aa_html.chapter_order(cfg["out_dir"], cfg.get("name_style"), cfg.get("work_dir"))
+        bases = [gen_aa_html._base_of(f) for f in chs]
+        # 两章收藏分放在第 1、2 个分页文件（每页 10 章）→ 顺带验跨文件计数
+        cls.fav_bases = [bases[0], bases[11]] if len(bases) > 11 else bases[:1]
+        cls.favp = os.path.join(cls.tmp, "favorites.json")
+        with open(cls.favp, "w", encoding="utf-8") as f:
+            json.dump({"fukou": cls.fav_bases + ["entry_不存在"], "别的作品": ["entry_x"]}, f)
+        gen_aa_html.FAV_FILE = cls.favp
+        try:
+            sys.argv = ["x", "fukou", "--plain", "--split", "10", "--fav"]
+            cls.FILES = gen_aa_html.main("fukou")
+        finally:
+            cfg["html_out"] = cls._orig_out
+            gen_aa_html.FAV_FILE = cls._orig_fav
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def read(self, i=0):
+        return open(self.FILES[i], encoding="utf-8", newline="").read()
+
+    def all_html(self):
+        return "".join(self.read(i) for i in range(len(self.FILES)))
+
+    def test_收藏章在目录与标题打标(self):
+        html = self.all_html()
+        n = len(self.fav_bases)
+        self.assertEqual(html.count('<span class="fav-mark">♥</span>'), n)
+        self.assertEqual(html.count(' class="fav"'), n)
+        self.assertEqual(html.count('<span class="fav-tag" title="已收藏本章">♥</span>'), n)
+        self.assertNotIn("entry_不存在", html, "收藏夹里已不存在的章不应产生任何标记")
+
+    def test_只看收藏夹按钮与计数(self):
+        h1 = self.read(0)                       # 首页：第 1 章收藏
+        self.assertIn('id="fav-filter"', h1)
+        self.assertIn('♥ 收藏夹 <span class="fav-cnt" id="fav-cnt">1</span>', h1)
+        self.assertIn("全作品 2 章", h1)         # 标题提示里带全作品收藏数
+        self.assertIn('var KEY = "aa:不幸の催眠:favonly";', h1,
+                      "收藏筛选脚本缺失或 KEY 不是合法 JS 字符串（漏引号 = 整段脚本 SyntaxError）")
+        self.assertIn(".fav-toggle", h1)         # 只在 --fav 时追加的样式
+        last = self.read(len(self.FILES) - 1)    # 没有收藏章的分页文件 → 只给一行提示，不给空按钮
+        if last.count(' class="fav"') == 0:
+            self.assertIn("本文件没有收藏章", last)
+            self.assertNotIn('id="fav-filter"', last)
+
+    def test_收藏文件缺失或损坏当空(self):
+        self.assertEqual(gen_aa_html.load_favorites(os.path.join(self.tmp, "nope.json")), {})
+        bad = os.path.join(self.tmp, "bad_favorites.json")
+        with open(bad, "w", encoding="utf-8") as f:
+            f.write("{不是 json")
+        self.assertEqual(gen_aa_html.load_favorites(bad), {})
+        with open(bad, "w", encoding="utf-8") as f:
+            json.dump({"fukou": "不是列表", "x": ["a", 1, None, " "], "y": ["ok"]}, f)
+        got = gen_aa_html.load_favorites(bad)
+        self.assertEqual(got, {"x": {"a"}, "y": {"ok"}})
+
+
+class TestPlainNoFavByDefault(PlainFixture):
+    """不带 `--fav` 时输出里没有任何收藏痕迹（默认不选）。"""
+
+    def test_无收藏标记(self):
+        for name in self.FILES:
+            html = self.read(os.path.basename(name))
+            self.assertNotIn("fav-mark", html)
+            self.assertNotIn("fav-toggle", html)
+            self.assertNotIn("fav-tag", html)
 
 
 class TestMakeHtmlRoute(unittest.TestCase):
@@ -437,6 +519,13 @@ class TestMakeHtmlRoute(unittest.TestCase):
         self.assertTrue(res["ok"])
         res2, seen2 = self._call(split=-5)                 # 负数归 0（全部一个文件）
         self.assertEqual(seen2["extra"], ["--plain", "--split", "0"])
+
+    def test_收藏夹开关(self):
+        res, seen = self._call(fav=True, split=200)
+        self.assertEqual(seen["extra"], ["--plain", "--split", "200", "--fav"])
+        self.assertTrue(res["ok"])
+        _, seen2 = self._call(fav=False, tr_only=True)     # 默认不带
+        self.assertEqual(seen2["extra"], ["--plain", "--split", "0", "--tr-only"])
 
     def test_自动分页提示回传给前端(self):
         """生成器打了 `[plain] …自动分页…` → 路由要在 note 里带回（前端显示「已自动分页」）。"""

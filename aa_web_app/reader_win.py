@@ -149,7 +149,11 @@ def _build_ctx(cfg, work, fname):
             if mv.get("confidence") is not None:
                 tip += " · 置信 %s" % (mv["confidence"],)
             if mv.get("reason"):
-                tip += " · %s" % (mv["reason"],)
+                tip += " · %s" % mv["reason"]
+        # 行重译（Shift+右键行号）的发现性：藏在手势里的功能必须在悬浮提示里写出来
+        # （只有在可重译的行上才提示——art/帖头/空行后端会 422）
+        if wtype in ("text", "mixed"):
+            tip += " · Shift+右键=重译本行"
         g = gold.get(str(i + 1)) if gold else None
         vis.append(i)
         k_idx.append(i)

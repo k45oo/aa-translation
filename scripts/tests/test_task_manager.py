@@ -9,6 +9,7 @@ import tempfile
 import time
 import types
 import unittest
+from unittest import mock
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 for _p in (_ROOT, os.path.join(_ROOT, "scripts"), os.path.join(_ROOT, "scripts", "common")):
@@ -103,6 +104,45 @@ class TestEnqueue(TMBase):
         r = TM.enqueue("translate", "w_alpha", {})
         self.assertFalse(r["ok"])
         self.assertIn("旧式任务", r["error"])
+
+
+class TestPipelineType(TMBase):
+    """2026-10-19: pipeline=pokemon 的作品，translate 自动归一到专属 runner。
+
+    事故：作品「ポケの子」点「更新 → 下载并翻译」，链式 then 写的是 type=translate，
+    进 translate_runner 才被「归属专属链」硬拦 → 下载成功、翻译任务 failed。
+    归一放 enqueue（唯一入口），链式/CLI/任务页手工建任务都不会再撞。
+    """
+
+    def test_translate_normalized_to_pokemon(self):
+        import work_pipeline as WP
+        with mock.patch.object(WP, "pipeline_of", return_value=WP.POKEMON):
+            self.assertEqual(TM.pipeline_type("translate", "w_alpha"), "pokemon")
+            r = TM.enqueue("translate", "w_alpha", {"chapters": "1"})
+            self.assertTrue(r["ok"], r)
+            self.assertEqual(TM._load_task(r["task_id"])["type"], "pokemon")
+
+    def test_other_types_and_generic_untouched(self):
+        import work_pipeline as WP
+        with mock.patch.object(WP, "pipeline_of", return_value=WP.POKEMON):
+            self.assertEqual(TM.pipeline_type("download", "w_alpha"), "download")
+            self.assertEqual(TM.pipeline_type("proofread", "w_alpha"), "proofread")
+        with mock.patch.object(WP, "pipeline_of", return_value=WP.GENERIC):
+            self.assertEqual(TM.pipeline_type("translate", "w_alpha"), "translate")
+
+    def test_chain_followup_uses_pokemon_runner(self):
+        """下载并翻译的链式 then（type=translate）在 pokemon 作品上落 pokemon 任务。"""
+        import work_pipeline as WP
+        with mock.patch.object(WP, "pipeline_of", return_value=WP.POKEMON):
+            t = self._task("t9", type="download", status="running",
+                           params={"chapters": "10", "then": {"type": "translate",
+                                                              "chapters": "10"}})
+            TM._finalize(t, 0)
+            fu = TM._load_task("t9")["followup"]
+            self.assertTrue(fu.get("ok"), fu)
+            self.assertEqual(fu["type"], "pokemon")
+            self.assertEqual(TM._load_task(fu["task_id"])["type"], "pokemon")
+            self.assertEqual(TM._load_task(fu["task_id"])["params"]["chapters"], "10")
 
 
 class TestWikiTask(TMBase):

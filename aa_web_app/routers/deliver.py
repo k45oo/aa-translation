@@ -48,6 +48,8 @@ def api_make_html(work: str, body: MakeHtmlBody = MakeHtmlBody()):
     extra = ["--plain", "--split", str(split)]
     if body.tr_only:
         extra.append("--tr-only")
+    if body.fav:
+        extra.append("--fav")
     out_dir = (body.out_dir or "").strip()
     if out_dir:
         extra += ["--out-dir", out_dir]

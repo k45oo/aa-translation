@@ -11,6 +11,7 @@
    なのは=〜なのは、となり=となる、ほうし=ほうして、あたれ=あたれば、きらい=嫌い）。
 """
 import os
+import re
 import sys
 import unittest
 
@@ -58,6 +59,42 @@ class TestPadPlacement(unittest.TestCase):
                     "　 ⌒辷_（厄）>\u3000\u3000 ::::ノ ／⌒Ｌ（￣二\u3000\u3000/ ――┐"]:
             self.assertEqual(src, A.normalize_pad_placement(src))
 
+    def test_art_lines_from_incident_untouched(self):
+        """实测误伤（2026-10-19 entry_48695 第 2040/2041 行「还原显示成功但实际没变」）：
+        画里的 `二二二二　　/i:i:`、`兆兆兆　／兆兆`、`二二二心　/二}.` 命中旧 `_INNER_PAD`
+        → 画的内侧间距被搬到行尾（宽度/残留/art 列位三校验全过）→ 图歪；
+        它又挂在 txt_write 上，编辑本章任意一行都会重犯一次（这才是「还原不生效」的根因）。
+        样本 = 真实文件里的原样字符串。"""
+        old = re.compile(            # 修复前的 _INNER_PAD / _PAD_BEFORE_REF（当年就是它们改坏的）
+            '(?<=[\u4e00-\u9fffA-Za-z0-9０-９Ａ-Ｚａ-ｚ])[\u3000 ]+'
+            '(?=[/／+＋=＝×-][\u4e00-\u9fffA-Za-z0-9０-９Ａ-Ｚａ-ｚ])')
+        old_ref = re.compile('[\u3000 ]{1,}(?=>>)')
+        for s in [
+            " 　　　　　　　　 　 ｰ=彡 ／lハ:|/: | :.:.:.:. | 　＼|　　　 _、-‐┬　 　 ∠:.:.:./／/＼＼_＼.│　:|⌒　　.:|",
+            " 　　　　　 　 　 　 　 　 |' /／ |八 　 /７ﾆ-＜　|/|/:.:.:./　　/　　　　　　　　　　γ´￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣｀ヽ",
+            " 　　　　　　　　　　　ｌ 　　　　　ｌ　　　 -ｉ::ｉｌ,/ﾉﾆｒ│　?h　　　　　 |",
+            " 　ﾞ个‐ ､,,______,,....-‐\"　　　|　 1∨　 / /　　　　　（丿　/ｌ 　　　　　　ｌ　|!,,_　　　　　_.－",
+            " 　　　　　 　 　 　 　 　 |' /／ |八 　 /７ﾆ-＜　|/|/:.:.:./　　/",
+            " 　　　　　　　　/l,ヾ:::::::::::::::l:::::l　　　　`、 .l　 ./ ./ 　 l /l",
+            " .:.;;;.`‐'\"＼j!:.:.:.:.:.:.:.:.: :.:.:.:.:.l　⌒''‐ ､ . : :ｘ／　　 l 　 　 /l　 j;,:.:.:}.:.:. : l",
+            " 　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　}二 /二二二二二二二二二二二二二二二ム 　｀- ヽ__ﾉ＼_ﾉ~　　　|二二二二二",
+            " 　　　 :.　　　　　　 ＼二二二二二　　　　　　　　　　　 　 　 　 　 　 /i:i:/＼≧===八ｚｚ≦:i:i∧　　　　　　　　　　　|ﾆ { /ﾆ／＿＿",
+            " 　　　　 :.:.　　　　　　　/ ＼二二二二　　　　　　　　　　　　　　　 /i:i:/i:i:i〈 ＼/ /|/|/|∧ /i:i:i:i∧　　　　　　　　 　 |ﾆﾆﾆﾆﾆﾆ＜＿",
+            " 　　　　　.:.:.　　　　　 /ﾆﾆﾆ＼二二二　　　　　　　　　　　　　　 /i:／::::::::/:::::::::::＼￣＞/i:i:i:i:i:i:i 〉　　　　　　　　 _ノﾆﾆﾆﾆﾆﾆﾆﾆﾆ)",
+            " 　 　 　 ＼二二二ニ/ニl二二ニニニニニﾆｌ ／二二|　　　　　　　　　　　　　r─＜　＿＿_r―＜ニニﾍ:マo: ,ｲ＿ニニニニ≧zzx＿＿ ＞―┐",
+            " 　 　 　 　 '二 /二二lニﾆlニニニニﾆ/　　ｰ‐=ﾆニニ二,　　　　　　　　　　　　　└─'^'ー―――==ﾆニニニニニﾆﾆ厂￣￣￣￣￣⌒￣",
+            " 二二二心　/二}./二.|!|:i:i:i:i:i:i:i:i:i:i | |......ノ..二二二二二| |二二二二ニ|",
+            " 　　　 　　　ⅵ 　　　..::::::／　 ,..:　　／ 　 j＼＼: : : : : : / /　>　>　> > >>>>/　　ⅶ:X:::X:::Xl",
+        ]:
+            self.assertTrue(old.search(s) or old_ref.search(s), '这条本来就是旧判据的误伤样本')
+            self.assertEqual(s, A.normalize_pad_placement(s), '艺术行一律不动')
+            self.assertEqual(s, A.normalize_pad_placement(A.normalize_pad_placement(s)))
+
+    def test_text_row_ref_pad_still_moves(self):
+        """文本行的 `>>` 引用左侧补位照旧搬走（① 类事故不能被这次收窄改坏）。"""
+        s = "ダイソウゲンｗｗｗｗｗ >>とうこん注入エックス"
+        out = self.assertSame(s)
+        self.assertIn('ｗｗｗｗｗ>>とうこん注入エックス', out)
 
 @repo_only("需本机作品数据")
 class TestPokeGuards(unittest.TestCase):

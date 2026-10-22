@@ -58,7 +58,15 @@ def _call(sample, batch, backend):
     if backend:
         os.environ["AA_BACKEND"] = backend
     os.environ.setdefault("AA_USAGE_TAG", "term_filter")
-    raw = A.call_api(FILTER_SYSTEM, sample, max_tokens=4000)
+    # 2026-10-21: 走**设置里的模型链**（链首优先，失败按链降级），不再裸 call_api。
+    #   旧实现未设 AA_BACKEND 时落「云端直连」`[default]`（commandcode + xiaomi/mimo-v2.5），
+    #   该模型已下架 → 每批 HTTP 400、0 候选（与 gen_glossary_ai 同一根因）。
+    try:
+        import aa_backend as AB
+        raw, _used = AB.call_with_fallback(False, FILTER_SYSTEM, sample,
+                                           max_tokens=4000, timeout=120)
+    except ImportError:
+        raw = A.call_api(FILTER_SYSTEM, sample, max_tokens=4000)
     return _parse_filter(raw)
 
 

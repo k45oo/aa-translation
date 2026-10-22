@@ -91,7 +91,7 @@ main { margin-left:240px; padding:18px 24px 60px; max-width:1150px; }
 .pager button:disabled { background:#c8b8a0; cursor:default; }
 .chapter-ind { font-size:12px; color:#999; font-family:"Microsoft YaHei",sans-serif; text-align:center; margin:6px 0; }
 pre.aa { font-family: "ＭＳ Ｐゴシック", "MS PGothic", "Mona", "MS Gothic", "SimSun", monospace;
-         font-size:calc(15px * var(--aa-zoom,1)); line-height:calc(17px * var(--aa-zoom,1));
+         font-size:calc(16px * var(--aa-zoom,1)); line-height:calc(18px * var(--aa-zoom,1));
          white-space:pre; overflow-x:auto;
          background:#fffdf7; border:1px solid #d8c8a8; border-radius:4px; padding:10px 14px; }
 pre.aa span.sfx { font-size:0.95em; font-style:italic; color:#333;
@@ -120,7 +120,7 @@ nav button{display:block;width:100%;text-align:left;background:#3f3f55;color:#cd
 nav button:hover{background:#4f4f6a}
 nav button.active{background:#8a5a3a;color:#fff;border-color:#a87a52;font-weight:bold}
 main{margin-left:240px;padding:18px 24px 60px;max-width:1150px}
-pre.aa{font-family:"ＭＳ Ｐゴシック","MS PGothic","Mona","MS Gothic","SimSun",monospace;font-size:calc(15px * var(--aa-zoom,1));line-height:calc(17px * var(--aa-zoom,1));
+pre.aa{font-family:"ＭＳ Ｐゴシック","MS PGothic","Mona","MS Gothic","SimSun",monospace;font-size:calc(16px * var(--aa-zoom,1));line-height:calc(18px * var(--aa-zoom,1));
 white-space:pre;overflow-x:auto;background:#fffdf7;border:1px solid #d8c8a8;border-radius:4px;padding:10px 14px}
 pre.aa span.sfx{font-size:0.95em;font-style:italic;color:#333;font-family:"楷体","KaiTi","STKaiti",serif}
 .pager{display:flex;justify-content:space-between;margin:10px 0}
@@ -183,7 +183,7 @@ CSS_UI = """
 #edithint.loaderr .le-x{margin-top:6px;padding:2px 10px;cursor:pointer}
 #edithint.loaderr b{color:#1a4f7a}
 /* 行号列 + 行内编辑行（与工作台同款：点行号改译文、编辑行在原行位置、原文行在下） */
-.aa-wrap{display:flex;align-items:flex-start;--aa-lh:calc(17px * var(--aa-zoom,1));margin:15px 0}
+.aa-wrap{display:flex;align-items:flex-start;--aa-lh:calc(18px * var(--aa-zoom,1));margin:15px 0}
 .aa-wrap>pre.aa{margin:0}                     /* pre 自带 1em 上边距会把正文压低、行号列错位 */
 .aa-gut{display:none;flex:0 0 auto;user-select:none;font-family:Consolas,"Courier New",monospace;
   font-size:calc(11.5px * var(--aa-zoom,1));line-height:var(--aa-lh);color:#b0a894;text-align:right;
@@ -468,7 +468,8 @@ def _render_body(lines, cm, site, plan, src_lines=None, marks=None):
 
 
 def _chapter_sections(cfg, site, chapters, tpl, aa_dir, offset=0, total=None,
-                      prev_href="", next_href="", tr_only=False, want_src=True):
+                      prev_href="", next_href="", tr_only=False, want_src=True,
+                      fav_bases=None):
     """渲染**一批**章节 → (sections, payloads, n_src_missing)。
 
     两个调用方共用这一段（别再各写一遍、别改出两套口径）：
@@ -526,10 +527,13 @@ def _chapter_sections(cfg, site, chapters, tpl, aa_dir, offset=0, total=None,
         else:
             next_btn = '<button type="button" disabled>下一章 &rarr;</button>'
         cur = offset + idx + 1                 # 「第 N / M 章」用**整部**序号（分页时也看得清在哪）
+        # 收藏标记（仅简版 `--fav` 导出时传 fav_bases；正式交付夹不传 → 输出逐字节不变）
+        fav_tag = (' <span class="fav-tag" title="已收藏本章">♥</span>'
+                   if fav_bases and base in fav_bases else '')
         if tpl == 'legacy':
             sections.append(f'<section class="chapter" id="ch{idx}"{style}>\n'
                             f'<div class="pager">{prev_btn}{next_btn}</div>\n'
-                            f'<h2>{H.escape(label)}</h2>\n'
+                            f'<h2>{H.escape(label)}{fav_tag}</h2>\n'
                             f'<div class="src-link">原帖地址：<a href="{H.escape(src_url)}" target="_blank">{H.escape(src_url)}</a></div>\n'
                             f'<div class="aa-wrap"><div class="aa-gut" id="gut{idx}"></div>'
                             f'<pre class="aa" id="pre{idx}"></pre></div>\n'
@@ -539,7 +543,7 @@ def _chapter_sections(cfg, site, chapters, tpl, aa_dir, offset=0, total=None,
         elif tpl == 'fc2':
             num = eid or str(idx + 1)
             sections.append(f'<section class="chapter" id="ch{idx}"{style}>\n'
-                            f'<h2>{H.escape(label)}（FC2 #{num}）</h2>\n'
+                            f'<h2>{H.escape(label)}（FC2 #{num}）{fav_tag}</h2>\n'
                             f'<div class="src-link">原帖：<a href="{H.escape(src_url)}" target="_blank">{H.escape(src_url)}</a></div>\n'
                             f'<div class="pager">{prev_btn} <span class="chapter-ind">第{cur} / {total} 章</span> {next_btn}</div>\n'
                             f'<div class="aa-wrap"><div class="aa-gut" id="gut{idx}"></div>'
@@ -551,7 +555,7 @@ def _chapter_sections(cfg, site, chapters, tpl, aa_dir, offset=0, total=None,
             num = m2.group(1) if m2 else str(idx + 1)
             sections.append(f'<section class="chapter" id="ch{idx}"{style}>\n'
                             f'<div class="pager">{prev_btn}{next_btn}</div>\n'
-                            f'<h2>第{num}话</h2>\n'
+                            f'<h2>第{num}话{fav_tag}</h2>\n'
                             f'<div class="src-link">原帖地址：<a href="{H.escape(src_url)}" target="_blank">{H.escape(src_url)}</a></div>\n'
                             f'<div class="aa-wrap"><div class="aa-gut" id="gut{idx}"></div>'
                             f'<pre class="aa" id="pre{idx}"></pre></div>\n'
@@ -746,6 +750,30 @@ def render_line(i, l, cm, site, src_line=None, sfx_marks=None):
     #   对应汉化行同一宽度位置的译文中文 → 包 sfx span(减小字号+斜体+弱化色)
     # 2026-09-15: 叠加人工 sfx 标记(划词翻译「sfx 替换」写 work/sfx_marks/<base>.json)
     spans = sfx_spans(l, src_line, _marks_for_line(sfx_marks, i))
+    # 2026-10-21: colormap 值可以是 {"style":..,"spans":[{"text","cols"}..]}——原站只给红字片段
+    #   (骰子结果 `③>>843`/`【1D100:75】`/安価列表整条) 上色，整行标红会把 AA 图也染红。
+    #   定位分两步：① 片段文本精确命中（原文/未改动的行）；② 命中不了（这段被译成中文了）
+    #   用**原行显示列**回填——译文的 AA 前缀列位是按源行补齐的，列位一致。
+    if isinstance(color, dict):
+        want = []
+        for sp in (color.get('spans') or []):
+            if isinstance(sp, dict):
+                txt, cols = sp.get('text') or '', sp.get('cols')
+            else:                      # 兼容纯文本写法
+                txt, cols = sp or '', None
+            if txt:
+                k = l.find(txt)
+                if k != -1:
+                    want.append((k, k + len(txt)))
+                    continue
+            if cols and len(cols) == 2:
+                seg = _col_span(l, cols[0], cols[1])
+                if seg:
+                    want.append(seg)
+        want = _merge_spans(want, len(l))
+        if want:
+            return _render_sfx_color(l, spans, want, color.get('style') or '')
+        color = color.get('style') if color.get('all') else None
     if spans:
         return _render_spans(l, spans, color)
     if color:
@@ -821,6 +849,25 @@ def _auto_sfx_spans(l, src_line):
     return out
 
 
+def _col_span(l, c1, c2):
+    """显示列 [c1, c2) → 该行字符区间（两端空白不包）；映射不到就返回 None。
+
+    用途：译文把红字片段译成中文、文本对不上时按列位回填（AA 前缀列位按源行补齐，
+    两边同列）。列位越界（译文该列已无字）→ 截到行尾。
+    """
+    pre, rest = _width_prefix(l, c1)
+    start = len(pre)
+    seg, _ = _width_prefix(rest, max(0, c2 - c1))
+    if not seg:
+        return None
+    lead = len(seg) - len(seg.lstrip(' \u3000'))
+    trail = len(seg) - len(seg.rstrip(' \u3000'))
+    a, b = start + lead, start + len(seg) - trail
+    if b <= a:
+        return None
+    return (a, b)
+
+
 def _mark_sfx_spans(l, marks):
     """人工 sfx 标记 [[偏移, 文本], ...] → 字符区间（偏移命中优先，漂移时取最近的同文本出现处）。"""
     out = []
@@ -869,6 +916,29 @@ def _render_spans(l, spans, color=None):
     if color:
         return f'<span style="{H.escape(color)}">{res}</span>'
     return res
+
+
+def _render_sfx_color(l, sfx, color_spans, style):
+    """sfx 区间 + 片段着色区间一起渲染（两者重叠时着色优先，sfx 让位）。
+
+    color_spans: [(start, end)] 字符区间（按片段文本在行内定位所得）。
+    """
+    cs = sorted(color_spans)
+    sf = [(a, b) for a, b in (sfx or []) if not any(a < cb and b > ca for ca, cb in cs)]
+    items = sorted([(a, b, 0) for a, b in cs] + [(a, b, 1) for a, b in sf])
+    out, pos = [], 0
+    for a, b, kind in items:
+        if a < pos:                     # 已被上一段覆盖（重叠/嵌套）→ 跳过
+            continue
+        out.append(H.escape(l[pos:a]))
+        seg = H.escape(l[a:b])
+        if kind == 0:
+            out.append(f'<span style="{H.escape(style)}">{seg}</span>')
+        else:
+            out.append(f'<span class="sfx">{seg}</span>')
+        pos = b
+    out.append(H.escape(l[pos:]))
+    return ''.join(out)
 
 
 def render_sfx_line(l, src_line, color=None):
@@ -1816,6 +1886,74 @@ PLAIN_HINT_BYTES = 20 * 1024 * 1024     # 只用来打一行「体积较大」�
 PLAIN_EST_RATIO = 0.28
 PLAIN_EST_FIXED = 1536 * 1024
 _PLAIN_SUFFIXES = ("_汉化合集", "_汉化（机翻）合集")
+# 收藏夹（工作台 `data/favorites.json` = {work: [base, ...]}）——`--fav` 导出时把标记带进页面。
+# 简版是**静态只读**交付：页面里的 ♥ 只是标记 + 目录筛选，不写回工作台的收藏。
+FAV_FILE = os.path.join(getattr(registry, "BASE", ""), "aa_web_app", "data", "favorites.json")
+
+
+def load_favorites(path=None):
+    """读收藏夹 → {work: set(base)}；文件缺失/损坏/结构不对一律当空（收藏是辅助数据，绝不阻断导出）。"""
+    p = path or FAV_FILE
+    try:
+        with open(p, encoding="utf-8") as f:
+            d = json.load(f)
+    except Exception:
+        return {}
+    out = {}
+    if isinstance(d, dict):
+        for k, v in d.items():
+            if isinstance(k, str) and isinstance(v, list):
+                out[k] = {x for x in v if isinstance(x, str) and x.strip()}
+    return out
+
+
+def work_favorites(work):
+    """某作品收藏的章节基名集合（如 {'entry_24346', ...}）。"""
+    return load_favorites().get(work or "", set())
+
+
+def css_fav():
+    """收藏标记/筛选的样式（只有 `--fav` 导出才追加，默认产物不受影响）。"""
+    return """
+nav .fav-bar { margin:0 0 8px; }
+nav button.fav-toggle { display:block; width:100%; text-align:left; background:#3f3f55; color:#ffd0d0;
+    border:1px solid #6a4a5a; border-radius:4px; padding:5px 9px; font-size:12.5px;
+    font-family:"Microsoft YaHei",sans-serif; cursor:pointer; margin:3px 0; }
+nav button.fav-toggle:hover { background:#4f4f6a; }
+nav button.fav-toggle.on { background:#8a3a3a; color:#fff; border-color:#a85a5a; font-weight:bold; }
+nav .fav-cnt { font-family:Consolas,monospace; font-size:11.5px; opacity:.85; }
+nav button.fav .fav-mark { color:#ff6a6a; margin-right:3px; font-size:12px; }
+nav button.fav.active .fav-mark { color:#ffc0c0; }
+nav .fav-note { color:#c9a0a0; font-size:11.5px; font-family:"Microsoft YaHei",sans-serif; margin:2px 0 6px; }
+.chapter h2 span.fav-tag { color:#d04040; font-size:14px; margin-left:6px; }
+"""
+
+
+def fav_filter_script(key):
+    """「只看收藏夹」筛选（简版导出用）：只隐藏目录条目，不动正文；状态记 localStorage。"""
+    return ("<script>\n"
+            "/* 收藏夹筛选（--fav 导出）：静态标记，只改目录显示；不写回工作台收藏 */\n"
+            "(function () {\n"
+            "  var KEY = " + json.dumps("aa:%s:favonly" % (key or ""), ensure_ascii=False) + ";\n"
+            "  var bar = document.getElementById(\"fav-filter\");\n"
+            "  var btns = Array.prototype.slice.call(document.querySelectorAll('nav button[id^=\"toc\"]'));\n"
+            "  var on = false;\n"
+            "  try { on = localStorage.getItem(KEY) === \"1\"; } catch (e) {}\n"
+            "  function apply() {\n"
+            "    for (var i = 0; i < btns.length; i++) {\n"
+            "      var b = btns[i], show = !on || b.className.indexOf(\"fav\") >= 0;\n"
+            "      b.style.display = show ? \"\" : \"none\";\n"
+            "    }\n"
+            "    if (bar) bar.className = \"fav-toggle\" + (on ? \" on\" : \"\");\n"
+            "  }\n"
+            "  if (bar) bar.onclick = function () {\n"
+            "    on = !on;\n"
+            "    try { localStorage.setItem(KEY, on ? \"1\" : \"0\"); } catch (e) {}\n"
+            "    apply();\n"
+            "  };\n"
+            "  apply();\n"
+            "})();\n"
+            "</script>")
 
 
 def plain_short_name(cfg):
@@ -1857,15 +1995,27 @@ def plain_data_estimate(cfg, chapters):
 
 
 def _gen_plain(cfg, site, chapters, tpl, css, title, source, desc_zh, split, tr_only,
-               out_dir_override=None, font_mode="auto", font_stack=None):
+               out_dir_override=None, font_mode="auto", font_stack=None,
+               work=None, with_fav=False):
     """「仅 HTML 文件」：按分页计划逐个写出自包含 .html，返回写出的路径列表。
 
     落在**交付 HTML 目录**（`--out-dir` 可改）= 交付夹的父目录，即 `aaManga/交付HTML/`。
     重跑会先删掉本作品上一次的简版文件（`【机翻】<短名>_*.html`）——章数/分页变了不留陈旧件。
+    with_fav=True（`--fav`）→ 把工作台收藏夹的章在目录/章节标题里打 ♥ + 多一个「只看收藏夹」
+    筛选按钮（静态只读，不写回 favorites.json）。
     """
     plan = plain_plan(cfg, chapters, split)
     if not plan:
         raise SystemExit("没有章节可生成")
+    # 收藏夹标记（`--fav`）：只认**本批章节里真实存在**的 base，避免空标记占位
+    fav_set = set()
+    if with_fav:
+        fav_set = work_favorites(work) & {_base_of(f) for f in chapters}
+        if fav_set:
+            css = css + css_fav()
+        else:
+            print("[plain] --fav：本作品没有收藏的章（%s 里 %s 为空）→ 页面不带收藏标记"
+                  % (FAV_FILE, work or "该作品"))
     # 体量只**提示**、不自动分页（2026-10-11 用户口径：不要自动分页；大文件手机上多等几秒也能读）
     if len(plan) == 1 and len(chapters) > 1:
         est = plain_data_estimate(cfg, chapters)
@@ -1893,16 +2043,34 @@ def _gen_plain(cfg, site, chapters, tpl, css, title, source, desc_zh, split, tr_
         sections, payloads, miss = _chapter_sections(
             cfg, site, chunk, tpl, cfg["aa_dir"], offset=s - 1, total=total,
             prev_href=prev_name, next_href=next_name,
-            tr_only=tr_only, want_src=not tr_only)
+            tr_only=tr_only, want_src=not tr_only,
+            fav_bases=fav_set if with_fav else None)
         n_src_missing += miss
-        toc = [f'<button type="button" onclick="showChapter({i})" id="toc{i}">{H.escape(chapter_label(f, cfg))}</button>'
-               for i, f in enumerate(chunk)]
+        toc = []
+        n_fav_file = 0
+        for i, f in enumerate(chunk):
+            is_fav = bool(fav_set) and _base_of(f) in fav_set
+            n_fav_file += 1 if is_fav else 0
+            toc.append('<button type="button" onclick="showChapter(%d)" id="toc%d"%s>%s%s</button>'
+                       % (i, i, ' class="fav"' if is_fav else '',
+                          '<span class="fav-mark">♥</span>' if is_fav else '',
+                          H.escape(chapter_label(f, cfg))))
         toc_html = ''.join(toc) if tpl == 'fc2' else '\n'.join(toc)
         nav = ""
         if prev_name:
             nav += f'<a href="{H.escape(prev_name)}">← 上一部分</a>'
         if next_name:
             nav += ('　' if nav else '') + f'<a href="{H.escape(next_name)}">下一部分 →</a>'
+        fav_bar = ""
+        if with_fav and n_fav_file:
+            tip = ('只看收藏的章（导出时带上的收藏标记 · 只读）：本文件 %d 章 / 全作品 %d 章'
+                   % (n_fav_file, len(fav_set)))
+            fav_bar = ('<div class="fav-bar"><button type="button" class="fav-toggle" id="fav-filter"'
+                       ' title="%s">♥ 收藏夹 <span class="fav-cnt" id="fav-cnt">%d</span></button></div>'
+                       % (H.escape(tip), n_fav_file))
+        elif with_fav and fav_set:
+            fav_bar = ('<div class="fav-note">♥ 本文件没有收藏章（全作品共 %d 章，见其它分页文件）</div>'
+                       % len(fav_set))
         range_txt = f"本文件：第 {s:03d}-{e:03d} 话 / 共 {total} 话"
         data_mb = sum(len(x) for x in payloads) / 1048576.0
         # 载入条自己说清体量：内嵌数据大时，浏览器要先把这一大段脚本解析完才会跑页面逻辑，
@@ -1935,7 +2103,7 @@ def _gen_plain(cfg, site, chapters, tpl, css, title, source, desc_zh, split, tr_
                 + f'<p class="part-nav">{H.escape(range_txt)}' + (("　" + nav) if nav else "") + '</p>\n'
                 + (f'<p class="work-desc">{H.escape(desc_zh)}</p>\n' if desc_zh else '')
                 + '</header>\n'
-                + f'<nav><span class="toc-label">目录：</span>' + toc_html + '</nav><main>')
+                + f'<nav>' + fav_bar + '<span class="toc-label">目录：</span>' + toc_html + '</nav><main>')
         # 字体子集只按**本份**的语料取（传全章会让每个分页文件都背着整部作品的字体，白重几百 KB~MB）
         font_parts = _font_parts(cfg, chunk, cfg["aa_dir"], out_dir, "inline", font_mode, font_stack)
         inline_script = ("<script>\nwindow.AA_INLINE=1;\n"
@@ -1946,8 +2114,10 @@ def _gen_plain(cfg, site, chapters, tpl, css, title, source, desc_zh, split, tr_
                        .replace("__SELF__", _js_str(name))
                        .replace("__PLAIN__", "1")
                        .replace("__TRONLY__", "1" if tr_only else "0"))
+        fav_script = fav_filter_script(cfg.get("title") or short) if (with_fav and n_fav_file) else ""
         doc = "\n".join([head, loading_html, watchdog]
-                        + sections + font_parts + [inline_script, tail])
+                        + sections + font_parts + [inline_script, tail]
+                        + ([fav_script] if fav_script else []))
         dst = os.path.join(out_dir, name)
         open(dst, "w", encoding="utf-8").write(doc)     # 不加 newline='' → CRLF（与历史交付一致）
         written.append(dst)
@@ -1998,6 +2168,7 @@ def main(work=None):
     # --tr-only 只存译文；--split N 每 N 章一个文件（0/缺省 = 全部放一个）；--out-dir 改输出目录
     plain = "--plain" in argv
     tr_only = "--tr-only" in argv
+    keep_fav = "--fav" in argv       # 简版导出把收藏夹标记带进页面（默认不带）
     split_val, out_dir_val = None, None
     for i, a in enumerate(argv):
         if a == "--split" and i + 1 < len(argv):
@@ -2016,6 +2187,8 @@ def main(work=None):
             raise SystemExit("--split 需要章数，例如 --split 100（0 = 不分页）")
     if plain and one:
         raise SystemExit("--plain 与 --one 不能同时用")
+    if keep_fav and not plain:
+        print("[plain] 提示：--fav 只作用于 --plain 简版导出，本次忽略")
     args = [a for a in argv if not a.startswith("-")
             and a not in (one, inline_max_val, font_mode, font_stack, split_val, out_dir_val)]
     wid = work or (args[0] if args else "saki")
@@ -2044,7 +2217,8 @@ def main(work=None):
     # ── 分支：「仅 HTML 文件」简版（自包含 .html，可能分页成多个文件）─────────────
     if plain:
         return _gen_plain(cfg, site, chapters, tpl, css, title, source, desc_zh, split, tr_only,
-                          out_dir_override=out_dir_val, font_mode=font_mode, font_stack=font_stack)
+                          out_dir_override=out_dir_val, font_mode=font_mode, font_stack=font_stack,
+                          work=wid, with_fav=keep_fav)
 
     # 交付文件夹（--one 时写 work/单章渲染_<base>/，不覆盖正式合集）
     if one:
@@ -2113,7 +2287,15 @@ def main(work=None):
         inline_script = "<script>\nwindow.AA_INLINE=1;\n" + "\n".join(buf) + "\n</script>"
         shutil.rmtree(data_dir, ignore_errors=True)     # 单档不留 data/（整夹拷走也不会带旧数据）
     tail = TAIL_JS.replace("__KEY__", _js_str(cfg.get("title") or (out_dir and os.path.basename(out_dir)))) \
-                  .replace("__TOTAL__", str(len(chapters)))
+                  .replace("__TOTAL__", str(len(chapters))) \
+                  .replace("__OFFSET__", "0") \
+                  .replace("__SELF__", _js_str(LINK_NAME)) \
+                  .replace("__PLAIN__", "0") \
+                  .replace("__TRONLY__", "0")
+    # ⚠️ TAIL_JS 的占位符必须**两条产出路径都替换全**（plain 简版在 write_plain_html；这里是交付夹/--one）。
+    # 2026-10-11 加 __OFFSET__/__SELF__/__PLAIN__/__TRONLY__ 时只改了 plain 路径 → 交付夹/单章试读的页面
+    # 在 `var OFF = __OFFSET__;` 处 ReferenceError，整页 JS 死掉、永远停在「正在载入章节数据…」
+    #（2026-10-19 由 --one entry_48797 试读暴露）。用例 test_gen_html_placeholders 守这条。
 
     # ── AA 等宽字体内嵌（common/aa_font.py）─────────────────────────────────
     # 形态定下来才知道怎么引：单档（一个 index.html 要走天下）→ base64 内嵌；

@@ -88,14 +88,14 @@ code { background: #eee; padding: 1px 5px; border-radius: 3px; font-size: 12px; 
                 overflow: auto; background: #fffdf7; border: 1px solid #d8c8a8; border-radius: 4px; }
 .pv-head { background: #eae6dc; padding: 5px 10px; font-size: 12px; color: #555; position: sticky; top: 0; }
 pre.aa { font-family: "ＭＳ Ｐゴシック", "MS PGothic", "Mona", "MS Gothic", "SimSun", monospace;
-         font-size: var(--aa-fs, 14px); line-height: var(--aa-lh, 16px);
+         font-size: var(--aa-fs, 16px); line-height: var(--aa-lh, 18px);
          white-space: pre; overflow-x: hidden; padding: 8px 12px; margin: 0;
          text-shadow: var(--aa-shadow, none); }
-span.aa-line { display: block; height: var(--aa-lh, 16px); }
+span.aa-line { display: block; height: var(--aa-lh, 18px); }
 /* 2026-09-21（S0）：屏外行跳过样式/布局/绘制。行高已由上一行锁死 = var(--aa-lh)，
    contain-intrinsic-size 用同一值占位 → 文档总高、行号列对齐、进度计算都不受影响。
    收益：大章（万行级）改字号/滚动不再全量重排，首屏更快；DOM 与内存不变（窗口化才是那一半）。 */
-#chapter-pre > span.aa-line { content-visibility: auto; contain-intrinsic-size: auto var(--aa-lh, 16px); }
+#chapter-pre > span.aa-line { content-visibility: auto; contain-intrinsic-size: auto var(--aa-lh, 18px); }
 /* 2026-09-20: 高度必须锁死 var(--aa-lh)——正文行原本只有 line-height，遇到字体替换的字
    （〃´｀￣＼ 等 MS Gothic 缺字→回退 SimSun/雅黑）line box 变 17px，而左侧行号列恒 16px，
    累积漂移：每出现一次 +1px，万行级章节（entry_30560 实测 19 处）到末尾错位 19px ≈ 一行高，
@@ -128,37 +128,37 @@ textarea.il { display: block; width: 100%; font: inherit; line-height: inherit; 
                          font-size: 16px; line-height: 1; padding: 0 4px; }
 .inline-edit .ie-close:hover { color: #c22; }
 .inline-edit .ie-preview { font-family: "ＭＳ Ｐゴシック", "MS PGothic", "Mona", "MS Gothic", "SimSun", monospace;
-                           font-size: var(--aa-fs, 14px); line-height: var(--aa-lh, 16px);
+                           font-size: var(--aa-fs, 16px); line-height: var(--aa-lh, 18px);
                            text-shadow: var(--aa-shadow, none); white-space: pre; overflow-x: auto;
                            background: #fff; border: 1px solid #d8c8a8; border-radius: 4px;
-                           padding: 3px 8px; margin: 0 0 6px; min-height: calc(var(--aa-lh, 16px) + 6px); }
+                           padding: 3px 8px; margin: 0 0 6px; min-height: calc(var(--aa-lh, 18px) + 6px); }
 .inline-edit .em-row { margin: 6px 0; }
 .inline-edit .em-type { margin: 6px 0 4px; }
 .inline-edit .actions { margin-top: 8px; }
 
 /* 行内插入式编辑（2026-08-11 v4）：编辑时隐藏原译文行；编辑行在原行位置；原文行在下可切换显隐 */
 .lc-no.editing-hidden, .aa-line.editing-hidden { display: none !important; }  /* 压过 .lc-no/.aa-line 的 display:block */
-.src-row { height: var(--aa-lh, 16px); line-height: var(--aa-lh, 16px); color: #8a8a8a;
+.src-row { height: var(--aa-lh, 18px); line-height: var(--aa-lh, 18px); color: #8a8a8a;
            font-family: "ＭＳ Ｐゴシック", "MS PGothic", "Mona", "MS Gothic", "SimSun", monospace;
-           font-size: var(--aa-fs, 14px); white-space: pre; padding: 0 2px;
+           font-size: var(--aa-fs, 16px); white-space: pre; padding: 0 2px;
            text-shadow: var(--aa-shadow, none);
            position: relative; z-index: 6; user-select: text;  /* 遮罩之上：可选中复制、点击不触发遮罩取消 */
            background: #fff3c4; border-radius: 2px;
            overflow-x: hidden; min-width: 0; }  /* 2026-09-03: 禁止横向滚动（原文行不超出容器） */
 .src-row.hidden, .lc-ph.hidden { display: none; }                   /* 日文行切换隐藏（占位同步） */
 .edit-row { position: relative; z-index: 6; min-width: 0; }         /* 遮罩之上亮显 */
-.edit-row .ie-src-toggle { position: absolute; left: -52px; top: 0; width: 46px; height: var(--aa-lh, 16px);
+.edit-row .ie-src-toggle { position: absolute; left: -52px; top: 0; width: 46px; height: var(--aa-lh, 18px);
                            border: none; background: #3f3f55; color: #cdd6ff; font-size: 10px;
                            cursor: pointer; border-radius: 0 3px 3px 0; padding: 0; line-height: 1; }
 .edit-row .ie-src-toggle.on { background: #8a5a3a; color: #fff; }   /* on=原文行可见 */
-.edit-row .er-tr { display: block; width: 100%; height: var(--aa-lh, 16px); box-sizing: border-box;
+.edit-row .er-tr { display: block; width: 100%; height: var(--aa-lh, 18px); box-sizing: border-box;
                    font-family: "ＭＳ Ｐゴシック", "MS PGothic", "Mona", "MS Gothic", "SimSun", monospace;
-                   font-size: var(--aa-fs, 14px); line-height: var(--aa-lh, 16px);
+                   font-size: var(--aa-fs, 16px); line-height: var(--aa-lh, 18px);
                    white-space: pre; overflow-x: hidden; background: #fff8e1;  /* 2026-09-03: 禁横向滚动 */
                    border: none; border-radius: 0; padding: 0; resize: none;
                    text-shadow: var(--aa-shadow, none); color: #222; outline: none; }
 .edit-row .er-tr:focus { background: #ffeec2; }                     /* 无框聚焦：仅背景加深 */
-.lc-ph { height: var(--aa-lh, 16px); }                              /* 行号列同步占位（每插入一行一个） */
+.lc-ph { height: var(--aa-lh, 18px); }                              /* 行号列同步占位（每插入一行一个） */
 .edit-panel { position: fixed; z-index: 150; left: 6px; width: min(248px, calc(100vw - 20px));
              max-height: calc(100vh - 74px); overflow-y: auto;
              background: #fffdf7; border: 2px solid #8a5a3a; border-radius: 6px;
@@ -184,7 +184,7 @@ textarea.il { display: block; width: 100%; font: inherit; line-height: inherit; 
 .lc-no.lt-text { color: #555555; }          /* 文本行：深灰 */
 .lc-no.lt-mixed { color: #d97777; }         /* 混合行：浅红 */
 /* 行分类 override 入口：hover 出 ⚙ 小图标 → 六选一菜单（绝对定位不占行号列宽度） */
-.ov-ic { position: absolute; left: 0; top: 0; width: 16px; height: var(--aa-lh, 16px);
+.ov-ic { position: absolute; left: 0; top: 0; width: 16px; height: var(--aa-lh, 18px);
          display: inline-flex; align-items: center; justify-content: center;
          font-size: 10px; font-weight: normal; color: #a07a3a; opacity: 0; cursor: pointer; }
 .lc-no:hover .ov-ic { opacity: .9; }

@@ -129,6 +129,12 @@
       <label><input type="radio" name="mh-split" value="custom"> 自定义
         <input type="number" id="mh-split-n" min="1" value="30" style="width:66px"> 章</label>
     </div>
+    <div class="mh-row" style="margin:12px 0">
+      <b style="display:inline-block;width:52px">收藏</b>
+      <label><input type="checkbox" id="mh-fav"> 带上收藏夹标记<span class="muted small" id="mh-fav-n"></span></label>
+    </div>
+    <p class="muted small">勾上后导出的页面目录里会给收藏的章打 <b>♥</b>，并多一个「只看收藏夹」筛选按钮。
+      这只是<b>静态标记 / 只读</b>，不会改动工作台的收藏（默认不带）。</p>
     <p class="muted small">章数多时 <b>建议分页</b>：单个 .html 内嵌数据越大，手机首次打开解析越久
       （生成的页面会自己写明内嵌体量）。选「全部」就<b>只出一个文件</b>，不会自动分页。</p>
     <p class="muted small">分页时文件名形如 <code>【机翻】&lt;标题&gt;_001-100.html</code>（每部分自带目录、上一/下一部分链接、跨文件续读提示）。</p>
@@ -160,8 +166,18 @@ document.getElementById('regen').addEventListener('click', async (e) => {
 // 生成「仅 HTML 文件」：自包含 .html，可选仅译文 / 每 N 章一个文件（零 token）
 const mhModal = document.getElementById('mh-modal');
 const mhMsg = document.getElementById('mh-msg');
-document.getElementById('make-html').addEventListener('click', () => {
+const mhFav = document.getElementById('mh-fav');
+const mhFavN = document.getElementById('mh-fav-n');
+document.getElementById('make-html').addEventListener('click', async () => {
   mhMsg.textContent = ''; mhModal.classList.remove('hidden');
+  mhFav.checked = false; mhFav.disabled = false; mhFavN.textContent = '';   // 默认不带收藏夹
+  try {
+    const r = await fetch('/api/work/' + encodeURIComponent(workId) + '/favorites');
+    const j = await r.json();
+    const n = (j.favs || []).length;
+    if (!n) { mhFav.disabled = true; mhFavN.textContent = '（本作品没有收藏章）'; }
+    else { mhFavN.textContent = '（本作品收藏 ' + n + ' 章）'; }
+  } catch (e) { /* 取不到就按没有收藏处理，不挡导出 */ }
 });
 document.getElementById('mh-cancel').addEventListener('click', () => mhModal.classList.add('hidden'));
 document.getElementById('mh-go').addEventListener('click', async () => {
@@ -174,7 +190,7 @@ document.getElementById('mh-go').addEventListener('click', async () => {
   try {
     const r = await fetch('/api/work/' + workId + '/make-html', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({tr_only: content === 'tr', split: split})
+      body: JSON.stringify({tr_only: content === 'tr', split: split, fav: mhFav.checked})
     });
     const j = await r.json();
     if (!j.ok) { mhMsg.textContent = '生成失败：' + (j.output || ''); return; }

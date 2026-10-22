@@ -199,18 +199,41 @@ def ensure_chapters_json(cfg, entries):
 
 
 def ensure_order(cfg, entries):
-    """生成 chapter_order.json（原站顺序）——只在缺失时生成，不覆盖手工调整过的。"""
+    """生成/补全 chapter_order.json（原站顺序）。
+
+    缺失 → 全量写入；**已存在 → 只把「清单里有、文件里没有」的新章按原站顺序追加**，
+    绝不重排既有条目（手工调整过的顺序、老作品的历史顺序都保持原样）。
+
+    2026-10-19 事故：旧实现「只在缺失时生成」→ 新章落到消费端 `按 eid 数字补尾`
+    （translate_runner.load_entries / gen_aa_html.chapter_order），**而原站顺序未必等于 eid 顺序**
+    —— ポケの子 entry_95272=第433話 的 eid 反而大于 entry_95271=第434話，两章在阅读器目录与
+    交付页里颠倒。dl_runner 本来就已经把原站清单抓在手上（entries），补进去即可根治。
+    """
     work_dir = cfg.get("work_dir")
     if not work_dir:
         return
     order_path = os.path.join(work_dir, "chapter_order.json")
+    eids = [str(e["eid"]) for e in entries]
     if os.path.exists(order_path):
-        log(f"chapter_order.json 已存在，跳过：{order_path}")
+        try:
+            old = [str(x) for x in json.load(open(order_path, encoding="utf-8")).get("order", [])]
+        except Exception:
+            log("chapter_order.json 解析失败，保持原样不动：%s" % order_path)
+            return
+        have = set(old)
+        add = [e for e in eids if e not in have]
+        if not add:
+            log("chapter_order.json 已是最新（%d 话）：%s" % (len(old), order_path))
+            return
+        with open(order_path, "w", encoding="utf-8") as f:
+            json.dump({"order": old + add}, f, ensure_ascii=False, indent=1)
+        log("chapter_order.json 追加 %d 话（按原站顺序）：%s → %d 话"
+            % (len(add), order_path, len(old) + len(add)))
         return
     os.makedirs(work_dir, exist_ok=True)
     with open(order_path, "w", encoding="utf-8") as f:
-        json.dump({"order": [e["eid"] for e in entries]}, f, ensure_ascii=False, indent=1)
-    log(f"chapter_order.json 已生成: {order_path} ({len(entries)} 话)")
+        json.dump({"order": eids}, f, ensure_ascii=False, indent=1)
+    log("chapter_order.json 已生成: %s (%d 话)" % (order_path, len(eids)))
 
 
 def run(cmd, cwd=None):

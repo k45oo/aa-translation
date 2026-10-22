@@ -18,6 +18,14 @@
     3. `--scan-kako` / 本地无 index.json 时扫 kako 索引发现历史贴
        （`/kako/` → dir1 → dir2 → 表格行 `<td>KEY</td><td><a href="<eid>.html">标题</a></td><td>时间戳</td>`）。
 
+**落盘顺序 = 最新贴优先**（2026-10-19）：`fetch_order()` 按 eid 从新到旧下载 —— 中途停止/失败
+也让**最新内容先到位**（旧实现从 1スレ目 起抓，活跃贴排在最后）。
+
+**活跃贴自动重抓**（2026-10-19）：贴还在投稿时 `subject.txt` 报的楼数会大于本地 `.dat` 的楼数
+（实测 48スレ目本地 2720 楼 / 原站 3542 楼）——旧实现「文件已存在即跳过」，于是**点了「↻ 更新」也
+一个新贴都拿不到**（日志 `跳过(已有) 48 / 刷新 0`）。现在 `is_stale()` 命中即重抓，无需 `--force`；
+归档贴（不再出现在 subject.txt）照旧跳过，`--force` 才重抓。
+
 站点/协议要点（实测，改前先看）：
 - 本站（`yarufox.sakura.ne.jp/FOX`）是 zeroczhan 系 `0ch+ BBS`：正文 dat 在 `/dat/<eid>.dat`
   （活跃贴 200 可达）；已归档贴 read.cgi 只回 ~1.3KB 跳转页 → 正文在 `kako/`。
@@ -26,8 +34,9 @@
   所有 HTTP 走磁盘缓存（`揭示板/.cache/<board>/`，默认 24h TTL）→ 重跑/断点续跑几乎零请求。
 - スレ编号在标题里用假名拼数字（`そのよんじゅうななっ` = 47）：按 せん/ひゃく/じゅう **求和**，
   不能「遇单位就累乘」（`ひゃくじゅう` = 110 会被算成 1000）。
-- 文件名 `<N>スレ目_<eid>.dat` 与 `index.json` 的 `slaves[]`（label/eid/res/bytes/ts/file）
-  是工作台 `logic.board_slaves` 的既有口径，**勿改名**。
+- 文件名 `<N>スレ目_<eid>.dat` 与 `index.json` 的 `slaves[]`（label/eid/res/bytes/ts/file/thread_url）
+  是工作台 `logic.board_slaves` 的既有口径，**勿改名**。`thread_url` = 原帖地址（能在原站打开的
+  地址：活跃贴 read.cgi / 归档贴 kako 页）；`url` 保留为 `/dat/` 裸数据地址（兼容旧消费端）。
 
 零 token；支持统一任务管理器协议（心跳/两档停止，退出码 41 = 用户停止）。
 """
@@ -172,6 +181,24 @@ def kako_url(base, eid):
     return f"{base}/kako/{e[:4]}/{e[:5]}/{e}"
 
 
+def thread_url(host_root, board, eid, src="", archived=False):
+    """贴的**原帖地址**（原站能打开的贴地址；`url` 字段那个 `/dat/` 是裸数据）。
+
+    - 活跃贴 → `{host}/test/read.cgi/{board}/{eid}/` —— **read.cgi 在站点根下，不在 `<板>/` 下**：
+      板首页自己链的就是这个形式（`…/test/read.cgi/FOX/<eid>/l50`）；写成
+      `{host}/{board}/test/read.cgi/{board}/{eid}/` **实测 404**（2026-10-19 踩过）。
+    - 已归档 → `{host}/{board}/kako/<前4>/<前5>/<eid>.html`（正文页）。判定 = 本次真的从 kako 取的
+      （src = kako-dat/kako-html）、或「不在 subject.txt 活跃清单里」（`archived=True`）——实测这类贴
+      `/dat/` 404、read.cgi 根路径只回 ~1268B「過去ログ倉庫」跳转页，正文在 kako。
+    """
+    host_root = str(host_root).rstrip("/")
+    board = str(board).strip("/")
+    eid = str(eid)
+    if str(src).startswith("kako") or archived:
+        return f"{host_root}/{board}/kako/{eid[:4]}/{eid[:5]}/{eid}.html"
+    return f"{host_root}/test/read.cgi/{board}/{eid}/"
+
+
 def _first_date(dat_text):
     """dat 第一行的投稿时间（`名前<>mail<>日期<>本文<>` 的第 3 段）。"""
     first = dat_text.split("\n", 1)[0]
@@ -179,8 +206,40 @@ def _first_date(dat_text):
     return parts[2].strip() if len(parts) > 2 else ""
 
 
+def _last_date(dat_text):
+    """dat **最后一条投稿**的时间（从尾往前找第一条带日期的 res）。
+
+    不能直接取最后一行：归档 dat 尾部可能带板级页脚行（实测 47スレ目 末行
+    `満腹狐 <>ttp://…/FOX/<>max<>…`，日期字段是 `max`）。
+    """
+    for ln in reversed(dat_text.split("\n")):
+        parts = ln.split("<>")
+        if len(parts) > 2 and _DATE_RE.search(parts[2]):
+            return parts[2].strip()
+    return ""
+
+
 def dat_res_count(dat_text):
     return len([ln for ln in dat_text.split("\n") if ln.strip()])
+
+
+def is_stale(local_res, live_res):
+    """活跃贴是否已增长（本地楼数 < 原站 subject.txt 楼数）→ 需要重抓。
+
+    live_res 只对 subject.txt 里的活跃贴有值（index.json 里的已知 eid 拿不到实时楼数）：
+    归档贴不再投稿，本地又已完整 → 不该白抓（`--force` 才重抓）。
+    """
+    return bool(local_res) and bool(live_res) and int(live_res) > int(local_res)
+
+
+def fetch_order(sel):
+    """落盘顺序 = **最新贴优先**（eid 从新到旧）。
+
+    动机（2026-10-19）：活跃贴是「最新内容」所在，旧实现从 1スレ目 起顺序抓，活跃贴排最后
+    —— 停止/网络失败/时间不够时，最新贴反而没抓到。观看口径（标签/编号）不受影响，
+    index.json 的 slaves 按 eid 另排。
+    """
+    return sorted(sel, key=lambda x: int(x["eid"]), reverse=True)
 
 
 # ---------------------------------------------------------------- 发现
@@ -367,6 +426,10 @@ def main():
     a = ap.parse_args()
 
     base = (a.base or f"{a.host.rstrip('/')}/{a.board}").rstrip("/")
+    # 站点根（= base 去掉末尾的 `/<板>`）：原帖地址要用它拼 read.cgi（read.cgi 在根下，不在 <板>/ 下）
+    host_root = base
+    if host_root.endswith("/" + a.board):
+        host_root = host_root[: -len(a.board) - 1]
     outdir = a.outdir or a.author or a.match or a.board
     dest = os.path.join(ROOT, "揭示板", outdir)
     cache = os.path.join(ROOT, "揭示板", ".cache", a.board)
@@ -381,21 +444,26 @@ def main():
     # 1) 活跃贴
     subj, st = f.text(f"{base}/subject.txt")
     active = parse_subject(subj) if st == 200 else []
+    # 活跃清单拿到手才算权威（拿不到时不猜「不在清单里 = 已归档」，一律保 read.cgi 形态）
+    subject_ok = bool(st == 200 and active)
     log(f"subject.txt: {len(active)} 贴（活跃）")
-    cand = {t["eid"]: {"eid": t["eid"], "title": t["title"], "res": t["res"], "src": "active"}
+    # live_res = subject.txt 报的实时楼数（活跃贴才拿得到；用途 = 判「本地副本是否已过期」）
+    cand = {t["eid"]: {"eid": t["eid"], "title": t["title"], "res": t["res"],
+                       "live_res": t["res"], "src": "active"}
             for t in active}
 
     # 2) 已知归档贴（index.json 里的 eid）
     for eid, it in prev_by_eid.items():
         cand.setdefault(eid, {"eid": eid, "title": it.get("title", ""), "res": it.get("res", 0),
-                              "src": "known"})
+                              "live_res": 0, "src": "known"})
 
     # 3) kako 索引（首次/强制；--no-kako 跳过）
     need_scan = (not a.no_kako) and (a.scan_kako or not prev_by_eid)
     if need_scan:
         log("扫 kako 索引（发现历史贴）…")
         for r in scan_kako(f, base, a.kako_from, a.kako_to):
-            cand.setdefault(r["eid"], {"eid": r["eid"], "title": r["title"], "res": 0, "src": "kako"})
+            cand.setdefault(r["eid"], {"eid": r["eid"], "title": r["title"], "res": 0,
+                                       "live_res": 0, "src": "kako"})
     elif a.no_kako:
         log("--no-kako：跳过 kako 索引")
 
@@ -452,36 +520,44 @@ def main():
             f"——拒绝写入（换目录或加 --allow-mixed）。")
         return 2
 
-    # 6) 抓 + 落盘
+    # 6) 抓 + 落盘（**从最新贴开始**：活跃贴还在长，先刷新它；中途停止/失败也让最新内容先到位）
     os.makedirs(dest, exist_ok=True)
     slaves = list(prev.get("slaves", []))
     by_eid = {str(s.get("eid")): s for s in slaves}
     added = updated = skipped = failed = 0
-    for i, it in enumerate(sel, 1):
+    for i, it in enumerate(fetch_order(sel), 1):
         _stop_check()
         hb("下载", i, len(sel))
         eid, n, label = it["eid"], it["n"], it["label"]
         path = os.path.join(dest, f"{label}_{eid}.dat")
+        dat = ""
+        local_res = 0
         if os.path.exists(path) and not a.force:
             dat = open(path, encoding="utf-8", errors="replace").read()
+            local_res = dat_res_count(dat)
+        if local_res and not is_stale(local_res, it.get("live_res")):
             it["note"] = "已有"
             skipped += 1
         else:
             if a.dry_run:
                 log(f"  [{i}/{len(sel)}] {n}スレ目 {eid} {it['title'][:30]} (dry-run)")
                 continue
-            dat, src, url = fetch_thread(f, base, a.board, eid)
-            if not dat:
+            if local_res:                      # 活跃贴又长了 → 重抓（不需要 --force）
+                log(f"  [{i}/{len(sel)}] {label} {eid} 原站已增长（本地 {local_res} 楼 → "
+                    f"原站 {it.get('live_res')} 楼）→ 重抓")
+            dat2, src, url = fetch_thread(f, base, a.board, eid)
+            if not dat2:
                 log(f"  [{i}/{len(sel)}] {label} {eid} 抓取失败（{src}）")
                 it["note"] = src
                 failed += 1
                 continue
-            if a.author and a.author not in dat:
+            if a.author and a.author not in dat2:
                 log(f"  [{i}/{len(sel)}] {label} {eid} 跳过：dat 内无 {a.author}")
                 it["note"] = "作者不匹配"
                 continue
             with open(path, "w", encoding="utf-8") as fp:
-                fp.write(dat)
+                fp.write(dat2)
+            dat = dat2
             it["src"] = src
             it["note"] = "ok"
             if eid in by_eid:
@@ -493,6 +569,11 @@ def main():
         entry = {"label": label, "eid": eid, "title": it["title"],
                  "res": res, "bytes": os.path.getsize(path) if os.path.exists(path) else 0,
                  "ts": ts, "file": path, "url": f"{base}/dat/{eid}.dat",
+                 # 最后投稿时间（工作台「最后投稿」字段：一眼看出这贴还活跃到哪天）
+                 "last_ts": _last_date(dat),
+                 # 原帖地址（原站能打开的贴地址）：活跃贴 read.cgi；已归档（不在活跃清单/本次 kako 取的）→ kako 正文页
+                 "thread_url": thread_url(host_root, a.board, eid, it.get("src", ""),
+                                          archived=subject_ok and it.get("src") == "known"),
                  "note": it.get("note", "ok"), "src": it.get("src", "")}
         if eid in by_eid:
             by_eid[eid].update(entry)

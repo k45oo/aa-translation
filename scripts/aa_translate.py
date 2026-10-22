@@ -845,12 +845,54 @@ def one_line(s):
 # 口径：补位一律挪到**行尾**（总宽不变、行内 art 列位不受影响），塞的字直接删。
 # 幂等；纯 art 行不受影响（前置字符必须是中日文/字母/数字）。
 # ---------------------------------------------------------------------------
-_PAD_BEFORE_REF = re.compile(r"[\u3000 ]{1,}(?=>>)")
-_INNER_PAD = re.compile(
-    r"(?<=[\u4e00-\u9fffA-Za-z0-9０-９\uff21-\uff3a\uff41-\uff5a])"   # 补位左边是实字（非空格）
-    r"[\u3000 ]+"
-    r"(?=[/／+＋=＝×-][\u4e00-\u9fffA-Za-z0-9０-９\uff21-\uff3a\uff41-\uff5a])"  # 右边是运算符 + 实字
-)
+_PAD_BEFORE_REF = re.compile(r"(?<=[^\s])[\u3000 ]{1,}(?=>>)")   # 行首缩进不算补位（2026-10-19）
+# 「真补位」判据（2026-10-19 收窄：原版在**艺术行**上误伤 → entry_48695 第2040/2041行事故）
+#   原版只要求「空格左邻是中日文/字母/数字、右邻是运算符+同类字符」，结果 AA 画里的
+#   `二二二二　　　　　/i:i:`、`兆兆兆　　／兆兆`、`rx -7ニ` 全部命中 → 把画的内侧间距
+#   搬到行尾（宽度不变、三个局部校验全过）→ 图歪了，而且**每次写盘都重犯**（还原都不生效）。
+#   收窄三点（全库 2.54M 原文行标定：命中 6,553 → 19 行，文档里三例正例全保留）：
+#     ① 整行**高信号艺术笔画**（_ART_STROKE_CHARS 去掉文本里也常见的中括号/加减号/逗号句号）
+#        出现 > `_HI_ART_MAX` 次 → 判艺术行，整行不动；
+#     ② 空格右邻必须是运算符 + **非艺术汉字**（术语/词），或运算符 + 数字 + 非艺术汉字/右括号
+#        （`龙　　/地面`、`（C　　+1）`）；ASCII 字母/数字单独出现（`/i:i:`、`/7`）不算；
+#     ③ 空格紧邻的左右 3 字符若是**同一字符重复**（`兆兆兆`/`iiii`，AA 用重复笔画的画法）→ 不动。
+_HI_ART_CHARS = _ART_STROKE_CHARS - set("()[]（）＿_+=-×<>^~|,:;.。")
+_HI_ART_MAX = 2
+_INNER_PAD_BASE = re.compile(
+    r"(?<=[\u4e00-\u9fffA-Za-z0-9０-９Ａ-Ｚａ-ｚ])[\u3000 ]+(?=[/／+＋=＝×-])")
+_TERM_CH = re.compile(r"[\u4e00-\u9fff]")
+_DIGIT_CH = re.compile(r"[0-9０-９]")
+_CLOSERS = "）)】」』"
+
+
+def _inner_pad_spans(line):
+    """行内「文字内部补位」的 (start, end) 跨度（判据见上方注释）。"""
+    nz = [c for c in line if not c.isspace()]
+    if sum(1 for c in nz if c in _HI_ART_CHARS) > _HI_ART_MAX:
+        return []                                  # 艺术行：整行不打补位，保艺术列位
+    spans = []
+    for m in _INNER_PAD_BASE.finditer(line):
+        s, e = m.start(), m.end()
+        op_i = e
+        if op_i >= len(line):
+            continue
+        left = line[s - 1] if s else ""
+        r1 = line[op_i + 1:op_i + 2]
+        r2 = line[op_i + 2:op_i + 3]
+        if not r1:
+            continue
+        if s >= 3 and left and line[s - 3:s] == left * 3:
+            continue                               # ③ 左侧同字重复 → 笔画
+        if line[op_i + 1:op_i + 4] == r1 * 3:
+            continue                               # ③ 右侧同字重复 → 笔画
+        if _TERM_CH.match(r1) and r1 not in ART_KANJI:
+            spans.append((s, e))                   # ② 运算符 + 非艺术汉字 = 术语/词
+        elif r1 and r2 and _DIGIT_CH.match(r1) and (
+                r2 in _CLOSERS or (_TERM_CH.match(r2) and r2 not in ART_KANJI)):
+            spans.append((s, e))                   # ② 运算符 + 数字 + 右括号/汉字（（C+1））
+    return spans
+
+
 _REF_INSERT = re.compile(r"(?<=>>)(?:是|由)(?=[0-9０-９])")
 _NUM_INSERT = re.compile(r"(?<=[0-9０-９]-)以(?=[0-9０-９])")
 
@@ -860,8 +902,14 @@ def normalize_pad_placement(line):
 
     搬走/删掉的按**同显示宽度**在行尾补回（整行宽度不变——否则行变短会被
     scan_width 判 short 再送 fix_width 重译，白烧 API）。
+    艺术行由 `_inner_pad_spans` 的判据挡在外面（2026-10-19）。
     """
     if not line:
+        return line
+    # 艺术行整行不动（2026-10-19）：高信号笔画 > _HI_ART_MAX 的行是画，四条规则一律不适用——
+    # 画里的 `> > > >>>>`、`|　>>？？？`、`　　／` 都长得像补位，动一下整幅画就歪（entry_48695 事故）。
+    _nz = [c for c in line if not c.isspace()]
+    if sum(1 for c in _nz if c in _HI_ART_CHARS) > _HI_ART_MAX:
         return line
     cut = []
 
@@ -876,7 +924,11 @@ def normalize_pad_placement(line):
         boxes.append(m.group(0))
         return ""
     out = _PAD_BEFORE_REF.sub(_grab, out)
-    out = _INNER_PAD.sub(_grab, out)
+    # `_INNER_PAD` 旧实现（纯正则）在艺术行上误伤 → 换成逐跨度判定，并从右往左切（保下标）
+    if out.count("\u3000") or out.count(" "):
+        for s, e in reversed(_inner_pad_spans(out)):
+            boxes.append(out[s:e])
+            out = out[:s] + out[e:]
     need = sum(disp_width(b) for b in boxes) + sum(disp_width(b) for b in cut)
     if not need:
         return out
@@ -1337,7 +1389,14 @@ def call_api(system, body, max_tokens=MAX_OUT_TOKENS, timeout=400, work_r18=None
         # 2026-08-26 免费模式: 即使 AA_BACKEND 未设(cloud)也强制走 call_with_fallback
         # (免费链 + 无限重试); 否则 cloud 分支会走付费云端直接模式。
         _free_mode = os.environ.get("AA_FREE_MODE") in ("1", "true", "True")
-        if b != "cloud" or _free_mode:
+        # 2026-10-21: **AA_BACKEND 未设时也走链**（链首 = 设置页/`AA_CHAIN` 勾选的第一条）。
+        #   旧行为 = 云端直连 `[default]`（commandcode + `xiaomi/mimo-v2.5`），该模型已被
+        #   commandcode 下架（400 `No available providers match the 'only' filter: xiaomi`）
+        #   → 所有未设 AA_BACKEND 的调用点全 400 空转: 作品简介翻译(add_work.translate_desc)、
+        #   章节标题(translate_titles)、pass2/pass3、fix_width、iter_glossary、旧候选筛选。
+        #   显式 `AA_BACKEND=cloud` 才保留旧直连语义（逃生口, 用例 test_stability 走它）。
+        _explicit_cloud = _bk_env.lower() == "cloud"
+        if b != "cloud" or _free_mode or not _explicit_cloud:
             # 2026-08-22 自动降级：转发给 aa_backend.call_with_fallback——
             # 从配置链(或显式 AA_BACKEND)开始, 某后端 429/截断/R18被拒/空响应 时自动切下一候选。
             # 各候选 model 由 call_with_fallback 内 _model_for_backend 按 AA_*_MODEL env 覆盖。
@@ -1345,7 +1404,7 @@ def call_api(system, body, max_tokens=MAX_OUT_TOKENS, timeout=400, work_r18=None
             text, _fb = aa_backend.call_with_fallback(
                 work_r18, system, body, max_tokens=max_tokens, timeout=timeout, low_r18=low_r18)
             return text
-        # b=="cloud"(AA_BACKEND 未设) → 落下方云端直接模式(走 gateway/model/key, 含 proxy 重试)
+        # b=="cloud" 且显式 AA_BACKEND=cloud → 落下方云端直接模式(走 gateway/model/key, 含 proxy 重试)
     except ImportError:
         pass   # 缺 common/aa_backend 时回落云端（老环境兼容）
     gw = _gateway()

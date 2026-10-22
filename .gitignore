@@ -33,6 +33,10 @@ aa_web_app/data/tts_cache/
 # 阅读状态（2026-09-03，自动写入频繁，与手动 work_meta 分离；运行时状态非数据）
 aa_web_app/data/read_state.json
 
+# 章收藏（2026-10-17，阅读界面红心 + 「只看收藏夹」；运行时状态非数据）
+aa_web_app/data/favorites.json
+aa_web_app/data/favorites.json.tmp
+
 # 划词翻译记账（2026-09-20，逐次追加：通道/耗时/照抄；运行时状态非数据，滚动 .1）
 aa_web_app/data/selection_log.jsonl
 aa_web_app/data/selection_log.jsonl.[0-9]

@@ -4,7 +4,6 @@ import json
 import os
 import time
 import registry
-import work_pipeline as WP
 from fastapi import HTTPException, Request
 from aa_web_app import web_state
 from aa_web_app import logic
@@ -294,7 +293,8 @@ def api_translate_start(work: str, body: dict = None):
     if _env:
         params["env"] = _env
     # 2026-09-22 方案 D8/D11: pipeline=pokemon 的作品走专属链（固定内容表预填 + wiki 术语绑定）
-    _ttype = "pokemon" if WP.pipeline_of(work) == WP.POKEMON else "translate"
+    # 2026-10-19: 判定统一走 TM.pipeline_type（enqueue 内也会归一，这里是给提示文案用）
+    _ttype = TM.pipeline_type("translate", work)
     r = TM.enqueue(_ttype, work, params)
     if not r.get("ok"):
         return r

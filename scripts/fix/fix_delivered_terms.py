@@ -12,6 +12,8 @@
 用法:
   python scripts/fix/fix_delivered_terms.py --work ポケの子            # 只报告
   python scripts/fix/fix_delivered_terms.py --work ポケの子 --apply     # 备份后写回
+  python scripts/fix/fix_delivered_terms.py --work ポケの子 --rules りゅうせいかざん --apply
+      # 只补一个词的欠账（跑规则表里「源必须含」带该关键词的那几条；不跑别的待办改名）
 """
 import os, sys, argparse, shutil, time
 
@@ -108,6 +110,9 @@ TERM_RULES = [
     (("カンナギ",), (), [("坎纳吉杯", "神和杯"), ("坎纳", "神和"), ("神奈木杯", "神和杯"), ("神奈", "神和")]),
     (("ナギサ",), ("様",), [("澄波", "滨海"), ("凪咲", "滨海"), ("渚道馆", "滨海道馆"), ("渚竞技场", "滨海竞技场")]),
     (("ハクタイ",), (), [("白檀", "百代")]),
+    # 本作原创招式名（≠ 官方 りゅうせいぐん=流星群）：源含 りゅうせいかざん 的行被写成了「流星群」
+    # （词表/本作 wiki 引号对/模型三种来源都会，2026-10-17 用户报错）→ 源锚定换回 流星火山。
+    (("りゅうせいかざん",), ("りゅうせいぐん",), [("流星群", "流星火山")]),
 ]
 
 
@@ -119,9 +124,12 @@ def _hits_jp(src, base, pairs):
     return {(h.get("jp") if isinstance(h, dict) else "") for h in hits or []}
 
 
-def process(work, apply=False, todo_path=None, no_todo=False):
+def process(work, apply=False, todo_path=None, no_todo=False, rules=None):
     cfg = registry.get(work)
     aa_dir, out_dir, work_dir = cfg["aa_dir"], cfg["out_dir"], cfg["work_dir"]
+    active = [r for r in TERM_RULES if not rules or any(rules in w for w in r[0])]
+    if rules:
+        print(f"[rules] 只跑 {len(active)}/{len(TERM_RULES)} 条规则（关键词 {rules}）")
     files = sorted(f for f in os.listdir(out_dir) if f.endswith("_汉化.txt"))
     stat = {"files": 0, "pad": 0, "term": 0, "todo": 0, "width_bad": 0}
     todo = []
@@ -146,7 +154,7 @@ def process(work, apply=False, todo_path=None, no_todo=False):
                 n_pad += 1
                 t = o
             n_before = n_term
-            for must, mustnot, swaps in TERM_RULES:
+            for must, mustnot, swaps in active:
                 if not any(x in s for x in must) or any(x in s for x in mustnot):
                     continue
                 for a, b in swaps:
@@ -161,8 +169,14 @@ def process(work, apply=False, todo_path=None, no_todo=False):
             if "ちゅうがえり" in s and "空翻折返" not in t and "折返" in t:
                 t = t.replace("折返", "空翻折返")
                 n_term += 1
-            if n_term != n_before and C.disp_width(t) < C.disp_width(s):
-                t = T.pad_to_width(t, C.disp_width(s))   # 改名变短 → 补回源宽度（否则 scan_width 报短宽）
+            if n_term != n_before:
+                ws, wt = C.disp_width(s), C.disp_width(t)
+                if wt < ws:
+                    t = T.pad_to_width(t, ws)   # 改名变短 → 补回源宽度（否则 scan_width 报短宽）
+                elif wt > ws and t != t.rstrip("\u3000 "):
+                    # 改名变长 → 先吃掉行尾补位再按源宽补，保持源宽度（列位不动；
+                    # 2026-10-17 りゅうせいかざん: 流星群→流星火山 多 2 列）
+                    t = T.pad_to_width(t.rstrip("\u3000 "), ws)
             if C.disp_width(t) < C.disp_width(s):
                 stat["width_bad"] += 1
             new.append(t)
@@ -217,10 +231,13 @@ def main():
     ap.add_argument("--work", required=True)
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--todo", default=None)
+    ap.add_argument("--rules", default=None,
+                    help="只跑「源必须含」里带该关键词的规则（如 --rules りゅうせいかざん）；"
+                         "默认全部规则。只补一个词的欠账时用，免得把别的待办改名一起扫进去")
     ap.add_argument("--no-todo", action="store_true",
                     help="跳过语义错译清单（那一步要按章构建 pre_terms 词表，810 章要几十分钟）；只做补位+改名时用")
     a = ap.parse_args()
-    process(a.work, apply=a.apply, todo_path=a.todo, no_todo=a.no_todo)
+    process(a.work, apply=a.apply, todo_path=a.todo, no_todo=a.no_todo, rules=a.rules)
 
 
 if __name__ == "__main__":

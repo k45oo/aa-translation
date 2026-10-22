@@ -3,10 +3,20 @@
 {% block content %}
 <h1>术语表 <span class="muted small">更新日期：{{ data['更新日期'] }} · 作品块只读，其余可编辑</span></h1>
 <div class="actions">
-  <input id="g-search" type="search" placeholder="过滤当前块">
+  <input id="g-search" type="search" placeholder="搜索：替换对 / 角色 / 白名单">
   <button id="g-save" class="btn">保存术语表</button>
   <button id="g-backups" class="btn ghost">备份记录</button>
   <span class="muted" id="g-msg"></span>
+</div>
+
+<!-- 搜索命中（2026-10-21）：角色表默认按作品隐藏，搜索时才把命中的角色/白名单列出来 -->
+<div id="g-hits" class="hidden">
+  <h2>搜索命中 · 角色（<span id="cnt-hit-roles">0</span>）
+    <span class="muted small">想改就点行尾「角色」打开该作品的弹窗</span></h2>
+  <table class="grid"><thead><tr><th>日文</th><th>中文</th><th>作品</th><th>分类</th><th>备注</th><th></th></tr></thead>
+    <tbody id="tbl-hit-roles"></tbody></table>
+  <h2>搜索命中 · 白名单（<span id="cnt-hit-known">0</span>）</h2>
+  <table class="grid"><thead><tr><th>名称</th></tr></thead><tbody id="tbl-hit-known"></tbody></table>
 </div>
 
 <h2>作品（只读，{{ data['作品'] | length }}）</h2>
@@ -69,5 +79,5 @@
 {% block scripts %}
 <script>window.GLOSSARY_DATA = {{ data | tojson }};</script>
 <script>window.ROLES_DATA = {{ roles_data | tojson }};</script>
-<script src="/static/glossary.js?v=20260901b"></script>
+<script src="/static/glossary.js?v=20261021a"></script>
 {% endblock %}

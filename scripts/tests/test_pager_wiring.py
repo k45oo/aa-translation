@@ -82,8 +82,9 @@ class TestPagerWiring(unittest.TestCase):
     def test_reader_toc_jumps_to_active_chapter(self):
         t = _read(os.path.join(_TPL, "reader.html"))
         self.assertIn('id="toc-pager"', t)
-        self.assertIn("aaPager({rows: '.reader-nav > a'", t)
-        self.assertIn("classList.contains('active')", t)   # activeOf：自动定位当前章所在页
+        # 2026-10-17：目录行改由 applyTocFilter() 交给 aaPager（「只看收藏」时只传收藏行；全部时就是全部行）
+        self.assertIn("aaPager({rows: vis, controls: '#toc-pager'", t)
+        self.assertIn("activeOf: el => el.classList.contains('active')", t)   # activeOf：自动定位当前章所在页
 
     def test_reader_pager_symbol_buttons_and_size_below(self):
         """阅读页目录分页条（2026-09-13）：只传 symbols/sizeLast → 符号按钮 + 每页选择在页数下方。"""

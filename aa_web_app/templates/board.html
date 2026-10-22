@@ -36,6 +36,20 @@
              font-size: var(--aa-fs, 14px); line-height: var(--aa-lh, 16px);
              overflow-x: auto; text-shadow: var(--aa-shadow, none); }
 .bres-body .aal { display: block; }
+/* 楼距（2026-10-19）：与作品阅读界面同口径 —— 楼与楼之间 ≈2 个 AA 行高（8+16+8=32px=2×--aa-lh） */
+.bres ~ .bres { margin-top: 16px; }
+/* 去重折叠（2026-10-19）：连续相同正文折成「ほか N 楼相同」，点折叠行展开 */
+.bres.grp-hidden { display: none; }
+.board-body.dedup-on .bres.grp-hidden.grp-open { display: block; }
+.board-body.dedup-off .bres.grp-hidden { display: block; }
+.board-body.dedup-off .bres-grp { display: none; }
+.bres-grp { padding: 4px 14px 0 14px; }
+.bres-grp .grp-btn { background: #f3eee2; border: 1px dashed #c8b89a; color: #6a4a2a;
+  border-radius: 4px; font-size: 12px; padding: 2px 9px; cursor: pointer; }
+.bres-grp .grp-btn:hover { background: #ece4d2; }
+.bres-grp.open .grp-btn { border-style: solid; border-color: #a87a52; color: #8a5a3a; }
+.board-toggles { display: inline-flex; gap: 6px; margin-left: 6px; }
+.board-toggles .btn.on { background: #8a5a3a; border-color: #8a5a3a; color: #fff; }
 /* 首页（作者列表） */
 .board-cols { width: 100%; border-collapse: collapse; background: #fff; }
 .board-cols th { background: #eae6dc; text-align: left; font-size: 12.5px; padding: 6px 10px; }
@@ -92,29 +106,29 @@
       <span class="toc-label" style="margin:0;flex:1;">貼：{{ cur.label }}（{{ total_res }} 楼）</span>
     </div>
     {% for s in slaves %}
-    <a href="/board/{{ author | urlencode }}?file={{ s.file | urlencode }}{% if page > 1 %}&page=1{% endif %}"
+    <a href="/board/{{ author | urlencode }}?file={{ s.file | urlencode }}{% if op %}&op=1{% endif %}{% if page > 1 %}&page=1{% endif %}"
        class="{{ 'active' if s.file == cur.file }}"
-       title="{{ s.label }} · {{ s.ts }}">{{ loop.index }}. {{ s.label }}
-       <span class="meta">{{ s.res }} 楼 · {{ s.ts }}</span></a>
+       title="{{ s.label }} · 首帖 {{ s.ts }}{% if s.last_ts %} · 最后投稿 {{ s.last_ts }}{% endif %}">{{ loop.index }}. {{ s.label }}
+       <span class="meta">{{ s.res }} 楼 · {{ board_ts_short(s.ts) }}{% if s.last_ts %} ~ {{ board_ts_short(s.last_ts) }}{% endif %}</span></a>
     {% endfor %}
   </nav>
   <div class="board-main">
     <div class="board-head">
       <h2>{{ parsed.title }}</h2>
-      <div class="board-meta">作者：{{ author }} · 帖 eid {{ cur.eid }} · 共 {{ total_res }} 楼（本页 {{ res | length }} 楼）<button class="btn tiny ghost" id="board-search-btn" type="button">🔍 全局搜索</button><button class="btn tiny ghost" id="board-upd-btn" type="button" title="拉原站分类/归档索引，增量更新本连载的全部贴（零 token）">↻ 更新揭示板</button><span class="ba-status" id="board-upd-status"></span></div>
+      <div class="board-meta">作者：{{ author }} · 帖 eid {{ cur.eid }} · 共 {{ total_res }} 楼{% if op_total and op_total != total_res %} · 楼主 {{ op_total }} 楼{% endif %}（本页 {{ res | length }} 楼{% if op %} · 仅楼主{% endif %}）{% if cur.last_ts %} · 最后投稿：{{ board_ts_short(cur.last_ts) }}{% endif %}{% if cur.thread_url %} · 原帖地址：<a href="{{ cur.thread_url }}" target="_blank" rel="noopener">{{ cur.thread_url }}</a>{% endif %}<span class="board-toggles"><button class="btn tiny ghost{% if op %} on{% endif %}" id="op-toggle" type="button" data-op="{{ op }}" title="只看楼主：服务端过滤后按楼主楼重新分页（楼号仍是原楼号）">👤 仅楼主</button><button class="btn tiny ghost on" id="dedup-toggle" type="button" title="连续相同楼折叠成一行（点折叠行展开/收起）">▤ 去重</button></span><button class="btn tiny ghost" id="board-search-btn" type="button">🔍 全局搜索</button><button class="btn tiny ghost" id="board-upd-btn" type="button" title="拉原站分类/归档索引，增量更新本连载的全部贴（零 token）">↻ 更新揭示板</button><span class="ba-status" id="board-upd-status"></span></div>
     </div>
     {% if total_pages > 1 %}
     <div class="board-pager">
-      {% if page > 1 %}<a class="btn" href="/board/{{ author | urlencode }}?file={{ cur.file | urlencode }}&page={{ page - 1 }}">&larr; 上一页</a>
+      {% if page > 1 %}<a class="btn" href="/board/{{ author | urlencode }}?file={{ cur.file | urlencode }}{% if op %}&op=1{% endif %}&page={{ page - 1 }}">&larr; 上一页</a>
       {% else %}<span></span>{% endif %}
       <span class="pg-info">第 {{ page }} / {{ total_pages }} 页 · <span class="pg-jump">跳到 <input id="pg-input" type="number" min="1" max="{{ total_pages }}" value="{{ page }}"> 页 <button class="btn tiny" id="pg-go">Go</button></span></span>
-      {% if page < total_pages %}<a class="btn" href="/board/{{ author | urlencode }}?file={{ cur.file | urlencode }}&page={{ page + 1 }}">下一页 &rarr;</a>
+      {% if page < total_pages %}<a class="btn" href="/board/{{ author | urlencode }}?file={{ cur.file | urlencode }}{% if op %}&op=1{% endif %}&page={{ page + 1 }}">下一页 &rarr;</a>
       {% else %}<span></span>{% endif %}
     </div>
     {% endif %}
-    <div class="board-body">
+    <div class="board-body dedup-on" id="board-body">
       {% for r in res %}
-      <div class="bres" id="r{{ r.no }}">
+      <div class="bres{% if r._dedupe and r._dedupe.of %} grp-hidden{% endif %}" id="r{{ r.no }}"{% if r._dedupe and r._dedupe.of %} data-grp="r{{ r._dedupe.of }}"{% endif %}>
         <div class="bres-head">
           <span class="bres-no">{{ r.no }}</span>
           <span class="bres-name {{ 'author' if '◆' in r.name else 'anon' }}">{{ r.name or '名無し' }}</span>
@@ -124,14 +138,21 @@
           {% for row in r.body %}{% if row.strip() %}<span class="aal">{{ row | safe }}</span>{% else %}<span class="aal">&nbsp;</span>{% endif %}{% endfor %}
         </div>
       </div>
+      {% if r._dedupe and r._dedupe.count %}
+      <div class="bres-grp" data-for="r{{ r.no }}">
+        <button type="button" class="grp-btn" data-range="ほか {{ r._dedupe.count - 1 }} 楼相同（{{ r._dedupe.nos[1] }}–{{ r._dedupe.nos[-1] }}）">
+          <span class="grp-arrow">▸</span> <span class="grp-label">ほか {{ r._dedupe.count - 1 }} 楼相同（{{ r._dedupe.nos[1] }}–{{ r._dedupe.nos[-1] }}）</span>
+        </button>
+      </div>
+      {% endif %}
       {% endfor %}
     </div>
     {% if total_pages > 1 %}
     <div class="board-pager">
-      {% if page > 1 %}<a class="btn" href="/board/{{ author | urlencode }}?file={{ cur.file | urlencode }}&page={{ page - 1 }}">&larr; 上一页</a>
+      {% if page > 1 %}<a class="btn" href="/board/{{ author | urlencode }}?file={{ cur.file | urlencode }}{% if op %}&op=1{% endif %}&page={{ page - 1 }}">&larr; 上一页</a>
       {% else %}<span></span>{% endif %}
       <span class="pg-info">第 {{ page }} / {{ total_pages }} 页</span>
-      {% if page < total_pages %}<a class="btn" href="/board/{{ author | urlencode }}?file={{ cur.file | urlencode }}&page={{ page + 1 }}">下一页 &rarr;</a>
+      {% if page < total_pages %}<a class="btn" href="/board/{{ author | urlencode }}?file={{ cur.file | urlencode }}{% if op %}&op=1{% endif %}&page={{ page + 1 }}">下一页 &rarr;</a>
       {% else %}<span></span>{% endif %}
     </div>
     {% endif %}
@@ -190,7 +211,7 @@
       const prev = (r.preview || '').replace(/\s+/g, ' ') || '(该楼无文本)';
       return '<a class="bs-item" href="/board/' + encodeURIComponent(author) +
         '?file=' + encodeURIComponent(r.file) +
-        '&page=' + r.page + '#r' + r.no + '" ' +
+        '&page=' + r.page + '&op=0#r' + r.no + '" ' +
         'data-no="' + r.no + '" data-file="' + encodeURIComponent(r.file) + '">' +
         '<div class="bs-item-head"><span class="lbl">' + escapeHtml(r.label) + '</span>' +
         '<span class="no">第' + r.no + '楼</span></div>' +
@@ -248,11 +269,94 @@
   const inp = document.getElementById('pg-input');
   if (go && inp) go.addEventListener('click', () => {
     const p = Math.max(1, Math.min({{ total_pages }}, parseInt(inp.value || '1', 10)));
-    location.href = '/board/{{ author | urlencode }}?file={{ cur.file | urlencode }}&page=' + p;
+    location.href = '/board/{{ author | urlencode }}?file={{ cur.file | urlencode }}{% if op %}&op=1{% endif %}&page=' + p;
   });
   if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') go.click(); });
 })();
 </script>
+{% if author %}
+<script>
+// 揭示板阅读辅助（2026-10-19）：去重折叠展开 / 仅楼主开关；开关状态按**目录**记 localStorage
+(function(){
+  const DIR = {{ author | tojson }};
+  const OP = {{ op or 0 }};
+  const body = document.getElementById('board-body');
+  const dbtn = document.getElementById('dedup-toggle');
+  const obtn = document.getElementById('op-toggle');
+
+  // ---- 去重：默认开（服务端已渲染折叠态）；本机存过 off 就展开全部 ----
+  const KEY_DEDUP = 'aa-board-dedup:' + DIR;
+  function setDedupe(on){
+    if (!body) return;
+    body.classList.toggle('dedup-on', on);
+    body.classList.toggle('dedup-off', !on);
+    if (dbtn) dbtn.classList.toggle('on', on);
+    try { localStorage.setItem(KEY_DEDUP, on ? '1' : '0'); } catch(e){}
+  }
+  let dedupOn = true;
+  try { dedupOn = localStorage.getItem(KEY_DEDUP) !== '0'; } catch(e){}
+  if (body) setDedupe(dedupOn);
+  if (dbtn) dbtn.addEventListener('click', () => setDedupe(!body.classList.contains('dedup-on')));
+
+  // ---- 折叠行：点一下展开该组（成员带 data-grp="r<首楼号>"），再点收起 ----
+  if (body) body.querySelectorAll('.bres-grp').forEach(mark => {
+    const btn = mark.querySelector('.grp-btn');
+    if (!btn) return;
+    const head = mark.getAttribute('data-for');
+    const label = btn.querySelector('.grp-label');
+    const arrow = btn.querySelector('.grp-arrow');
+    const range = btn.getAttribute('data-range') || '';
+    const members = [...body.querySelectorAll('.bres[data-grp="' + head + '"]')];
+    mark.addEventListener('click', () => {
+      const on = !mark.classList.contains('open');
+      mark.classList.toggle('open', on);
+      members.forEach(el => el.classList.toggle('grp-open', on));
+      if (arrow) arrow.textContent = on ? '▾' : '▸';
+      if (label) label.textContent = on ? '收起' : range;
+    });
+  });
+
+  // ---- 锚点落在被折叠的楼（搜索结果 #r1063）→ 自动展开该组再定位 ----
+  function openForHash(){
+    const m = (location.hash || '').match(/^#r(\d+)$/);
+    if (!m || !body) return;
+    const el = document.getElementById('r' + m[1]);
+    if (!el || !el.classList.contains('grp-hidden')) return;
+    const head = el.getAttribute('data-grp');
+    const first = body.querySelector('.bres[id="' + head + '"]');
+    const mark = body.querySelector('.bres-grp[data-for="' + head + '"]');
+    if (first) first.scrollIntoView({ block: 'start' });
+    if (mark && !mark.classList.contains('open')) mark.click();
+  }
+  window.addEventListener('hashchange', () => setTimeout(openForHash, 0));
+  setTimeout(openForHash, 30);
+
+  // ---- 仅楼主：URL 的 op 优先；没写 op 时按本机记的默认（存过 on 就跳一次）----
+  const KEY_OP = 'aa-board-op:' + DIR;
+  const qs = new URLSearchParams(location.search);
+  if (obtn) obtn.addEventListener('click', () => {
+    const want = OP ? 0 : 1;
+    try { localStorage.setItem(KEY_OP, want ? '1' : '0'); } catch(e){}
+    const u = new URL(location.href);
+    if (want) u.searchParams.set('op', '1'); else u.searchParams.delete('op');
+    u.searchParams.set('page', '1');
+    u.hash = '';
+    location.href = u.toString();
+  });
+  if (!qs.has('op') && !OP) {
+    let saved = '0';
+    try { saved = localStorage.getItem(KEY_OP) || '0'; } catch(e){}
+    if (saved === '1') {
+      const u = new URL(location.href);
+      u.searchParams.set('op', '1');
+      u.searchParams.set('page', '1');
+      u.hash = '';
+      location.replace(u.toString());
+    }
+  }
+})();
+</script>
+{% endif %}
 {% if author %}
 <script>
 // 揭示板「更新」：入队 board 任务（增量拉活跃贴 + 已归档 eid 重抓），轮询任务进度
@@ -262,6 +366,10 @@
   if (!btn || !st) return;
   const dir = {{ author | tojson }};
   let timer = null;
+  // 只有「本页会话里亲眼见过它跑（或本页刚入队）」才在 done 后自动刷新。
+  // 否则「上次的任务早已 done」会让每次打开页面都刷一次 → 无限刷新（2026-10-16 报障）。
+  let sawRun = false;
+  const FINAL = ['done','failed','stopped','crashed','cancelled'];
   function poll(){
     fetch('/api/board/task?dir=' + encodeURIComponent(dir))
       .then(r => r.json()).then(d => {
@@ -271,9 +379,11 @@
         st.className = 'ba-status ' + (['failed','crashed'].includes(t.status) ? 'bad'
                        : (t.status === 'done' ? 'good' : ''));
         st.textContent = `${t.status}${ph} · ${t.task_id}`;
-        if (['done','failed','stopped','crashed','cancelled'].includes(t.status)) {
-          if (timer) { clearInterval(timer); timer = null; }
-          if (t.status === 'done') setTimeout(() => location.reload(), 1200);
+        if (!FINAL.includes(t.status)) { sawRun = true; return; }   // 还在跑 → 标记「本次会话确实在更新」
+        if (timer) { clearInterval(timer); timer = null; }
+        if (t.status === 'done' && sawRun) {
+          sawRun = false;                                           // 刷一次就够，防连环刷新
+          setTimeout(() => location.reload(), 1200);
         }
       }).catch(() => {});
   }
@@ -286,6 +396,7 @@
       const j = await r.json();
       if (!j.ok) { st.className = 'ba-status bad'; st.textContent = j.error || '入队失败'; return; }
       st.textContent = '已入队 ' + j.task_id + '，运行中…';
+      sawRun = true;          // 本页入队 → 完成后允许刷新一次（即使它快过第一次轮询）
       timer = setInterval(poll, 2000); poll();
     } catch (e) {
       st.className = 'ba-status bad'; st.textContent = '请求失败: ' + e;
@@ -297,7 +408,7 @@
 {% endif %}
 {% if author %}
 <script>window.AA_SEL = { work: '', base: '', enabled: {{ sel_enabled() | tojson }} };</script>
-<script src="/static/selection_translate.js?v=20261010a"></script>
+<script src="/static/selection_translate.js?v=20261016a"></script>
 {% endif %}
 {% else %}
 <h1>揭示板（本地）</h1>
@@ -324,15 +435,16 @@
 </details>
 
 {% if cols %}<table class="board-cols">
-  <thead><tr><th>作者 / 题材</th><th>貼数</th><th>范围</th><th>操作</th></tr></thead>
+  <thead><tr><th>作者 / 题材</th><th>貼数</th><th>范围</th><th>最后投稿</th><th>操作</th></tr></thead>
   <tbody>
   {% for c in cols %}
     <tr>
       <td class="strong"><a href="/board/{{ c.name | urlencode }}">{{ c.name }}</a></td>
       <td class="num">{{ c.slaves | length }}</td>
       <td class="small">
-        {% if c.slaves %}{{ c.slaves[0].label }}（{{ c.slaves[0].ts }}）~ {{ c.slaves[-1].label }}（{{ c.slaves[-1].ts }}）{% endif %}
+        {% if c.slaves %}{{ c.slaves[0].label }}（{{ c.slaves[0].ts }}）~ {% if c.slaves[-1].thread_url %}<a href="{{ c.slaves[-1].thread_url }}" target="_blank" rel="noopener" title="最新贴的原帖地址：{{ c.slaves[-1].thread_url }}">{{ c.slaves[-1].label }}（{{ c.slaves[-1].ts }}）</a>{% else %}{{ c.slaves[-1].label }}（{{ c.slaves[-1].ts }}）{% endif %}{% endif %}
       </td>
+      <td class="small" style="white-space:nowrap;">{{ board_ts_short(c.last_ts) or '—' }}</td>
       <td class="small" style="white-space:nowrap;">
         <button class="btn tiny ghost ba-row-upd" data-dir="{{ c.name }}" type="button"
                 title="增量更新该连载的全部揭示板贴（零 token）">↻ 更新</button>

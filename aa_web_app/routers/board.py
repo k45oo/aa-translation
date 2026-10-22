@@ -2,7 +2,6 @@
 """揭示板域：本地 dat 浏览、下载/更新任务。"""
 import json
 import os
-import re
 from fastapi import HTTPException, Request
 from pydantic import BaseModel
 from aa_web_app import logic
@@ -71,20 +70,24 @@ def board_index(request: Request):
 
 
 @router.get("/board/{author}")
-def board_reader(request: Request, author: str, file: str = "", page: int = 1):
+def board_reader(request: Request, author: str, file: str = "", page: int = 1, op: int = 0):
+    """揭示板阅读页。
+
+    `op=1` = **仅楼主**（2026-10-19 用户指定）：服务端**先过滤再分页**——每页 BOARD_PER_PAGE 个
+    楼主楼，页码按楼主楼序号算；楼号仍显示原始楼号（搜索锚点照旧，搜索结果链接带 `op=0`）。
+    去重（连续相同正文折叠）是显示层：`logic.board_mark_dedup` 只打标记，模板渲染折叠行 + 页面内 JS 展开。
+    """
     ctx = board_author_entry(author, file)
     parsed = ctx["parsed"]
-    total_res = len(parsed["res"])
-    total_pages = max(1, (total_res + BOARD_PER_PAGE - 1) // BOARD_PER_PAGE)
-    page = max(1, min(page, total_pages))
-    start = (page - 1) * BOARD_PER_PAGE
-    chunk = parsed["res"][start:start + BOARD_PER_PAGE]
+    trip = logic.board_author_trip(author)
+    view = logic.board_page_view(parsed["res"], trip, op, BOARD_PER_PAGE, page)
     return templates.TemplateResponse(request, "board.html", {
         "cols": logic.board_collections(), "totals": {}, "active": "board",
         "author": author, "slaves": ctx["slaves"],
         "cur": ctx["cur"], "cur_idx": ctx["cur_idx"],
-        "parsed": parsed, "res": chunk, "total_res": total_res,
-        "page": page, "total_pages": total_pages})
+        "parsed": parsed, "res": view["rows"], "total_res": view["total_res"],
+        "trip": trip, "op": 1 if view["op"] else 0, "op_total": view["op_total"],
+        "page": view["page"], "total_pages": view["total_pages"]})
 
 
 @router.get("/api/board/search")
@@ -133,18 +136,14 @@ def _board_index_meta(author):
             idx = json.load(f)
     except Exception:
         return {}
-    # board 字段两种写法：`yarufox.sakura.ne.jp/FOX` / `やる夫板のシェルター (yaruoshelter.com /yaruo001/)`
-    raw = str(idx.get("board") or idx.get("掲示板") or "")
-    m = re.search(r'([A-Za-z0-9.\-]+\.[A-Za-z]{2,})[^\w]*/([A-Za-z0-9_]+)', raw)
-    host, board = ("", "")
-    if m:
-        host, board = m.group(1), m.group(2)
+    # 板名/站点根：三种 schema 都认（统一口径在 logic.board_host_board）
+    host, board = logic.board_host_board(idx)
     slaves = idx.get("slaves") or idx.get("スレ一覧") or []
     eids = [str(s.get("eid") or "") for s in slaves if str(s.get("eid") or "").isdigit()]
     return {
         "dir": os.path.basename(d),
-        "board": idx.get("board_id") or board,
-        "host": idx.get("host") or (("http://" + host) if host else ""),
+        "board": board,
+        "host": host,
         "match": idx.get("match") or "",
         "author": idx.get("author") or "",
         "title": idx.get("work_title") or idx.get("作品") or "",

@@ -11008,7 +11008,10 @@
     "subprocess": [],
     "referenced_by": [],
     "webapp": [],
-    "docs": []
+    "docs": [
+     "AGENTS.md",
+     "doc/接口文档.md"
+    ]
    },
    "dup_of": null,
    "hardcoded_path": false,

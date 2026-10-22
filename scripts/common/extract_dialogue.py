@@ -37,7 +37,9 @@ except ImportError:  # 独立运行兜底：公式**必须与主实现同口径*
 
     def disp_width(s):
         return sum(1 if (ord(c) < 0x100 or 0xFF61 <= ord(c) <= 0xFF9F) else 2 for c in s)
-from aa_common import KANA_RE, txt_read, txt_existing, meta_load  # [ぁ-んァ-ヺー] + 压缩感知（.txt/.txt.gz）
+# .txt/.txt.gz 与 line_meta_v2 的 .json/.json.gz 一律走透明层（2026-10-17 全库压缩）
+from aa_common import (KANA_RE, txt_read, txt_existing, meta_load,   # [ぁ-んァ-ヺー] + 压缩感知
+                       meta_exists, meta_path, meta_dump, list_txt)
 FACE_KANA = set('ィヲァフテソヅメトイえごドぅぃヌタカリツムちン')  # 脸部/花纹散落艺术假名
 
 
@@ -55,12 +57,13 @@ _MAIN_FLAG = re.compile(r'[◆★]')  # 楼主标记
 
 
 def load_meta(meta_dir, base):
-    """读 v3 meta；缺失返回 None（调用方决定是否自动生成/中断）。"""
-    path = os.path.join(meta_dir, base + '.json')
-    if not os.path.exists(path):
-        return None
-    with open(path, encoding='utf-8') as f:
-        return json.load(f)
+    """读 v3 meta；缺失返回 None（调用方决定是否自动生成/中断）。
+
+    **必须走 meta_load**：line_meta_v2 全库已压成 <base>.json.gz（2026-10-17），
+    直接 open(<base>.json) 会把每章都判成「meta 缺失」→ 回退去补 raw HTML
+    → raw 早清理 → 整部作品台词全缺、候选池为空（2026-10-20 实测事故）。
+    """
+    return meta_load(meta_dir, base, None)
 
 
 def _has_real_dialogue(text):
@@ -216,10 +219,13 @@ def write_dialogue_file(out_path, entries, overwrite=False):
 # CLI（--work 驱动，meta 缺失自动生成、raw 缺失中断报错，符合「禁静默降级」硬约束）
 # ---------------------------------------------------------------------------
 def _ensure_meta(meta_dir, base, cfg):
-    """meta 缺失时自动生成（零 API）。raw 缺失/生成失败 → 抛异常中断（禁静默降级）。"""
-    path = os.path.join(meta_dir, base + '.json')
-    if os.path.exists(path):
-        return path
+    """meta 缺失时自动生成（零 API）。raw 缺失/生成失败 → 抛异常中断（禁静默降级）。
+
+    存在性判定走 meta_exists（.json / .json.gz 都算）——只看 .json 会把压缩后的
+    全库判成「meta 缺失」，进而去补早已清理的 raw HTML（2026-10-20 事故根因）。
+    """
+    if meta_exists(meta_dir, base):
+        return meta_path(meta_dir, base)
     import sys as _sys, os as _os
     # 注意: 本文件在 scripts/common/ 下, 兄弟模块 tools/(line_classify_v2) 在 scripts/tools/。
     # 旧实现 join(_this_dir, 'tools') 会得到 scripts/common/tools(不存在)→ 导入必失败;
@@ -261,8 +267,7 @@ def _ensure_meta(meta_dir, base, cfg):
         raise RuntimeError(f"[extract_dialogue] {base}: meta 生成失败（行数不齐/站点不支持），中断。")
     os.makedirs(meta_dir, exist_ok=True)
     out = _serialize(meta)
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(out, f, ensure_ascii=False)
+    path = meta_dump(meta_dir, base, out)   # 已是 .json.gz 形态就续写 .gz，别还原明文
     print(f"    [extract_dialogue] meta 自动生成 ({len(out)} 行): {os.path.basename(path)}", flush=True)
     return path
 
@@ -301,7 +306,7 @@ def _cli_main():
         except Exception as e:
             print(f'  {base}: {e}', flush=True)
             continue
-        meta = json.load(open(os.path.join(meta_dir, base + '.json'), encoding='utf-8'))
+        meta = meta_load(meta_dir, base, {}) or {}
         # 智能模式: 默认(非 --src)时, 若该章有 汉化/<base>_汉化.txt 则生成中文台词,
         # 否则降级为原文台词(--src 始终强制原文)。判断汉化文件是否存在, 不静默杜撰中文。
         hanhua_dir = cfg['out_dir']
@@ -338,11 +343,14 @@ def _cli_main():
 
 
 def _iter_bases(cfg):
-    """按 aa_dir 枚举原文章基础名（去掉 .txt）。"""
+    """按 aa_dir 枚举原文章基础名（去掉 .txt；`.txt.gz` 也算，走 list_txt 透明层）。
+
+    ⚠️ 禁 `os.listdir + endswith('.txt')`：全库 aa/*.txt 已压成 *.txt.gz（2026-10-17），
+    那样一章都枚举不到（本作品 310 章只看到 3 章明文）。
+    """
     aa_dir = cfg['aa_dir']
-    for fn in sorted(os.listdir(aa_dir)):
-        if fn.endswith('.txt') and not fn.endswith('_台词.txt'):
-            yield fn[:-4]
+    for fn in list_txt(aa_dir, exclude=('_台词.txt', '_汉化.txt')):
+        yield fn[:-4]
 
 
 # ---------------------------------------------------------------------------
